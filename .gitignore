@@ -1,0 +1,20 @@
+# derleme çıktıları
+target/
+dist/
+release/
+node_modules/
+
+# sır / yerel ayar — ASLA depoya girmez
+.env
+.env.*
+*.key
+*.pem
+*.pfx
+secrets.*
+config.local.*
+
+# işletim sistemi / editör
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
