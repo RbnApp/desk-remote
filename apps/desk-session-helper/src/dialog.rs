@@ -37,10 +37,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     AdjustWindowRectEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DrawIconEx, GetClientRect,
     GetCursorPos, GetWindowLongPtrW, KillTimer, LoadCursorW, SetCursor, SetForegroundWindow,
     SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow, CREATESTRUCTW, DI_NORMAL, GWLP_USERDATA,
-    HTCLIENT, IDC_ARROW, IDC_HAND, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_SHOW,
-    WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MOUSEMOVE, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_SETCURSOR, WM_TIMER, WS_CAPTION,
-    WS_SYSMENU,
+    HTCLIENT, IDC_ARROW, IDC_HAND, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SW_RESTORE, SW_SHOW, WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_ERASEBKGND, WM_KEYDOWN,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_SETCURSOR,
+    WM_TIMER, WS_CAPTION, WS_SYSMENU,
 };
 
 /// Logical (96 dpi) metrics shared by every dialog.
@@ -918,8 +918,13 @@ pub(crate) fn open(def: &'static Def) {
     let existing = def.hwnd.load(Ordering::SeqCst);
     if existing != 0 {
         refresh(def);
+        let hwnd = HWND(existing as *mut _);
         // SAFETY: the handle belongs to this thread's window; a stale one just fails.
-        let _ = unsafe { SetForegroundWindow(HWND(existing as *mut _)) };
+        // SW_RESTORE un-minimizes (SetForegroundWindow alone leaves an iconic window iconic).
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = SetForegroundWindow(hwnd);
+        }
         return;
     }
     let caption = wide(&(def.caption)());

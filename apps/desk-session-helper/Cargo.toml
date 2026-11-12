@@ -19,13 +19,11 @@ desk-ipc = { workspace = true }
 desk-logger = { workspace = true }
 desk-paths = { workspace = true }
 desk-protocol = { workspace = true }
+desk-service-core = { workspace = true }
 desk-theme = { workspace = true }
 desk-transfer = { workspace = true }
 desk-version = { workspace = true }
 tracing = { workspace = true }
-
-[build-dependencies]
-embed-resource = "3"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [

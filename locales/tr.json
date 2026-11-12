@@ -327,7 +327,8 @@
     "tailnet_off": "Tailscale: kapalı",
     "disconnect_all": "Tüm izleyicileri şimdi ayır",
     "view_only": "Uzaktan kontrolü engelle (yalnız izleme)",
-    "about": "Hakkında…"
+    "about": "Hakkında…",
+    "quit": "Kapat"
   },
   "about": {
     "title": "Desk-Remote hakkında",

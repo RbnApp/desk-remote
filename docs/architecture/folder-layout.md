@@ -18,8 +18,8 @@ Desk-Remote is organized as a Cargo workspace with two primary functional trees:
 Desk-Remote/
 ├── .github/                      # CI workflows, quality gate actions
 ├── apps/                         # Executable applications and daemons
-│   ├── desk-service/             # Windows Service (runs as SYSTEM in Session 0)
-│   ├── desk-session-helper/      # User session agent (runs in active desktop session)
+│   ├── desk-service/             # The agent executable DeskRemote-Ajan.exe: Windows Service (SYSTEM, Session 0), portable double-click mode, `helper` subcommand
+│   ├── desk-session-helper/      # Library: user session helper (tray, capture, input), started as `DeskRemote-Ajan.exe helper`
 │   ├── desk-panel/               # Desktop management GUI application
 │   └── desk-relay/               # Self-hosted signaling and WebRTC relay server
 ├── crates/                       # Common shared libraries & single-point systems
@@ -61,11 +61,11 @@ Desk-Remote/
 
 ### `apps/desk-service`
 - **Role**: Windows Service running under the `NT AUTHORITY\SYSTEM` account in Session 0.
-- **Responsibility**: Boots automatically at machine startup (even before any user logs in), monitors Windows session changes (`WTSRegisterSessionNotification`), spawns `desk-session-helper` into the active console session via `CreateProcessAsUserW`, and provides service watchdog management.
+- **Responsibility**: Boots automatically at machine startup (even before any user logs in), monitors Windows session changes (`WTSRegisterSessionNotification`), spawns the helper (`DeskRemote-Ajan.exe helper`, same file) into the active console session via `CreateProcessAsUserW`, and provides service watchdog management.
 - **Scope Restriction**: No GUI code, no direct desktop screen scraping (Session 0 has no interactive desktop in modern Windows).
 
 ### `apps/desk-session-helper`
-- **Role**: Lightweight helper executable launched inside the active interactive user desktop session.
+- **Role**: Library holding the lightweight helper that runs inside the active interactive user desktop session. It has no executable of its own: `apps/desk-service` starts it as the `helper` subcommand, so the agent ships as one file.
 - **Responsibility**: Executes screen capture, hardware video encoding, receives input injection events (mouse/keyboard), and communicates with `desk-service` via `desk-ipc`.
 - **Scope Restriction**: Minimal memory/CPU footprint to avoid interfering with running games or heavy background workloads.
 

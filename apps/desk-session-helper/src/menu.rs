@@ -1,9 +1,9 @@
 //! Tray context menu: agent info (click to copy), pairing code, viewers, "disconnect all
-//! viewers", "block remote control" and About.
+//! viewers", "block remote control" and About (plus "Quit" in the portable test mode only).
 //!
 //! The helper never queries the network: every address shown here comes from the
 //! [`AgentInfo`](desk_ipc::AgentInfo) snapshot the service pushes over IPC. There is
-//! deliberately no "Exit" or "Stop agent" entry.
+//! deliberately no "Exit" or "Stop agent" entry in the SYSTEM-service mode.
 
 use crate::state::UiState;
 use crate::ui::{shared, wide};
@@ -31,6 +31,7 @@ const ID_VIEWERS: usize = 5;
 const ID_DISCONNECT_ALL: usize = 6;
 const ID_VIEW_ONLY: usize = 7;
 const ID_ABOUT: usize = 8;
+const ID_QUIT: usize = 9;
 
 fn send(msg: &IpcMessage) {
     if let Some(conn) = shared().and_then(|s| s.conn()) {
@@ -183,6 +184,9 @@ pub fn show(hwnd: HWND) {
         );
         separator(menu);
         append(menu, ID_ABOUT, &t("tray.about"), true, false);
+        if crate::ui::is_portable() {
+            append(menu, ID_QUIT, &t("tray.quit"), true, false);
+        }
 
         let mut at = POINT::default();
         let _ = GetCursorPos(&mut at);
@@ -227,6 +231,10 @@ fn run(hwnd: HWND, picked: usize, info: Option<&AgentInfo>) {
             enabled: !info.is_some_and(|i| i.view_only),
         }),
         ID_ABOUT => crate::about::show(),
+        // Same path as the `stop` subcommand: the console-mode agent stops the helper too.
+        ID_QUIT if crate::ui::is_portable() => {
+            let _ = desk_service_core::request_console_stop();
+        }
         _ => {}
     }
 }

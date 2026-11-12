@@ -40,6 +40,9 @@ pub struct HostOptions {
     pub custom_identity: Option<DeviceIdentity>,
     /// Optional custom trust store.
     pub custom_trust: Option<TrustStore>,
+    /// Portable test mode (double-click run): the user started the agent themselves, so the
+    /// helper's tray menu offers "Quit". Never set for the SYSTEM service.
+    pub portable: bool,
 }
 
 impl HostOptions {
@@ -57,6 +60,7 @@ impl HostOptions {
             consent_gate: false,
             custom_identity: None,
             custom_trust: None,
+            portable: false,
         }
     }
 
@@ -74,6 +78,7 @@ impl HostOptions {
             consent_gate: true,
             custom_identity: None,
             custom_trust: None,
+            portable: false,
         }
     }
 }
@@ -164,11 +169,14 @@ impl ServiceHost {
 
         let sup_cfg = SupervisorConfig {
             mode: opts.mode,
-            helper_exe: DeskPaths::sibling_exe("desk-session-helper.exe")?,
-            helper_args: opts
-                .data_dir
-                .iter()
-                .flat_map(|d| ["--data-dir".to_string(), d.display().to_string()])
+            helper_exe: DeskPaths::current_exe()?,
+            helper_args: std::iter::once(desk_paths::HELPER_SUBCOMMAND.to_string())
+                .chain(
+                    opts.data_dir
+                        .iter()
+                        .flat_map(|d| ["--data-dir".to_string(), d.display().to_string()]),
+                )
+                .chain(opts.portable.then(|| "--portable".to_string()))
                 .collect(),
         };
         let (h, s) = (Arc::clone(&hub), Arc::clone(&stop));
@@ -231,6 +239,24 @@ unsafe extern "system" fn console_ctrl(_kind: u32) -> windows::core::BOOL {
 /// Name of the per-session stop event used by console (test) mode. The binary has no console
 /// window, so `desk-service stop` signals this event instead of Ctrl+C.
 const STOP_EVENT: windows::core::PCWSTR = windows::core::w!(r"Local\DeskRemote-ConsoleStop");
+
+/// Whether a `run --console` agent of this user session is already running (single-instance
+/// check for the portable double-click mode).
+#[must_use]
+pub fn console_agent_running() -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{OpenEventW, SYNCHRONIZATION_SYNCHRONIZE};
+    // SAFETY: plain Win32 calls on a handle owned by this function.
+    unsafe {
+        match OpenEventW(SYNCHRONIZATION_SYNCHRONIZE, false, STOP_EVENT) {
+            Ok(event) => {
+                let _ = CloseHandle(event);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+}
 
 /// Asks a running `run --console` instance of the same user session to stop. Returns `false`
 /// when none is running.

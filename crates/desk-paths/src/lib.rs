@@ -9,6 +9,9 @@ pub const DEFAULT_PORT: u16 = 47800;
 const DEFAULT_SYSTEM_BASE: &str = r"C:\ProgramData";
 /// Resource id of the application icon embedded in the service and helper executables.
 pub const APP_ICON_RESOURCE_ID: u16 = 1;
+
+/// Subcommand that turns the agent executable into the per-session helper process.
+pub const HELPER_SUBCOMMAND: &str = "helper";
 const DEFAULT_WINDOWS_DIR: &str = r"C:\Windows";
 const DEFAULT_USER_BASE: &str = r"C:\Users\Default\AppData\Roaming";
 const DEFAULT_PROFILES_DIR: &str = r"C:\Users";
@@ -185,6 +188,12 @@ impl DeskPaths {
                 e
             ))
         })
+    }
+
+    /// Path of the running executable (the agent is one binary: service and `helper` subcommand).
+    pub fn current_exe() -> DeskResult<PathBuf> {
+        std::env::current_exe()
+            .map_err(|e| DeskError::Paths(format!("cannot resolve current executable: {e}")))
     }
 
     /// Path of an executable that ships next to the running binary (for example the

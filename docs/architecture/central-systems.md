@@ -129,7 +129,7 @@ File transfer (row 13) is one rule set for every receiver: the panel's own host 
     - `IpcServer::bind(pipe_name)`
     - `IpcClient::connect(pipe_name)`
   - Enforces strict Windows security descriptors ensuring only `SYSTEM` and authenticated local administrators can access service control pipes.
-  - Coordinates IPC messages between `desk-service` (Session 0) and `desk-session-helper` (User session).
+  - Coordinates IPC messages between the service (Session 0) and the session helper (User session).
 - **Strictly Forbidden Outside Owner**:
   - Using localhost TCP sockets for IPC (vulnerable to local port hijacking by unprivileged user software).
   - Unsynchronized shared memory or arbitrary file polling.
@@ -162,7 +162,7 @@ File transfer (row 13) is one rule set for every receiver: the panel's own host 
 - **Public API Principle**:
   - Implements the Windows Service control dispatcher, handling `SERVICE_CONTROL_STOP`, `SHUTDOWN`, and `SESSIONCHANGE`.
   - Monitors active user login/logout events via `WTSRegisterSessionNotification`.
-  - Launches `desk-session-helper.exe` into the active console session token using `CreateProcessAsUserW` with appropriate desktop and window station attributes (`Winsta0\Default`).
+  - Launches the helper (the agent's own executable, `DeskRemote-Ajan.exe helper`) into the active console session token using `CreateProcessAsUserW` with appropriate desktop and window station attributes (`Winsta0\Default`).
   - Monitors helper process liveness and restarts it if it crashes or the user session transitions.
 - **Strictly Forbidden Outside Owner**:
   - Invoking `std::process::Command::new("taskkill")` or raw shell commands to kill processes.

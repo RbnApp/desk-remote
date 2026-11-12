@@ -43,6 +43,7 @@ pub fn run_dispatcher(paths: DeskPaths) -> DeskResult<()> {
         consent_gate: false,
         custom_identity: None,
         custom_trust: None,
+        portable: false,
     });
     service_dispatcher::start(SERVICE_NAME, ffi_service_main).map_err(|e| svc_err("dispatcher", e))
 }

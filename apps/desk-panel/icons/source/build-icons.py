@@ -7,7 +7,7 @@ import os, struct, subprocess, tempfile, shutil
 
 ROOT = os.getcwd()
 PANEL = os.path.join(ROOT, "apps/desk-panel/icons")
-AGENT = os.path.join(ROOT, "apps/desk-session-helper/icons")
+AGENT = os.path.join(ROOT, "apps/desk-service/icons")
 CHROME = next(p for p in (r"C:\Program Files\Google\Chrome\Application\chrome.exe",
                           r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe") if os.path.exists(p))
 

@@ -1,14 +1,14 @@
 //! Embeds the Desk-Remote icon (DAPP-76 set) as resource 1 of the executable.
 //!
-//! Shared by `desk-session-helper` and `desk-service` (`build = ...` in the service's
-//! `Cargo.toml`), so both executables carry the same icon from one source file.
+//! The agent is one executable (service + `helper` subcommand), so one build script and one
+//! icon source serve the whole agent.
 
 use std::path::PathBuf;
 
 fn main() {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
     let out = std::env::var("OUT_DIR").unwrap_or_default();
-    let icon = PathBuf::from(&manifest).join("../desk-session-helper/icons/icon.ico");
+    let icon = PathBuf::from(&manifest).join("icons/icon.ico");
     println!("cargo:rerun-if-changed={}", icon.display());
     println!("cargo:rerun-if-changed=build.rs");
     let rc = PathBuf::from(out).join("desk-icon.rc");

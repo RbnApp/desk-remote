@@ -1,7 +1,8 @@
 //! Tray icon, theme/locale loading and the Win32 message loop (plain Win32).
 //!
-//! There is deliberately no "Exit" entry: the agent is not user-closable, and a watched PC
-//! always shows its tray indicator. The windows themselves live in `dialog`.
+//! There is deliberately no "Exit" entry in the SYSTEM-service mode: the agent is not
+//! user-closable, and a watched PC always shows its tray indicator. Only the portable test mode
+//! (started by the user themselves) offers "Quit". The windows themselves live in `dialog`.
 
 use crate::state::{Notice, Shared, WM_STATE_CHANGED};
 use desk_config::{ConfigManager, PanelConfig};
@@ -19,20 +20,49 @@ use windows::Win32::UI::Shell::{
     NIM_MODIFY, NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
-    GetSystemMetrics, LoadIconW, LoadImageW, PostMessageW, PostQuitMessage, RegisterClassExW,
-    RegisterWindowMessageW, TranslateMessage, HICON, IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTCOLOR,
-    MSG, SM_CXICON, SM_CXSMICON, WM_APP, WM_DESTROY, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP,
-    WNDCLASSEXW, WNDPROC, WS_EX_TOOLWINDOW, WS_OVERLAPPED,
+    AllowSetForegroundWindow, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
+    FindWindowW, GetMessageW, GetSystemMetrics, GetWindowThreadProcessId, LoadIconW, LoadImageW,
+    PostMessageW, PostQuitMessage, RegisterClassExW, RegisterWindowMessageW, TranslateMessage,
+    HICON, IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTCOLOR, MSG, SM_CXICON, SM_CXSMICON, WM_APP,
+    WM_DESTROY, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP, WNDCLASSEXW, WNDPROC, WS_EX_TOOLWINDOW,
+    WS_OVERLAPPED,
 };
 
 const WM_TRAY: u32 = WM_APP + 2;
 const WM_QUIT_UI: u32 = WM_APP + 3;
+const WM_SHOW_CODE: u32 = WM_APP + 4;
+const TRAY_CLASS: PCWSTR = w!("DeskRemoteTrayWindow");
 const TRAY_ID: u32 = 1;
 
 static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
 static THEME: OnceLock<Mutex<ResolvedTheme>> = OnceLock::new();
 static WAS_VIEWED: AtomicBool = AtomicBool::new(false);
+static PORTABLE: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_portable(portable: bool) {
+    PORTABLE.store(portable, Ordering::SeqCst);
+}
+
+/// Whether the tray menu may offer "Quit" (portable test mode only).
+pub(crate) fn is_portable() -> bool {
+    PORTABLE.load(Ordering::SeqCst)
+}
+
+/// Posts "open the pairing-code window" to the running helper's tray window. The caller is the
+/// freshly double-clicked process, which owns the foreground right, so it hands that right to
+/// the helper; otherwise Windows would leave the window behind the others.
+pub(crate) fn request_show_code() -> bool {
+    // SAFETY: lookup by class name and plain message/permission calls; no pointers are retained.
+    unsafe {
+        let Ok(hwnd) = FindWindowW(TRAY_CLASS, PCWSTR::null()) else {
+            return false;
+        };
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        let _ = AllowSetForegroundWindow(pid);
+        PostMessageW(Some(hwnd), WM_SHOW_CODE, WPARAM(0), LPARAM(0)).is_ok()
+    }
+}
 
 pub(crate) fn shared() -> Option<&'static Arc<Shared>> {
     SHARED.get()
@@ -264,6 +294,10 @@ unsafe extern "system" fn tray_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
             crate::viewers::refresh();
             LRESULT(0)
         }
+        WM_SHOW_CODE => {
+            crate::code::show();
+            LRESULT(0)
+        }
         WM_QUIT_UI => {
             // SAFETY: destroying our own window from its thread.
             let _ = unsafe { DestroyWindow(hwnd) };
@@ -338,11 +372,10 @@ fn create_windows(shared: &Arc<Shared>) -> windows::core::Result<()> {
         let module = GetModuleHandleW(None)?;
         let instance = module.into();
 
-        let tray_class = w!("DeskRemoteTrayWindow");
-        register_app_window_class(tray_class, Some(tray_proc));
+        register_app_window_class(TRAY_CLASS, Some(tray_proc));
         let tray = CreateWindowExW(
             WS_EX_TOOLWINDOW,
-            tray_class,
+            TRAY_CLASS,
             w!("Desk-Remote"),
             WS_OVERLAPPED,
             0,

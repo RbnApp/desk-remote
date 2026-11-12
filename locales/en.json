@@ -327,7 +327,8 @@
     "tailnet_off": "Tailscale: off",
     "disconnect_all": "Disconnect all viewers now",
     "view_only": "Block remote control (watch only)",
-    "about": "About…"
+    "about": "About…",
+    "quit": "Quit"
   },
   "about": {
     "title": "About Desk-Remote",
