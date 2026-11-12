@@ -29,6 +29,19 @@ pub enum PeerTarget {
 }
 
 impl PeerTarget {
+    /// Loopback target on `port` (same-machine viewer, tests, tsnet bridge).
+    #[must_use]
+    pub fn loopback(port: u16) -> Self {
+        Self::Lan(SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, port)))
+    }
+
+    /// Parses `ip:port` text into a LAN target.
+    pub fn lan_from_str(text: &str) -> DeskResult<Self> {
+        text.parse::<SocketAddr>()
+            .map(Self::Lan)
+            .map_err(|e| DeskError::Transport(format!("invalid peer address '{text}': {e}")))
+    }
+
     /// Resolves the socket address to connect to.
     #[must_use]
     pub fn socket_addr(&self) -> SocketAddr {

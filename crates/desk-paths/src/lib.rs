@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 const APP_NAME: &str = "DeskRemote";
 const DEFAULT_SYSTEM_BASE: &str = r"C:\ProgramData";
+/// Tray icon location relative to the helper executable.
+pub const TRAY_ICON_RELATIVE: &str = r"icons\tray\desk-remote.ico";
 const DEFAULT_USER_BASE: &str = r"C:\Users\Default\AppData\Roaming";
 
 /// Canonical path layout resolver.
@@ -101,6 +103,23 @@ impl DeskPaths {
                 e
             ))
         })
+    }
+
+    /// Path of an executable that ships next to the running binary (for example the
+    /// session helper next to the service).
+    pub fn sibling_exe(file_name: &str) -> DeskResult<PathBuf> {
+        let exe = std::env::current_exe()
+            .map_err(|e| DeskError::Paths(format!("cannot resolve current executable: {e}")))?;
+        let dir = exe
+            .parent()
+            .ok_or_else(|| DeskError::Paths("current executable has no parent".to_string()))?;
+        Ok(dir.join(file_name))
+    }
+
+    /// Tray icon shipped next to the helper (`<exe dir>/icons/tray/desk-remote.ico`, DAPP-73).
+    /// The file may be absent; callers fall back to a system icon.
+    pub fn tray_icon_path() -> DeskResult<PathBuf> {
+        Self::sibling_exe(TRAY_ICON_RELATIVE)
     }
 
     /// Windows Named Pipe name for the central service.

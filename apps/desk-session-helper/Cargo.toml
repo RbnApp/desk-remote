@@ -9,7 +9,30 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+desk-capture = { workspace = true }
+desk-codec = { workspace = true }
+desk-config = { workspace = true }
 desk-error = { workspace = true }
-desk-logger = { workspace = true }
+desk-i18n = { workspace = true }
+desk-input = { workspace = true }
 desk-ipc = { workspace = true }
+desk-logger = { workspace = true }
+desk-paths = { workspace = true }
+desk-protocol = { workspace = true }
+desk-theme = { workspace = true }
 tracing = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }

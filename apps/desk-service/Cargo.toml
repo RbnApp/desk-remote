@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 desk-error = { workspace = true }
+desk-paths = { workspace = true }
 desk-logger = { workspace = true }
 desk-service-core = { workspace = true }
 tracing = { workspace = true }

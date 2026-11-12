@@ -10,3 +10,27 @@ workspace = true
 
 [dependencies]
 desk-error = { workspace = true }
+desk-paths = { workspace = true }
+desk-config = { workspace = true }
+desk-crypto = { workspace = true }
+desk-ipc = { workspace = true }
+desk-protocol = { workspace = true }
+desk-transport = { workspace = true }
+desk-version = { workspace = true }
+tracing = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.8"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Console",
+    "Win32_System_Environment",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+desk-logger = { workspace = true }
+tempfile = { workspace = true }

@@ -68,11 +68,21 @@ impl PanelConfig {
 
 /// System service background daemon configuration schema.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct ServiceConfig {
     pub control_port: u16,
     pub relay_url: Option<String>,
     pub log_level: String,
     pub allow_unattended: bool,
+    /// Announce this PC on the local network (mDNS).
+    pub lan_announce: bool,
+    /// Start the embedded tailnet helper when no Tailscale client is installed.
+    pub tailnet_helper: bool,
+    /// Capture frame rate while a viewer is connected.
+    pub capture_fps: u32,
+    /// Largest streamed frame (the capture is downscaled to fit).
+    pub capture_max_width: u32,
+    pub capture_max_height: u32,
 }
 
 impl Default for ServiceConfig {
@@ -82,6 +92,11 @@ impl Default for ServiceConfig {
             relay_url: None,
             log_level: "info".to_string(),
             allow_unattended: true,
+            lan_announce: true,
+            tailnet_helper: true,
+            capture_fps: 30,
+            capture_max_width: 1920,
+            capture_max_height: 1080,
         }
     }
 }

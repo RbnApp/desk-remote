@@ -1,0 +1,158 @@
+//! Start/stop facade for the whole agent (independent of the Service Control Manager,
+//! so `run --console` exercises exactly the code the service runs).
+
+use crate::engine::accept_loop;
+use crate::hub::Hub;
+use crate::launch::LaunchMode;
+use crate::supervisor::{self, SupervisorConfig};
+use crate::tailnet::TailnetGuard;
+use crate::tracker::SessionEvent;
+use desk_config::{ConfigManager, ServiceConfig};
+use desk_crypto::{DeviceIdentity, PairingManager, TrustStore};
+use desk_error::{DeskError, DeskResult};
+use desk_paths::DeskPaths;
+use desk_transport::{LanAnnouncer, Listener};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{channel, Sender};
+use std::sync::Arc;
+use std::thread::JoinHandle;
+
+/// Options chosen by the binary.
+pub struct HostOptions {
+    pub paths: DeskPaths,
+    pub mode: LaunchMode,
+    /// Overrides `ServiceConfig::control_port` (0 picks a free port).
+    pub port: Option<u16>,
+    /// Non-canonical data root passed on to the helper (tests); `None` uses ProgramData.
+    pub data_dir: Option<std::path::PathBuf>,
+}
+
+/// A running agent.
+pub struct ServiceHost {
+    stop: Arc<AtomicBool>,
+    listener: Arc<Listener>,
+    hub: Arc<Hub>,
+    events: Sender<SessionEvent>,
+    threads: Vec<JoinHandle<()>>,
+    _announcer: Option<LanAnnouncer>,
+    _tailnet: Option<TailnetGuard>,
+}
+
+impl ServiceHost {
+    /// Loads identity and trust, binds the viewer port and starts the worker threads.
+    pub fn start(opts: HostOptions) -> DeskResult<Self> {
+        let paths = opts.paths;
+        DeskPaths::ensure_dir(paths.system_dir())?;
+        let svc: ServiceConfig = ConfigManager::load_or_default(&paths.service_config_path())?;
+        let identity = DeviceIdentity::load_or_create(&paths.identity_key_path())?;
+        let trust = TrustStore::open(&paths.trusted_peers_path())?;
+        let hub = Arc::new(Hub::new(identity, PairingManager::with_trust(trust)));
+
+        let listener = Arc::new(Listener::bind_any(opts.port.unwrap_or(svc.control_port))?);
+        let port = listener.local_port()?;
+        tracing::info!(port, device = %hub.identity().device_id(), "desk service listening");
+
+        let announcer = if svc.lan_announce {
+            match LanAnnouncer::start_auto(&hub.identity().device_id(), port, desk_version::CURRENT)
+            {
+                Ok(a) => Some(a),
+                Err(e) => {
+                    tracing::warn!(error = %e, "LAN announcement unavailable");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let tailnet = if svc.tailnet_helper {
+            TailnetGuard::start(&paths, port)
+        } else {
+            None
+        };
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let (events, event_rx) = channel();
+        let mut threads = Vec::new();
+
+        let (l, h, s) = (Arc::clone(&listener), Arc::clone(&hub), Arc::clone(&stop));
+        threads.push(spawn("desk-accept", move || accept_loop(&l, &h, &s))?);
+
+        let sup_cfg = SupervisorConfig {
+            mode: opts.mode,
+            helper_exe: DeskPaths::sibling_exe("desk-session-helper.exe")?,
+            helper_args: opts
+                .data_dir
+                .iter()
+                .flat_map(|d| ["--data-dir".to_string(), d.display().to_string()])
+                .collect(),
+        };
+        let (h, s) = (Arc::clone(&hub), Arc::clone(&stop));
+        threads.push(spawn("desk-supervisor", move || {
+            supervisor::run(&sup_cfg, &h, &event_rx, &s);
+        })?);
+
+        Ok(Self {
+            stop,
+            listener,
+            hub,
+            events,
+            threads,
+            _announcer: announcer,
+            _tailnet: tailnet,
+        })
+    }
+
+    /// Port viewers connect to.
+    pub fn port(&self) -> DeskResult<u16> {
+        self.listener.local_port()
+    }
+
+    /// Forwards an OS session notification to the supervisor.
+    pub fn session_event(&self, event: SessionEvent) {
+        let _ = self.events.send(event);
+    }
+
+    /// Shared state (tests, diagnostics).
+    #[must_use]
+    pub fn hub(&self) -> &Arc<Hub> {
+        &self.hub
+    }
+
+    /// Stops all threads and the helper.
+    pub fn stop(mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        self.listener.wake();
+        for t in self.threads.drain(..) {
+            let _ = t.join();
+        }
+        tracing::info!("desk service stopped");
+    }
+}
+
+fn spawn(name: &str, f: impl FnOnce() + Send + 'static) -> DeskResult<JoinHandle<()>> {
+    std::thread::Builder::new()
+        .name(name.to_string())
+        .spawn(f)
+        .map_err(|e| DeskError::Service(format!("cannot start thread {name}: {e}")))
+}
+
+static CONSOLE_STOP: AtomicBool = AtomicBool::new(false);
+
+unsafe extern "system" fn console_ctrl(_kind: u32) -> windows::core::BOOL {
+    CONSOLE_STOP.store(true, Ordering::SeqCst);
+    windows::core::BOOL(1)
+}
+
+/// Blocks until Ctrl+C / console close, or until `max` elapsed (console mode only).
+pub fn wait_for_console_stop(max: Option<std::time::Duration>) {
+    // SAFETY: the handler only touches an atomic flag.
+    let _ =
+        unsafe { windows::Win32::System::Console::SetConsoleCtrlHandler(Some(console_ctrl), true) };
+    let started = std::time::Instant::now();
+    while !CONSOLE_STOP.load(Ordering::SeqCst) {
+        if max.is_some_and(|m| started.elapsed() >= m) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
