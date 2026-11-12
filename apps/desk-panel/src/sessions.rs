@@ -3,7 +3,7 @@
 use crate::backend::{InputEvent, ViewerSession};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// One row of `viewer_sessions` (used to restore the tab bar).
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -16,7 +16,9 @@ pub struct SessionInfo {
 }
 
 struct Entry {
-    session: Box<dyn ViewerSession>,
+    /// Shared so a send can run after the registry lock is released (a stalled socket must
+    /// never block the other commands).
+    session: Arc<dyn ViewerSession>,
     active: bool,
 }
 
@@ -36,7 +38,7 @@ impl Sessions {
         let old = lock(&self.map).insert(
             pc_id.to_string(),
             Entry {
-                session,
+                session: Arc::from(session),
                 active: true,
             },
         );
@@ -55,15 +57,23 @@ impl Sessions {
 
     /// Forwards input to the session of `pc_id` only; ignored while it is paused.
     pub fn input(&self, pc_id: &str, event: &InputEvent) {
-        if let Some(entry) = lock(&self.map).get(pc_id).filter(|e| e.active) {
-            entry.session.send_input(event);
+        if let Some(session) = self.active_session(pc_id) {
+            session.send_input(event);
         }
     }
 
     pub fn request_keyframe(&self, pc_id: &str) {
-        if let Some(entry) = lock(&self.map).get(pc_id).filter(|e| e.active) {
-            entry.session.request_keyframe();
+        if let Some(session) = self.active_session(pc_id) {
+            session.request_keyframe();
         }
+    }
+
+    /// The session of `pc_id` while it streams; the registry lock is released on return.
+    fn active_session(&self, pc_id: &str) -> Option<Arc<dyn ViewerSession>> {
+        lock(&self.map)
+            .get(pc_id)
+            .filter(|e| e.active)
+            .map(|e| Arc::clone(&e.session))
     }
 
     /// Pauses or resumes the video of `pc_id`; `false` when there is no such session.

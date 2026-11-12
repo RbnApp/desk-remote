@@ -106,7 +106,12 @@ pub struct InputTranslator {
     buttons: u8,
     x: u16,
     y: u16,
+    /// Scroll pixels not yet turned into a whole notch (carried between events).
+    wheel_px: i32,
 }
+
+/// Web scroll pixels that make up one wheel notch.
+const PIXELS_PER_NOTCH: i32 = 100;
 
 impl InputTranslator {
     /// Converts one UI event; `None` for keys without a known scancode.
@@ -133,9 +138,10 @@ impl InputTranslator {
             }
             // Web deltas are positive when scrolling down; the wire counts notches, positive = up.
             InputEvent::Wheel { dy, .. } => {
-                let notches = (-dy / 100).clamp(-127, 127);
-                let notches = if notches == 0 { -dy.signum() } else { notches };
-                self.mouse(i8::try_from(notches).unwrap_or(0))
+                self.wheel_px = self.wheel_px.saturating_add(*dy);
+                let notches = (self.wheel_px / PIXELS_PER_NOTCH).clamp(-127, 127);
+                self.wheel_px -= notches * PIXELS_PER_NOTCH;
+                self.mouse(i8::try_from(-notches).unwrap_or(0))
             }
             InputEvent::Key { code, pressed } => InputPayload::Key {
                 scancode: scancode(code)?,
@@ -205,5 +211,26 @@ mod tests {
             t.translate(&InputEvent::Wheel { dy: 100 }),
             Some(InputPayload::Mouse { wheel: -1, .. })
         ));
+    }
+
+    fn wheel_of(t: &mut InputTranslator, dy: i32) -> i8 {
+        match t.translate(&InputEvent::Wheel { dy }) {
+            Some(InputPayload::Mouse { wheel, .. }) => wheel,
+            other => panic!("not a mouse payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn wheel_pixels_accumulate_into_whole_notches() {
+        let mut t = InputTranslator::default();
+        // 30 + 30 + 40 px is exactly one notch, delivered on the last event.
+        assert_eq!(wheel_of(&mut t, 30), 0);
+        assert_eq!(wheel_of(&mut t, 30), 0);
+        assert_eq!(wheel_of(&mut t, 40), -1);
+        // The remainder is kept: 150 px = one notch now, one more after another 50 px.
+        assert_eq!(wheel_of(&mut t, 150), -1);
+        assert_eq!(wheel_of(&mut t, 50), -1);
+        // Upwards works the same way, and a big flick sends several notches at once.
+        assert_eq!(wheel_of(&mut t, -250), 2);
     }
 }

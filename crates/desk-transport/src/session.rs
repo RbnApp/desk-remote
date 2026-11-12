@@ -218,13 +218,15 @@ impl Session {
             self.plain_buf.drain(..used);
             return Ok(Some(msg));
         }
+        // Put back whatever idle timeout the owner configured (not a fixed default).
+        let previous = self.stream.read_timeout().map_err(DeskError::Io)?;
         self.stream
             .set_read_timeout(Some(wait.max(Duration::from_millis(1))))
             .map_err(DeskError::Io)?;
         let mut probe = [0u8; 1];
         let probed = self.stream.peek(&mut probe);
         self.stream
-            .set_read_timeout(Some(DEFAULT_READ_TIMEOUT))
+            .set_read_timeout(previous)
             .map_err(DeskError::Io)?;
         match probed {
             Ok(0) => Err(DeskError::Transport("Peer disconnected".to_string())),

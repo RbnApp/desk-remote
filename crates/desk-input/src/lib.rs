@@ -20,6 +20,6 @@ mod injector;
 mod mapping;
 mod sendinput;
 
-pub use injector::{InputBackend, InputInjector, RawInput};
+pub use injector::{wheel_units, InputBackend, InputInjector, RawInput, WHEEL_DELTA};
 pub use mapping::{button_changes, map_to_virtual_desktop, split_scancode, MouseButton};
 pub use sendinput::{system_injector, SendInputBackend, SystemInjector};

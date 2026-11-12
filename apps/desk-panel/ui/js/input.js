@@ -66,7 +66,9 @@ export function attachInput(canvas, send, isActive) {
     (e) => {
       if (!isActive()) return;
       e.preventDefault();
-      send({ kind: "wheel", dx: Math.round(e.deltaX), dy: Math.round(e.deltaY) });
+      // The backend counts pixels (100 px = one notch); line/page modes are converted first.
+      const unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1;
+      send({ kind: "wheel", dx: Math.round(e.deltaX * unit), dy: Math.round(e.deltaY * unit) });
     },
     { passive: false },
   );

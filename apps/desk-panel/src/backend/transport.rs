@@ -224,6 +224,29 @@ impl Inner {
         out
     }
 
+    /// Client handshake against a snapshot of the trust store: the shared lock is held only to
+    /// copy it and, after a successful pairing, to record the new host key — never while the
+    /// network is being read (DAPP-105 C3). `None` when the trust store is unavailable.
+    fn handshake(
+        &self,
+        session: &mut Session,
+        identity: &DeviceIdentity,
+        code: Option<&str>,
+    ) -> Option<DeskResult<()>> {
+        let mut snapshot = lock(&self.trust).as_ref()?.detached_copy();
+        let result = session.authenticate_as_client(identity, &mut snapshot, code);
+        if result.is_ok() && code.is_some() {
+            if let (Some(key), Some(shared)) =
+                (session.peer_public_key(), lock(&self.trust).as_mut())
+            {
+                if let Err(e) = shared.add(&key) {
+                    return Some(Err(e));
+                }
+            }
+        }
+        Some(result)
+    }
+
     /// Connects to a paired PC without a code; the host key must already be pinned.
     fn open(&self, pc: &PairedPc, connect_within: Duration) -> Result<Session, PairError> {
         let identity = self.identity.as_ref().ok_or(PairError::Network)?;
@@ -235,9 +258,10 @@ impl Inner {
             let Ok(mut session) = crate::tailnet::dial(&target, connect_within) else {
                 continue;
             };
-            let mut guard = lock(&self.trust);
-            let trust = guard.as_mut().ok_or(PairError::Unpaired)?;
-            match session.authenticate_as_client(identity, trust, None) {
+            let Some(handshake) = self.handshake(&mut session, identity, None) else {
+                return Err(PairError::Unpaired);
+            };
+            match handshake {
                 Ok(()) if session.peer_device_id().as_deref() == Some(pc.id.as_str()) => {
                     return Ok(session);
                 }
@@ -259,6 +283,23 @@ fn friendly_name(host: &str) -> String {
         .replace('_', "-")
 }
 
+/// I/O failures that mean "cannot reach the PC" rather than "the PC dropped our handshake".
+fn is_unreachable(kind: ErrorKind) -> bool {
+    matches!(
+        kind,
+        ErrorKind::TimedOut
+            | ErrorKind::WouldBlock
+            | ErrorKind::ConnectionRefused
+            | ErrorKind::ConnectionReset
+            | ErrorKind::ConnectionAborted
+            | ErrorKind::NotConnected
+            | ErrorKind::HostUnreachable
+            | ErrorKind::NetworkUnreachable
+            | ErrorKind::NetworkDown
+            | ErrorKind::AddrNotAvailable
+    )
+}
+
 /// Maps a transport failure to the code shown in the UI.
 fn classify(error: &DeskError, pairing: bool) -> PairError {
     let text = error.to_string();
@@ -268,12 +309,10 @@ fn classify(error: &DeskError, pairing: bool) -> PairError {
             PairError::Invalid
         }
         DeskError::Crypto(_) => PairError::Unpaired,
-        // The TCP link came up and then died inside the handshake: the host dropped us.
-        DeskError::Io(e)
-            if !pairing && !matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) =>
-        {
-            PairError::Unpaired
-        }
+        // The host is off, refusing or unreachable: that is reachability, not a pairing problem.
+        // Only the other failures of a link that came up and then died inside the handshake
+        // (the host dropped us because it does not trust this panel) read as "not paired".
+        DeskError::Io(e) if !pairing && !is_unreachable(e.kind()) => PairError::Unpaired,
         _ => PairError::Network,
     }
 }
@@ -342,16 +381,13 @@ impl Backend for TransportBackend {
             tracing::debug!(error = %e, "pairing connect failed");
             PairError::Network
         })?;
-        {
-            let mut guard = lock(&self.inner.trust);
-            let trust = guard.as_mut().ok_or(PairError::Network)?;
-            session
-                .authenticate_as_client(identity, trust, Some(code))
-                .map_err(|e| {
-                    tracing::info!(error = %e, "pairing failed");
-                    classify(&e, true)
-                })?;
-        }
+        self.inner
+            .handshake(&mut session, identity, Some(code))
+            .ok_or(PairError::Network)?
+            .map_err(|e| {
+                tracing::info!(error = %e, "pairing failed");
+                classify(&e, true)
+            })?;
         let id = session.peer_device_id().ok_or(PairError::Network)?;
         let address = peer.socket_addr().to_string();
         let known = lock(&self.inner.state)
@@ -404,7 +440,7 @@ impl Backend for TransportBackend {
             st.next_token += 1;
             let token = st.next_token;
             st.watching.insert(pc.id.clone(), token);
-            st.next_token
+            token
         };
         let live = Arc::new(Live {
             writer: Mutex::new(writer),
@@ -714,5 +750,67 @@ mod tests {
             &sink,
         );
         assert_eq!(lock(&seen).as_slice(), ["avc1.42C01F"]);
+    }
+
+    #[test]
+    fn unreachable_hosts_are_offline_not_unpaired() {
+        for kind in [
+            ErrorKind::ConnectionRefused,
+            ErrorKind::ConnectionReset,
+            ErrorKind::HostUnreachable,
+            ErrorKind::TimedOut,
+        ] {
+            let err = DeskError::Io(std::io::Error::from(kind));
+            assert_eq!(classify(&err, false), PairError::Network, "{kind:?}");
+        }
+    }
+
+    fn inner_with_trust() -> DeskResult<Inner> {
+        let (tx, _rx) = mpsc::channel();
+        Ok(Inner {
+            identity: Some(DeviceIdentity::generate()?),
+            trust: Mutex::new(Some(TrustStore::in_memory())),
+            state: Mutex::new(State::default()),
+            nudge: Mutex::new(tx),
+        })
+    }
+
+    #[test]
+    fn the_trust_lock_is_free_while_a_handshake_is_stalled() -> DeskResult<()> {
+        let listener = desk_transport::Listener::bind_loopback(0)?;
+        let addr = listener.local_addr()?;
+        let inner = Arc::new(inner_with_trust()?);
+        let started = Arc::new(AtomicBool::new(false));
+        let worker = {
+            let (inner, started) = (Arc::clone(&inner), Arc::clone(&started));
+            std::thread::spawn(move || -> DeskResult<bool> {
+                let mut session = desk_transport::connect(PeerTarget::Lan(addr))?;
+                started.store(true, Ordering::SeqCst);
+                let identity = DeviceIdentity::generate()?;
+                // The peer never answers, so this blocks inside the handshake.
+                Ok(matches!(
+                    inner.handshake(&mut session, &identity, None),
+                    Some(Err(_))
+                ))
+            })
+        };
+        // The "host" accepts and then stays silent.
+        let silent_host = listener.accept()?;
+        while !started.load(Ordering::SeqCst) {
+            std::thread::yield_now();
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        // A second command (another connect / pair) takes the lock without waiting.
+        assert!(
+            inner.trust.try_lock().is_ok(),
+            "trust store stayed locked during the handshake"
+        );
+        assert!(!worker.is_finished(), "handshake should still be stalled");
+        drop(silent_host);
+        let failed = worker
+            .join()
+            .map_err(|_| DeskError::Other("worker panicked".into()))??;
+        assert!(failed, "a dropped handshake must be an error");
+        Ok(())
     }
 }

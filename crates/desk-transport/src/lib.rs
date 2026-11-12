@@ -107,11 +107,13 @@ impl PeerTarget {
     }
 }
 
-/// Initiates an outgoing transport session to the specified peer target.
+/// How long [`connect`] waits before giving up on an unreachable peer.
+pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Initiates an outgoing transport session to the specified peer target, giving up after
+/// [`DEFAULT_CONNECT_TIMEOUT`]; use [`connect_timeout`] for another limit.
 pub fn connect(target: PeerTarget) -> DeskResult<Session> {
-    let addr = target.socket_addr();
-    let stream = TcpStream::connect(addr).map_err(DeskError::Io)?;
-    Session::new(stream)
+    connect_timeout(&target, DEFAULT_CONNECT_TIMEOUT)
 }
 
 /// Like [`connect`] but gives up after `timeout` (unreachable PCs must not block the UI).

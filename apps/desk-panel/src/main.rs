@@ -22,7 +22,12 @@ use shell_menu::PickCollector;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
+    // The panel-in-app host starts this very executable as its session helper (`helper ...`);
+    // that must run the shared helper, not a second panel (DAPP-105 C2).
+    if let Some(code) = desk_session_helper::run_if_requested() {
+        return Ok(code);
+    }
     let args: Vec<String> = std::env::args().collect();
     let config = desk_logger::LoggerConfig {
         file_name_prefix: "desk-panel".to_string(),
@@ -31,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _guard = desk_logger::init(&config)?;
 
     if shell_menu::handle_cli_removal(&args) || shell_menu::handle_cli_enable(&args) {
-        return Ok(());
+        return Ok(std::process::ExitCode::SUCCESS);
     }
 
     let paths = desk_paths::DeskPaths::default();
@@ -177,5 +182,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ]);
 
     builder.run(tauri::generate_context!())?;
-    Ok(())
+    Ok(std::process::ExitCode::SUCCESS)
 }

@@ -157,7 +157,7 @@ pub enum SessionEvent {
 pub type EventSink = Arc<dyn Fn(SessionEvent) + Send + Sync>;
 
 /// A live viewer session towards one PC.
-pub trait ViewerSession: Send {
+pub trait ViewerSession: Send + Sync {
     /// Forwards one input event (`InputEvent`).
     fn send_input(&self, event: &InputEvent);
     /// Asks the host for a fresh keyframe (`RequestKeyframe`).

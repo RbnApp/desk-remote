@@ -69,6 +69,16 @@ impl TrustStore {
         })
     }
 
+    /// The same peers without a backing file: handshakes can read and extend it while the
+    /// shared store stays unlocked, and nothing is persisted from the copy.
+    #[must_use]
+    pub fn detached_copy(&self) -> Self {
+        Self {
+            path: None,
+            peers: self.peers.clone(),
+        }
+    }
+
     /// Opens the canonical host-side store (trusted panels).
     pub fn open_host_canonical() -> DeskResult<Self> {
         Self::open(&DeskPaths::default().trusted_peers_path())
