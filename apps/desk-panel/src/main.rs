@@ -10,6 +10,7 @@ pub mod incoming;
 mod incoming_demo;
 mod sessions;
 mod shell_menu;
+mod tailnet;
 #[cfg(not(feature = "demo"))]
 mod transfer;
 #[cfg(feature = "demo")]
@@ -80,6 +81,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 picks.push(app.handle(), paths);
             }
             std::thread::spawn(move || shell_menu::sync(menu_enabled, &menu_language));
+            #[cfg(not(feature = "demo"))]
+            tailnet::start_if_signed_in();
             Ok(())
         })
         .manage(state);
@@ -110,6 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         commands::viewer_sessions,
         commands::tailscale_status,
         commands::tailscale_connect,
+        commands::tailscale_disconnect,
         commands::demo_drop,
         commands::demo_notice,
         commands::demo_connect_failure,
@@ -153,6 +157,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         commands::viewer_sessions,
         commands::tailscale_status,
         commands::tailscale_connect,
+        commands::tailscale_disconnect,
         commands::demo_drop,
         commands::demo_notice,
         commands::demo_connect_failure,

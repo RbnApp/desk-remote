@@ -15,7 +15,7 @@
     "tailscale": "Tailscale",
     "on": "Connected",
     "off": "Not connected",
-    "missing": "Not installed",
+    "starting": "Starting…",
     "checking": "Checking…"
   },
   "status": {
@@ -279,16 +279,22 @@
     },
     "tailscale": {
       "title": "Connection",
-      "hint": "The panel reaches PCs on your local network, or anywhere through Tailscale. No server of your own is needed.",
-      "status": "Tailscale status",
-      "on": "Connected",
-      "off": "Not connected",
-      "missing": "Tailscale isn't installed on this PC.",
-      "install": "Download Tailscale",
-      "connect": "Connect with Tailscale",
+      "hint": "The panel reaches PCs on your local network, or anywhere through your tailnet, with its own built-in connection. No Tailscale app and no server of your own are needed.",
+      "status": "Tailnet status",
+      "state": {
+        "off": "Not connected",
+        "starting": "Starting…",
+        "needs_login": "Sign-in needed",
+        "running": "Connected",
+        "failed": "Stopped unexpectedly"
+      },
+      "connect": "Sign in to your tailnet",
       "connecting": "Waiting for sign-in in your browser…",
-      "connect_hint": "A sign-in page opens in your browser. Once you finish, this status turns to connected.",
+      "connect_hint": "A sign-in page opens in your browser. Once you finish, this status turns to connected. The panel uses its own connection and never changes the Tailscale app, if you have one.",
+      "disconnect": "Sign out",
+      "disconnect_hint": "Signs only this panel out of your tailnet. Another Tailscale app on this PC is not affected.",
       "failed": "Couldn't start the sign-in. Try again.",
+      "peers": "Other devices",
       "address": "Tailscale address",
       "key": {
         "title": "Key for farm PCs",

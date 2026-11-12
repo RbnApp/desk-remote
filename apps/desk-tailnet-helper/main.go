@@ -26,6 +26,17 @@ type HelperStatus struct {
 	AuthURL      string   `json:"auth_url,omitempty"`
 	TailscaleIPs []string `json:"ips,omitempty"`
 	Error        string   `json:"error,omitempty"`
+	// Panel mode only.
+	BridgeAddr string     `json:"bridge_addr,omitempty"`
+	HostName   string     `json:"host_name,omitempty"`
+	Peers      []PeerInfo `json:"peers,omitempty"`
+}
+
+// PeerInfo is one other node of the tailnet (panel mode).
+type PeerInfo struct {
+	HostName string   `json:"host_name"`
+	IPs      []string `json:"ips"`
+	Online   bool     `json:"online"`
 }
 
 func defaultStateDir() string {
@@ -41,7 +52,7 @@ func defaultStateDir() string {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: desk-tailnet-helper <auth|status|listen|proxy> [flags]")
+		fmt.Println("usage: desk-tailnet-helper <auth|status|listen|proxy|panel> [flags]")
 		os.Exit(2)
 	}
 
@@ -70,7 +81,11 @@ func main() {
 	}
 	defer s.Close()
 
+	// Every mode but `panel` is a short-lived command; the panel node lives until its owner exits.
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	if subcmd == "panel" {
+		ctx, cancel = context.WithCancel(context.Background())
+	}
 	defer cancel()
 
 	switch subcmd {
@@ -82,6 +97,8 @@ func main() {
 		runListen(ctx, s, *tailnetPort, *bridgeAddr)
 	case "proxy":
 		runProxy(ctx, s, *bridgeAddr, *targetAddr)
+	case "panel":
+		runPanel(ctx, s, *bridgeAddr, os.Getenv("DESK_BRIDGE_TOKEN"))
 	default:
 		outputJSON(HelperStatus{Status: "error", Error: fmt.Sprintf("unknown command: %s", subcmd)})
 		os.Exit(1)

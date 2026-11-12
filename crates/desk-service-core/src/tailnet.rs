@@ -51,34 +51,52 @@ pub fn ensure_helper_extracted(paths: &DeskPaths, harden: bool) -> DeskResult<Pa
     }
 
     if EMBEDDED_HELPER_BYTES.is_empty() {
-        if let Ok(sib) = DeskPaths::sibling_exe("desk-tailnet-helper.exe") {
-            if sib.exists() {
-                return Ok(sib);
-            }
-        }
-        return Ok(target);
+        return Ok(sibling_or(target));
     }
-
-    let expected_hash = Sha256::digest(EMBEDDED_HELPER_BYTES);
-    let needs_write = match std::fs::read(&target) {
-        Ok(existing) => Sha256::digest(&existing) != expected_hash,
-        Err(_) => true,
-    };
-
-    if needs_write {
-        tracing::info!(
-            target = %target.display(),
-            bytes = EMBEDDED_HELPER_BYTES.len(),
-            "extracting embedded tailnet helper (SHA-256 verified)"
-        );
-        std::fs::write(&target, EMBEDDED_HELPER_BYTES)
-            .map_err(|e| DeskError::Service(format!("cannot write tailnet helper: {e}")))?;
-        if harden {
-            let _ = restrict_file_to_admins(&target);
-        }
+    if write_embedded_helper(&target)? && harden {
+        let _ = restrict_file_to_admins(&target);
     }
-
     Ok(target)
+}
+
+/// The panel's copy of the embedded helper (`<AppData>/DeskRemote/bin/`, SHA verified). The panel
+/// runs its own tailnet node from it, so no official Tailscale client is needed on the viewer PC.
+pub fn ensure_panel_helper_extracted(paths: &DeskPaths) -> DeskResult<PathBuf> {
+    let target = paths.panel_tailnet_helper_path();
+    if let Some(dir) = target.parent() {
+        DeskPaths::ensure_dir(dir)?;
+    }
+    if EMBEDDED_HELPER_BYTES.is_empty() {
+        return Ok(sibling_or(target));
+    }
+    write_embedded_helper(&target)?;
+    Ok(target)
+}
+
+/// A helper next to the running executable (development builds), else `fallback`.
+fn sibling_or(fallback: PathBuf) -> PathBuf {
+    match DeskPaths::sibling_exe("desk-tailnet-helper.exe") {
+        Ok(sib) if sib.exists() => sib,
+        _ => fallback,
+    }
+}
+
+/// Writes the embedded helper to `target` unless a file with the same SHA-256 is already there.
+/// Returns whether it was (re)written.
+fn write_embedded_helper(target: &Path) -> DeskResult<bool> {
+    let expected_hash = Sha256::digest(EMBEDDED_HELPER_BYTES);
+    let current = std::fs::read(target).map(|existing| Sha256::digest(&existing));
+    if current.is_ok_and(|hash| hash == expected_hash) {
+        return Ok(false);
+    }
+    tracing::info!(
+        target = %target.display(),
+        bytes = EMBEDDED_HELPER_BYTES.len(),
+        "extracting embedded tailnet helper (SHA-256 verified)"
+    );
+    std::fs::write(target, EMBEDDED_HELPER_BYTES)
+        .map_err(|e| DeskError::Service(format!("cannot write tailnet helper: {e}")))?;
+    Ok(true)
 }
 
 /// Owns the helper child process; it is killed when the guard drops.

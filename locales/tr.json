@@ -15,7 +15,7 @@
     "tailscale": "Tailscale",
     "on": "Bağlı",
     "off": "Bağlı değil",
-    "missing": "Kurulu değil",
+    "starting": "Başlıyor…",
     "checking": "Denetleniyor…"
   },
   "status": {
@@ -279,16 +279,22 @@
     },
     "tailscale": {
       "title": "Bağlantı",
-      "hint": "Panel, yerel ağındaki PC'lere doğrudan; başka yerdekilere Tailscale üzerinden ulaşır. Kendi sunucuna gerek yok.",
-      "status": "Tailscale durumu",
-      "on": "Bağlı",
-      "off": "Bağlı değil",
-      "missing": "Bu PC'de Tailscale kurulu değil.",
-      "install": "Tailscale'i indir",
-      "connect": "Tailscale ile bağlan",
+      "hint": "Panel, yerel ağındaki PC’lere doğrudan; başka yerdekilere kendi yerleşik bağlantısıyla tailnet üzerinden ulaşır. Tailscale uygulamasına ve kendi sunucuna gerek yok.",
+      "status": "Tailnet durumu",
+      "state": {
+        "off": "Bağlı değil",
+        "starting": "Başlıyor…",
+        "needs_login": "Giriş gerekli",
+        "running": "Bağlı",
+        "failed": "Beklenmedik şekilde durdu"
+      },
+      "connect": "Tailnet’e giriş yap",
       "connecting": "Tarayıcıda girişin tamamlanması bekleniyor…",
-      "connect_hint": "Tarayıcında bir giriş sayfası açılır. Girişi bitirince bu durum “bağlı”ya döner.",
+      "connect_hint": "Tarayıcında bir giriş sayfası açılır. Girişi bitirince bu durum “bağlı”ya döner. Panel kendi bağlantısını kullanır; varsa Tailscale uygulamana dokunmaz.",
+      "disconnect": "Oturumu kapat",
+      "disconnect_hint": "Yalnız bu panelin tailnet oturumunu kapatır. Bu PC’deki başka bir Tailscale uygulaması etkilenmez.",
       "failed": "Giriş başlatılamadı. Tekrar dene.",
+      "peers": "Diğer cihazlar",
       "address": "Tailscale adresi",
       "key": {
         "title": "Farm PC'ler için anahtar",

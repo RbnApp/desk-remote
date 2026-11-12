@@ -12,8 +12,8 @@ use desk_error::{DeskError, DeskResult};
 use desk_paths::DeskPaths;
 use desk_protocol::{Message, NoticeKind};
 use desk_transport::{
-    connect_timeout, is_this_pc, primary_local_ip, LanBrowser, PeerTarget, Session, SessionReader,
-    SessionWriter, TailscaleDetector, DEFAULT_PORT,
+    is_this_pc, primary_local_ip, LanBrowser, PeerTarget, Session, SessionReader, SessionWriter,
+    DEFAULT_PORT,
 };
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -151,7 +151,7 @@ impl Inner {
             }
             Err(e) => tracing::debug!(error = %e, "mDNS scan failed"),
         }
-        for peer in TailscaleDetector::snapshot().peers {
+        for peer in crate::tailnet::snapshot().peers {
             let ip = peer
                 .ips
                 .iter()
@@ -232,7 +232,7 @@ impl Inner {
             let Ok(target) = PeerTarget::parse(&address) else {
                 continue;
             };
-            let Ok(mut session) = connect_timeout(&target, connect_within) else {
+            let Ok(mut session) = crate::tailnet::dial(&target, connect_within) else {
                 continue;
             };
             let mut guard = lock(&self.trust);
@@ -338,7 +338,7 @@ impl Backend for TransportBackend {
     fn pair(&self, target: &str, code: &str, name: Option<&str>) -> Result<PairedPc, PairError> {
         let identity = self.inner.identity.as_ref().ok_or(PairError::Network)?;
         let peer = PeerTarget::parse(target).map_err(|_| PairError::Network)?;
-        let mut session = connect_timeout(&peer, PAIR_CONNECT).map_err(|e| {
+        let mut session = crate::tailnet::dial(&peer, PAIR_CONNECT).map_err(|e| {
             tracing::debug!(error = %e, "pairing connect failed");
             PairError::Network
         })?;

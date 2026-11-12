@@ -238,6 +238,19 @@ impl DeskPaths {
         self.system_root.join("bin").join("desk-tailnet-helper.exe")
     }
 
+    /// Node state of the panel's own tailnet node (`<AppData>/DeskRemote/tailscale`).
+    #[must_use]
+    pub fn panel_tailnet_dir(&self) -> PathBuf {
+        self.user_root.join("tailscale")
+    }
+
+    /// Where the panel extracts its copy of the embedded tailnet helper
+    /// (`<AppData>/DeskRemote/bin/desk-tailnet-helper.exe`).
+    #[must_use]
+    pub fn panel_tailnet_helper_path(&self) -> PathBuf {
+        self.user_root.join("bin").join("desk-tailnet-helper.exe")
+    }
+
     /// Windows Named Pipe name for the central service.
     pub fn pipe_service() -> &'static str {
         r"\\.\pipe\DeskRemote-Service"
