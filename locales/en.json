@@ -293,7 +293,29 @@
     "code_expires": "Valid for {m}:{s}",
     "code_expired": "The code has expired.",
     "code_new": "New code",
-    "code_unavailable": "The service is not responding."
+    "code_unavailable": "The service is not responding.",
+    "tooltip_view_only": "Remote control blocked (watch only)",
+    "status_online": "Online · {n} viewer(s)",
+    "status_waiting": "Waiting for a connection",
+    "status_locked": "Locked",
+    "status_offline": "Service not responding",
+    "pc_name": "PC: {name}  (click to copy)",
+    "local_ip": "Local IP: {ip}  (click to copy)",
+    "local_ip_none": "Local IP: not available",
+    "tailnet_connected": "Tailscale: {ip}  (click to copy)",
+    "tailnet_login": "Tailscale: sign-in required",
+    "tailnet_off": "Tailscale: off",
+    "disconnect_all": "Disconnect all viewers now",
+    "view_only": "Block remote control (watch only)",
+    "about": "About…"
+  },
+  "about": {
+    "title": "About Desk-Remote",
+    "product": "Desk-Remote",
+    "version": "Version {v}",
+    "device_id": "Device ID",
+    "fingerprint": "Identity fingerprint",
+    "hint": "Compare these with what the panel shows when pairing."
   },
   "common": {
     "close": "Close"

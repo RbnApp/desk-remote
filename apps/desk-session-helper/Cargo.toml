@@ -20,6 +20,7 @@ desk-logger = { workspace = true }
 desk-paths = { workspace = true }
 desk-protocol = { workspace = true }
 desk-theme = { workspace = true }
+desk-version = { workspace = true }
 tracing = { workspace = true }
 
 [build-dependencies]
@@ -30,7 +31,9 @@ windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Globalization",
     "Win32_Graphics_Gdi",
+    "Win32_System_DataExchange",
     "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
     "Win32_System_Registry",
     "Win32_System_RemoteDesktop",
     "Win32_System_StationsAndDesktops",
