@@ -17,6 +17,8 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
+use crate::role::HostRole;
+
 /// Options chosen by the binary.
 pub struct HostOptions {
     pub paths: DeskPaths,
@@ -30,6 +32,50 @@ pub struct HostOptions {
     pub loopback_only: bool,
     /// Developer override (`run --console --allow-on-panel-pc`); the SCM path never sets it.
     pub allow_on_panel_pc: bool,
+    /// Distinguishes the unattended agent service from the panel's in-app host.
+    pub role: HostRole,
+    /// Whether the interactive consent gate is enabled (farm PC agent: false, in-app host: true).
+    pub consent_gate: bool,
+    /// Optional custom identity (e.g. panel identity instead of system identity).
+    pub custom_identity: Option<DeviceIdentity>,
+    /// Optional custom trust store.
+    pub custom_trust: Option<TrustStore>,
+}
+
+impl HostOptions {
+    /// Defaults for the background agent service / console agent.
+    #[must_use]
+    pub fn for_agent(paths: DeskPaths, mode: LaunchMode) -> Self {
+        Self {
+            paths,
+            mode,
+            port: None,
+            data_dir: None,
+            loopback_only: false,
+            allow_on_panel_pc: false,
+            role: HostRole::AgentService,
+            consent_gate: false,
+            custom_identity: None,
+            custom_trust: None,
+        }
+    }
+
+    /// Defaults for the panel's attended in-app host.
+    #[must_use]
+    pub fn for_panel_in_app(paths: DeskPaths, port: Option<u16>, loopback_only: bool) -> Self {
+        Self {
+            paths,
+            mode: LaunchMode::CurrentUser,
+            port,
+            data_dir: None,
+            loopback_only,
+            allow_on_panel_pc: true,
+            role: HostRole::PanelInApp,
+            consent_gate: true,
+            custom_identity: None,
+            custom_trust: None,
+        }
+    }
 }
 
 /// A running agent.
@@ -47,16 +93,29 @@ impl ServiceHost {
     /// Loads identity and trust, binds the viewer port and starts the worker threads.
     pub fn start(opts: HostOptions) -> DeskResult<Self> {
         let paths = opts.paths;
-        if !crate::role::host_allowed(&paths, opts.allow_on_panel_pc) {
+        if !crate::role::host_allowed_for_role(&paths, opts.role, opts.allow_on_panel_pc) {
             return Err(DeskError::Service(
                 "this PC is a management panel; the PC agent host does not start here".to_string(),
             ));
         }
-        DeskPaths::ensure_dir(paths.system_dir())?;
-        let svc: ServiceConfig = ConfigManager::load_or_default(&paths.service_config_path())?;
-        let identity = DeviceIdentity::load_or_create(&paths.identity_key_path())?;
-        let trust = TrustStore::open(&paths.trusted_peers_path())?;
-        let hub = Arc::new(Hub::new(identity, PairingManager::with_trust(trust)));
+        let svc: ServiceConfig =
+            ConfigManager::load_or_default(&paths.service_config_path()).unwrap_or_default();
+        let identity = match opts.custom_identity {
+            Some(id) => id,
+            None => {
+                DeskPaths::ensure_dir(paths.system_dir())?;
+                DeviceIdentity::load_or_create(&paths.identity_key_path())?
+            }
+        };
+        let trust = match opts.custom_trust {
+            Some(t) => t,
+            None => TrustStore::open(&paths.trusted_peers_path())?,
+        };
+        let hub = Arc::new(Hub::new_with_options(
+            identity,
+            PairingManager::with_trust(trust),
+            opts.consent_gate,
+        ));
 
         let port = opts.port.unwrap_or(svc.control_port);
         let listener = Arc::new(if opts.loopback_only {

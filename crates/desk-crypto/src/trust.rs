@@ -19,6 +19,9 @@ pub struct TrustedPeer {
     pub public_key_hex: String,
     /// Device ID derived from the key (informational).
     pub device_id: String,
+    /// Whether this peer is allowed to connect without interactive user consent.
+    #[serde(default)]
+    pub always_allow: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -88,8 +91,59 @@ impl TrustStore {
         self.peers.push(TrustedPeer {
             public_key_hex: to_hex(public),
             device_id: device_id_from_public(public),
+            always_allow: false,
         });
         self.persist()
+    }
+
+    /// Whether `device_id` belongs to a paired peer.
+    #[must_use]
+    pub fn is_device_trusted(&self, device_id: &str) -> bool {
+        self.peers.iter().any(|p| p.device_id == device_id)
+    }
+
+    /// Whether `public` belongs to a peer marked `always_allow`.
+    #[must_use]
+    pub fn is_always_allowed(&self, public: &[u8; KEY_LEN]) -> bool {
+        let hex = to_hex(public);
+        self.peers
+            .iter()
+            .any(|p| p.public_key_hex == hex && p.always_allow)
+    }
+
+    /// Whether `device_id` belongs to a peer marked `always_allow`.
+    #[must_use]
+    pub fn is_device_always_allowed(&self, device_id: &str) -> bool {
+        self.peers
+            .iter()
+            .any(|p| p.device_id == device_id && p.always_allow)
+    }
+
+    /// Updates the `always_allow` flag for a peer by public key.
+    pub fn set_always_allowed(&mut self, public: &[u8; KEY_LEN], allow: bool) -> DeskResult<()> {
+        let hex = to_hex(public);
+        if let Some(peer) = self.peers.iter_mut().find(|p| p.public_key_hex == hex) {
+            peer.always_allow = allow;
+            self.persist()?;
+        }
+        Ok(())
+    }
+
+    /// Updates the `always_allow` flag for a peer by device ID.
+    pub fn set_device_always_allowed(&mut self, device_id: &str, allow: bool) -> DeskResult<()> {
+        if let Some(peer) = self.peers.iter_mut().find(|p| p.device_id == device_id) {
+            peer.always_allow = allow;
+            self.persist()?;
+        }
+        Ok(())
+    }
+
+    /// Computes or retrieves fingerprint for a trusted peer by device ID.
+    #[must_use]
+    pub fn fingerprint_for_device(&self, device_id: &str) -> Option<String> {
+        let peer = self.peers.iter().find(|p| p.device_id == device_id)?;
+        let key = from_hex::<KEY_LEN>(&peer.public_key_hex).ok()?;
+        Some(crate::identity::fingerprint_from_public(&key))
     }
 
     /// Removes a peer by key and persists the store.
@@ -171,6 +225,28 @@ mod tests {
         assert!(reopened.is_trusted(&key));
         assert!(!reopened.is_trusted(&other));
         reopened.validate()?;
+        Ok(())
+    }
+
+    #[test]
+    fn always_allow_flag_persists_and_updates() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("trusted.dat");
+        let key = [5u8; KEY_LEN];
+
+        let mut store = TrustStore::open(&path)?;
+        store.add(&key)?;
+        assert!(!store.is_always_allowed(&key));
+
+        store.set_always_allowed(&key, true)?;
+        assert!(store.is_always_allowed(&key));
+
+        let reopened = TrustStore::open(&path)?;
+        assert!(reopened.is_always_allowed(&key));
+
+        let dev_id = device_id_from_public(&key);
+        assert!(reopened.is_device_always_allowed(&dev_id));
+        assert!(reopened.fingerprint_for_device(&dev_id).is_some());
         Ok(())
     }
 

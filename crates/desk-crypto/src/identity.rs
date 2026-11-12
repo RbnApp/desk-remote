@@ -26,6 +26,17 @@ pub fn device_id_from_public(public: &[u8; KEY_LEN]) -> String {
     format!("desk-{}", to_hex(&digest[..8]))
 }
 
+/// Computes the visual fingerprint from a raw static public key.
+#[must_use]
+pub fn fingerprint_from_public(public: &[u8; KEY_LEN]) -> String {
+    let digest = Sha256::digest(public);
+    digest[..16]
+        .chunks(2)
+        .map(to_hex)
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 #[derive(Serialize, Deserialize)]
 struct KeyStore {
     version: u8,
@@ -79,12 +90,7 @@ impl DeviceIdentity {
     /// devices by eye. The device ID is the first half of it.
     #[must_use]
     pub fn fingerprint(&self) -> String {
-        let digest = Sha256::digest(self.public);
-        digest[..16]
-            .chunks(2)
-            .map(to_hex)
-            .collect::<Vec<_>>()
-            .join("-")
+        fingerprint_from_public(&self.public)
     }
 
     /// Static public key (safe to share).

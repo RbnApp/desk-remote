@@ -28,7 +28,8 @@ mod tracker;
 
 pub use control::Control;
 pub use host::{wait_for_console_stop, HostOptions, ServiceHost};
-pub use hub::Hub;
+pub use hub::{ConsentEvent, Hub};
 pub use launch::{active_console_session, LaunchMode};
+pub use role::{host_allowed, host_allowed_for_role, HostRole};
 pub use scm::{install, run_dispatcher, uninstall, SERVICE_NAME};
 pub use tracker::{Backoff, SessionEvent, SessionTracker};

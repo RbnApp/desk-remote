@@ -8,10 +8,12 @@ use crate::control::Control;
 use desk_crypto::{DeviceIdentity, PairingManager, PAIRING_CODE_TTL};
 use desk_ipc::{IpcConnection, IpcMessage};
 use desk_protocol::{Message, NoticeKind};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 /// Frames queued per viewer before the slowest viewer starts dropping (and asks for an IDR).
 const VIEWER_QUEUE: usize = 90;
@@ -19,10 +21,52 @@ const VIEWER_QUEUE: usize = 90;
 /// Identifies one authenticated viewer connection inside the hub.
 pub type ViewerId = u64;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionMode {
+    View,
+    Control,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ViewerConsent {
+    Pending,
+    Granted(SessionMode),
+    Rejected,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConsentRequest {
+    pub request_id: String,
+    pub peer_name: String,
+    pub fingerprint: String,
+    pub known: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActiveSessionInfo {
+    pub peer_name: String,
+    pub fingerprint: String,
+    pub mode: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConsentEvent {
+    Request(ConsentRequest),
+    Session(ActiveSessionInfo),
+    Ended { reason: String },
+}
+
+pub type ConsentListener = Arc<dyn Fn(ConsentEvent) + Send + Sync + 'static>;
+
 struct Viewer {
     device_id: String,
     tx: SyncSender<Message>,
     joined: bool,
+    wants_join: bool,
+    consent: ViewerConsent,
+    peer_name: String,
+    fingerprint: String,
+    request_id: Option<String>,
 }
 
 #[derive(Default)]
@@ -33,6 +77,9 @@ struct State {
     session_locked: bool,
     helper_locked: bool,
     no_display: bool,
+    pending_request: Option<ConsentRequest>,
+    active_session: Option<ActiveSessionInfo>,
+    next_req_id: u64,
 }
 
 impl State {
@@ -51,7 +98,7 @@ impl State {
         let mut ids: Vec<String> = self
             .viewers
             .values()
-            .filter(|v| v.joined)
+            .filter(|v| v.joined && matches!(v.consent, ViewerConsent::Granted(_)))
             .map(|v| v.device_id.clone())
             .collect();
         ids.sort();
@@ -60,7 +107,11 @@ impl State {
 
     fn broadcast(&self, msg: &Message) -> bool {
         let mut dropped = false;
-        for viewer in self.viewers.values().filter(|v| v.joined) {
+        for viewer in self
+            .viewers
+            .values()
+            .filter(|v| v.joined && matches!(v.consent, ViewerConsent::Granted(_)))
+        {
             if let Err(TrySendError::Full(_)) = viewer.tx.try_send(msg.clone()) {
                 dropped = true;
             }
@@ -76,6 +127,8 @@ pub struct Hub {
     identity: DeviceIdentity,
     control: Arc<Control>,
     next_id: AtomicU64,
+    consent_gate_enabled: bool,
+    consent_listener: Mutex<Option<ConsentListener>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -85,12 +138,41 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 impl Hub {
     #[must_use]
     pub fn new(identity: DeviceIdentity, pairing: PairingManager) -> Self {
+        Self::new_with_options(identity, pairing, false)
+    }
+
+    #[must_use]
+    pub fn new_with_options(
+        identity: DeviceIdentity,
+        pairing: PairingManager,
+        consent_gate: bool,
+    ) -> Self {
         Self {
             state: Mutex::new(State::default()),
             pairing: Mutex::new(pairing),
             identity,
             control: Arc::new(Control::default()),
             next_id: AtomicU64::new(1),
+            consent_gate_enabled: consent_gate,
+            consent_listener: Mutex::new(None),
+        }
+    }
+
+    /// Whether the consent gate is enabled for this hub.
+    #[must_use]
+    pub fn consent_gate_enabled(&self) -> bool {
+        self.consent_gate_enabled
+    }
+
+    /// Subscribes a listener to consent lifecycle events.
+    pub fn set_consent_listener(&self, listener: Option<ConsentListener>) {
+        *lock(&self.consent_listener) = listener;
+    }
+
+    fn emit_consent_event(&self, event: ConsentEvent) {
+        let cb = lock(&self.consent_listener).clone();
+        if let Some(cb) = cb {
+            cb(event);
         }
     }
 
@@ -120,28 +202,142 @@ impl Hub {
 
     /// Registers an authenticated viewer; frames for it arrive on the returned receiver.
     pub fn register_viewer(&self, device_id: &str) -> (ViewerId, Receiver<Message>) {
+        self.register_viewer_with_peer(device_id, device_id)
+    }
+
+    /// Registers an authenticated viewer with peer address info.
+    pub fn register_viewer_with_peer(
+        &self,
+        device_id: &str,
+        _peer_addr: &str,
+    ) -> (ViewerId, Receiver<Message>) {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = sync_channel(VIEWER_QUEUE);
-        lock(&self.state).viewers.insert(
+
+        let (peer_name, fingerprint, is_known, is_always) = {
+            let pairing = lock(&self.pairing);
+            let trust = pairing.trust();
+            let known = trust.is_device_trusted(device_id);
+            let always = trust.is_device_always_allowed(device_id);
+            let fp = trust.fingerprint_for_device(device_id).unwrap_or_else(|| {
+                let clean = device_id.strip_prefix("desk-").unwrap_or(device_id);
+                format!("{clean}-0000")
+            });
+            let name = if known {
+                format!("Peer-{}", device_id.chars().take(8).collect::<String>())
+            } else {
+                format!("Guest-{}", device_id.chars().take(8).collect::<String>())
+            };
+            (name, fp, known, always)
+        };
+
+        let mut st = lock(&self.state);
+        let (consent, req_id, event_to_emit) = if !self.consent_gate_enabled || is_always {
+            let active = ActiveSessionInfo {
+                peer_name: peer_name.clone(),
+                fingerprint: fingerprint.clone(),
+                mode: "control".to_string(),
+            };
+            st.active_session = Some(active.clone());
+            (
+                ViewerConsent::Granted(SessionMode::Control),
+                None,
+                Some(ConsentEvent::Session(active)),
+            )
+        } else {
+            st.next_req_id += 1;
+            let req_id_str = format!("req-{}", st.next_req_id);
+            let req = ConsentRequest {
+                request_id: req_id_str.clone(),
+                peer_name: peer_name.clone(),
+                fingerprint: fingerprint.clone(),
+                known: is_known,
+            };
+            st.pending_request = Some(req.clone());
+            (
+                ViewerConsent::Pending,
+                Some(req_id_str),
+                Some(ConsentEvent::Request(req)),
+            )
+        };
+
+        st.viewers.insert(
             id,
             Viewer {
                 device_id: device_id.to_string(),
                 tx,
                 joined: false,
+                wants_join: false,
+                consent,
+                peer_name,
+                fingerprint,
+                request_id: req_id,
             },
         );
+        drop(st);
+
+        if let Some(ev) = event_to_emit {
+            self.emit_consent_event(ev);
+        }
+
         (id, rx)
     }
 
-    /// The viewer asked to watch: capture starts if it is the first one.
+    /// Spawns a background timeout check for a consent request (30 seconds).
+    pub fn spawn_consent_timeout(self: &Arc<Self>, request_id: String, viewer_id: ViewerId) {
+        let hub = Arc::clone(self);
+        let _ = std::thread::Builder::new()
+            .name("desk-consent-timeout".to_string())
+            .spawn(move || {
+                std::thread::sleep(Duration::from_secs(30));
+                hub.handle_timeout(&request_id, viewer_id);
+            });
+    }
+
+    /// If `request_id` is still pending, rejects the session due to timeout.
+    pub fn handle_timeout(&self, request_id: &str, viewer_id: ViewerId) -> bool {
+        let mut drop_it = false;
+        {
+            let mut st = lock(&self.state);
+            if let Some(req) = &st.pending_request {
+                if req.request_id == request_id {
+                    st.pending_request = None;
+                    drop_it = true;
+                    if let Some(v) = st.viewers.get_mut(&viewer_id) {
+                        v.consent = ViewerConsent::Rejected;
+                        let _ = v.tx.try_send(Message::Status {
+                            online: false,
+                            latency_ms: 0,
+                        });
+                    }
+                }
+            }
+        }
+        if drop_it {
+            self.remove_viewer(viewer_id);
+            self.emit_consent_event(ConsentEvent::Ended {
+                reason: "timeout".to_string(),
+            });
+            true
+        } else {
+            false
+        }
+    }
+
+    /// The viewer asked to watch: capture starts if it is the first one and consent is granted.
     pub fn viewer_join(&self, id: ViewerId) {
-        let (helper, list) = {
+        let (helper, list, should_start) = {
             let mut st = lock(&self.state);
             let status = st.status();
             let config = st.last_config.clone();
             let Some(viewer) = st.viewers.get_mut(&id) else {
                 return;
             };
+            viewer.wants_join = true;
+            if !matches!(viewer.consent, ViewerConsent::Granted(_)) {
+                // Pending consent or rejected: DO NOT forward join or stream frames.
+                return;
+            }
             if viewer.joined {
                 return;
             }
@@ -150,19 +346,27 @@ impl Hub {
                 let _ = viewer.tx.try_send(cfg);
             }
             let _ = viewer.tx.try_send(status);
-            if self.control.view_only() {
+            if self.control.view_only()
+                || matches!(viewer.consent, ViewerConsent::Granted(SessionMode::View))
+            {
                 let _ = viewer.tx.try_send(Message::Notice {
                     kind: NoticeKind::ViewOnlyOn,
                 });
             }
-            (st.helper.as_ref().map(|(_, c)| c.clone()), st.joined_ids())
+            (
+                st.helper.as_ref().map(|(_, c)| c.clone()),
+                st.joined_ids(),
+                true,
+            )
         };
-        tracing::info!(viewer = id, "viewer joined");
-        if let Some(conn) = helper {
-            let _ = conn.send(&IpcMessage::Wire(Message::ViewerJoin));
-            let _ = conn.send(&IpcMessage::Viewers { device_ids: list });
+        if should_start {
+            tracing::info!(viewer = id, "viewer joined");
+            if let Some(conn) = helper {
+                let _ = conn.send(&IpcMessage::Wire(Message::ViewerJoin));
+                let _ = conn.send(&IpcMessage::Viewers { device_ids: list });
+            }
+            self.push_agent_info();
         }
-        self.push_agent_info();
     }
 
     /// The viewer stopped watching (explicit leave or disconnect). Idempotent.
@@ -186,22 +390,205 @@ impl Hub {
     /// Drops the viewer entirely (connection closed).
     pub fn remove_viewer(&self, id: ViewerId) {
         self.viewer_leave(id);
-        lock(&self.state).viewers.remove(&id);
+        let mut event_to_emit = None;
+        {
+            let mut st = lock(&self.state);
+            if let Some(v) = st.viewers.remove(&id) {
+                if let Some(req) = &st.pending_request {
+                    if v.request_id.as_deref() == Some(&req.request_id) {
+                        st.pending_request = None;
+                        event_to_emit = Some(ConsentEvent::Ended {
+                            reason: "peer".to_string(),
+                        });
+                    }
+                }
+                if let Some(sess) = &st.active_session {
+                    if sess.peer_name == v.peer_name || sess.fingerprint == v.fingerprint {
+                        st.active_session = None;
+                        event_to_emit = Some(ConsentEvent::Ended {
+                            reason: "peer".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+        if let Some(ev) = event_to_emit {
+            self.emit_consent_event(ev);
+        }
+    }
+
+    /// Answers a pending incoming connection consent request.
+    pub fn answer_consent(
+        &self,
+        request_id: &str,
+        decision: &str,
+        always_allow: bool,
+    ) -> Result<(), String> {
+        let (event_to_emit, viewer_to_join, drop_viewer_id) = {
+            let mut st = lock(&self.state);
+            let Some(req) = st
+                .pending_request
+                .as_ref()
+                .filter(|r| r.request_id == request_id)
+            else {
+                return Ok(());
+            };
+            let req = req.clone();
+            st.pending_request = None;
+
+            let viewer_id = st.viewers.iter().find_map(|(&id, v)| {
+                if v.request_id.as_deref() == Some(request_id) {
+                    Some(id)
+                } else {
+                    None
+                }
+            });
+
+            match decision {
+                "view" | "control" => {
+                    let mode = if decision == "view" {
+                        SessionMode::View
+                    } else {
+                        SessionMode::Control
+                    };
+                    let mut to_join = None;
+                    let dev_id = if let Some(vid) = viewer_id {
+                        if let Some(v) = st.viewers.get_mut(&vid) {
+                            v.consent = ViewerConsent::Granted(mode);
+                            if v.wants_join {
+                                to_join = Some(vid);
+                            }
+                            Some(v.device_id.clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if always_allow {
+                        if let Some(did) = dev_id {
+                            let _ = self.with_pairing(|p| {
+                                p.trust_mut().set_device_always_allowed(&did, true)
+                            });
+                        }
+                    }
+
+                    let sess = ActiveSessionInfo {
+                        peer_name: req.peer_name,
+                        fingerprint: req.fingerprint,
+                        mode: decision.to_string(),
+                    };
+                    st.active_session = Some(sess.clone());
+                    (Some(ConsentEvent::Session(sess)), to_join, None)
+                }
+                "reject" => {
+                    let mut drop_vid = None;
+                    if let Some(vid) = viewer_id {
+                        if let Some(v) = st.viewers.get_mut(&vid) {
+                            v.consent = ViewerConsent::Rejected;
+                            let _ = v.tx.try_send(Message::Status {
+                                online: false,
+                                latency_ms: 0,
+                            });
+                        }
+                        drop_vid = Some(vid);
+                    }
+                    (
+                        Some(ConsentEvent::Ended {
+                            reason: "rejected".to_string(),
+                        }),
+                        None,
+                        drop_vid,
+                    )
+                }
+                _ => return Err(format!("invalid decision: {decision}")),
+            }
+        };
+
+        if let Some(vid) = drop_viewer_id {
+            self.remove_viewer(vid);
+        }
+        if let Some(vid) = viewer_to_join {
+            self.viewer_join(vid);
+        }
+        if let Some(ev) = event_to_emit {
+            self.emit_consent_event(ev);
+        }
+        Ok(())
+    }
+
+    /// Disconnects the incoming connection session and notifies the user.
+    pub fn disconnect_incoming(&self) {
+        self.disconnect_all();
+        {
+            let mut st = lock(&self.state);
+            st.pending_request = None;
+            st.active_session = None;
+        }
+        self.emit_consent_event(ConsentEvent::Ended {
+            reason: "host".to_string(),
+        });
+    }
+
+    /// Changes the mode of the active incoming session ("view" or "control").
+    pub fn set_incoming_mode(&self, mode: &str) {
+        let is_view = mode != "control";
+        self.set_view_only(is_view);
+        let mut event_to_emit = None;
+        {
+            let mut st = lock(&self.state);
+            let target_mode = if is_view {
+                SessionMode::View
+            } else {
+                SessionMode::Control
+            };
+            for v in st.viewers.values_mut() {
+                if matches!(v.consent, ViewerConsent::Granted(_)) {
+                    v.consent = ViewerConsent::Granted(target_mode);
+                }
+            }
+            if let Some(sess) = st.active_session.as_mut() {
+                sess.mode = if is_view { "view" } else { "control" }.to_string();
+                event_to_emit = Some(ConsentEvent::Session(sess.clone()));
+            }
+        }
+        if let Some(ev) = event_to_emit {
+            self.emit_consent_event(ev);
+        }
+    }
+
+    /// Returns the currently pending consent request, if any.
+    #[must_use]
+    pub fn pending_request(&self) -> Option<ConsentRequest> {
+        lock(&self.state).pending_request.clone()
+    }
+
+    /// Returns the active incoming session, if any.
+    #[must_use]
+    pub fn active_session(&self) -> Option<ActiveSessionInfo> {
+        lock(&self.state).active_session.clone()
     }
 
     /// Forwards viewer input / keyframe requests to the helper. Ignored unless the viewer
-    /// has joined, so a merely paired panel cannot drive the PC.
+    /// has joined and consent allows input, so a merely paired panel or view-only viewer cannot drive the PC.
     pub fn forward_from_viewer(&self, id: ViewerId, msg: Message) {
-        if self.control.view_only() && matches!(msg, Message::InputEvent(_)) {
-            return;
-        }
-        let helper = {
+        let (helper, allow_input) = {
             let st = lock(&self.state);
             match st.viewers.get(&id) {
-                Some(v) if v.joined => st.helper.as_ref().map(|(_, c)| c.clone()),
-                _ => None,
+                Some(v) if v.joined => {
+                    let input_allowed = match v.consent {
+                        ViewerConsent::Granted(SessionMode::Control) => !self.control.view_only(),
+                        _ => false,
+                    };
+                    (st.helper.as_ref().map(|(_, c)| c.clone()), input_allowed)
+                }
+                _ => (None, false),
             }
         };
+        if matches!(msg, Message::InputEvent(_)) && !allow_input {
+            return;
+        }
         if let Some(conn) = helper {
             let _ = conn.send(&IpcMessage::Wire(msg));
         }
@@ -388,6 +775,7 @@ impl Hub {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use desk_crypto::PairingManager;
@@ -621,6 +1009,175 @@ mod tests {
         let hub = hub()?;
         hub.on_helper_message(IpcMessage::PairingCodeRequest);
         assert!(hub.with_pairing(|pm| pm.active_code().is_some()));
+        Ok(())
+    }
+
+    #[test]
+    fn consent_gate_blocks_frames_and_input_until_approved() -> DeskResult<()> {
+        use desk_crypto::TrustStore;
+        let mut trust = TrustStore::in_memory();
+        let peer_identity = DeviceIdentity::generate()?;
+        trust.add(peer_identity.public_key())?;
+
+        let hub = Hub::new_with_options(
+            DeviceIdentity::generate()?,
+            PairingManager::with_trust(trust),
+            true, // consent gate enabled
+        );
+
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let ev_clone = Arc::clone(&events);
+        hub.set_consent_listener(Some(Arc::new(move |ev| {
+            lock(&ev_clone).push(ev);
+        })));
+
+        let dev_id = peer_identity.device_id();
+        let (id, rx) = hub.register_viewer(&dev_id);
+
+        // 1. Pending consent request emitted
+        let req = hub.pending_request().expect("must have pending request");
+        assert_eq!(req.request_id, "req-1");
+        assert!(req.known, "peer was added to trust store, must be known");
+
+        // 2. Viewer requests to join before consent: NO frames or join dispatched
+        hub.viewer_join(id);
+        assert_eq!(hub.joined_count(), 0, "must not join while pending");
+
+        // Helper sends video frame: MUST NOT reach viewer
+        hub.on_helper_message(frame(true));
+        assert!(
+            rx.try_recv().is_err(),
+            "no frame can leak to unapproved viewer"
+        );
+
+        // Viewer sends input: MUST NOT be forwarded
+        hub.forward_from_viewer(id, input());
+
+        // 3. User approves with "view" mode
+        hub.answer_consent("req-1", "view", false)
+            .expect("approval ok");
+        assert_eq!(hub.joined_count(), 1, "viewer should be joined now");
+        assert!(hub.pending_request().is_none());
+        assert_eq!(
+            hub.active_session().map(|s| s.mode),
+            Some("view".to_string())
+        );
+
+        // Frames now reach the viewer
+        hub.on_helper_message(frame(true));
+        let got_frame = std::iter::from_fn(|| rx.try_recv().ok())
+            .any(|m| matches!(m, Message::VideoFrame { .. }));
+        assert!(got_frame, "frame must reach approved viewer");
+
+        // But in view mode, input is dropped
+        hub.forward_from_viewer(id, input());
+
+        // 4. Switch mode to "control"
+        hub.set_incoming_mode("control");
+        assert_eq!(
+            hub.active_session().map(|s| s.mode),
+            Some("control".to_string())
+        );
+
+        // Disconnect
+        hub.disconnect_incoming();
+        assert_eq!(hub.joined_count(), 0);
+        assert!(hub.active_session().is_none());
+
+        Ok(())
+    }
+
+    #[test]
+    fn consent_gate_reject_sends_status_and_disconnects() -> DeskResult<()> {
+        let hub = Hub::new_with_options(
+            DeviceIdentity::generate()?,
+            PairingManager::new(),
+            true, // consent gate enabled
+        );
+        let (_id, rx) = hub.register_viewer("stranger");
+        assert!(hub.pending_request().is_some());
+
+        hub.answer_consent("req-1", "reject", false)
+            .expect("reject ok");
+        assert!(hub.pending_request().is_none());
+        assert!(hub.active_session().is_none());
+
+        // Stranger receives offline status and sender drops
+        let msg = rx.try_recv().expect("should receive status");
+        assert_eq!(
+            msg,
+            Message::Status {
+                online: false,
+                latency_ms: 0
+            }
+        );
+        assert_eq!(hub.joined_count(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn consent_gate_timeout_rejects_session() -> DeskResult<()> {
+        let hub = Hub::new_with_options(
+            DeviceIdentity::generate()?,
+            PairingManager::new(),
+            true, // consent gate enabled
+        );
+        let (id, rx) = hub.register_viewer("stranger");
+        assert!(hub.pending_request().is_some());
+
+        let expired = hub.handle_timeout("req-1", id);
+        assert!(expired, "timeout should trigger rejection");
+        assert!(hub.pending_request().is_none());
+
+        let msg = rx.try_recv().expect("should receive status");
+        assert_eq!(
+            msg,
+            Message::Status {
+                online: false,
+                latency_ms: 0
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn consent_gate_always_allow_bypasses_prompt() -> DeskResult<()> {
+        use desk_crypto::TrustStore;
+        let mut trust = TrustStore::in_memory();
+        let peer_identity = DeviceIdentity::generate()?;
+        trust.add(peer_identity.public_key())?;
+        trust.set_device_always_allowed(&peer_identity.device_id(), true)?;
+
+        let hub = Hub::new_with_options(
+            DeviceIdentity::generate()?,
+            PairingManager::with_trust(trust),
+            true, // consent gate enabled
+        );
+
+        let (_id, _rx) = hub.register_viewer(&peer_identity.device_id());
+        assert!(
+            hub.pending_request().is_none(),
+            "always_allow peers must not enter pending"
+        );
+        assert_eq!(
+            hub.active_session().map(|s| s.mode),
+            Some("control".to_string())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn agent_service_mode_has_consent_gate_disabled() -> DeskResult<()> {
+        let hub = Hub::new(DeviceIdentity::generate()?, PairingManager::new());
+        assert!(!hub.consent_gate_enabled());
+
+        let (id, _rx) = hub.register_viewer("farm_viewer");
+        assert!(
+            hub.pending_request().is_none(),
+            "farm PC agent gate is always off"
+        );
+        hub.viewer_join(id);
+        assert_eq!(hub.joined_count(), 1);
         Ok(())
     }
 }

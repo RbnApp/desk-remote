@@ -5,10 +5,11 @@
 
 mod backend;
 mod commands;
+pub mod incoming;
 
 use commands::AppState;
 use desk_config::{ConfigManager, PanelConfig};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = desk_logger::LoggerConfig {
@@ -17,16 +18,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let _guard = desk_logger::init(&config)?;
 
-    let config_path = desk_paths::DeskPaths::default().panel_config_path();
+    let paths = desk_paths::DeskPaths::default();
+    let config_path = paths.panel_config_path();
     let mut panel_config: PanelConfig = ConfigManager::load_or_default(&config_path)?;
     panel_config.sanitize();
     tracing::info!(path = %config_path.display(), "panel configuration loaded");
+
+    let incoming = Arc::new(incoming::IncomingManager::new(paths, true));
 
     let state = AppState {
         backend: backend::select(),
         config_path,
         config: Mutex::new(panel_config),
         session: Mutex::new(None),
+        incoming,
     };
 
     tauri::Builder::default()
@@ -49,6 +54,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             commands::tailscale_status,
             commands::tailscale_connect,
             commands::demo_drop,
+            commands::incoming_get_state,
+            commands::incoming_set_enabled,
+            commands::incoming_new_code,
+            commands::incoming_answer,
+            commands::incoming_disconnect,
+            commands::incoming_set_mode,
         ])
         .run(tauri::generate_context!())?;
     Ok(())

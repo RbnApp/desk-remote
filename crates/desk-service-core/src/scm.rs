@@ -39,6 +39,10 @@ pub fn run_dispatcher(paths: DeskPaths) -> DeskResult<()> {
         data_dir: None,
         loopback_only: false,
         allow_on_panel_pc: false,
+        role: crate::role::HostRole::AgentService,
+        consent_gate: false,
+        custom_identity: None,
+        custom_trust: None,
     });
     service_dispatcher::start(SERVICE_NAME, ffi_service_main).map_err(|e| svc_err("dispatcher", e))
 }
