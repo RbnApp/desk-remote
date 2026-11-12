@@ -402,5 +402,78 @@
       "new": "Simulate new device",
       "known": "Simulate known device"
     }
+  },
+  "transfer": {
+    "send": "Send file",
+    "unavailable": "File sending isn't in this build yet.",
+    "pick": {
+      "title": "Send to which PC?",
+      "files": "Files",
+      "search": "Search PCs",
+      "search_ph": "Search by name",
+      "pcs": "PCs",
+      "none": "No PC matches.",
+      "offline": "Offline",
+      "send": "Send",
+      "cancel": "Cancel",
+      "choose_pc": "Choose a PC to enable Send.",
+      "nothing": "None of these can be sent.",
+      "skipped": "{n} item(s) will be skipped.",
+      "too_large": "Too large — at most {mb} MB can be sent.",
+      "folder": "Folders can't be sent. Pick files instead."
+    },
+    "list": {
+      "title": "Transfers",
+      "to": "to {pc}",
+      "from": "from {pc}",
+      "cancel": "Cancel",
+      "cancel_named": "Cancel sending {name}",
+      "dismiss": "Dismiss",
+      "sent": "Sent: {name} → {pc}",
+      "received": "Received: {name}",
+      "failed": "{name}: {reason}",
+      "speed": "{v}/s",
+      "receiving": "Receiving: {name}"
+    },
+    "err": {
+      "too_large": "File is larger than the limit.",
+      "denied": "The other PC refused the file.",
+      "no_answer": "The other PC didn't answer.",
+      "busy": "The other PC is busy with another transfer.",
+      "disk_full": "Not enough disk space on the other PC.",
+      "unsupported_folder": "Folders can't be sent. Pick files instead.",
+      "sha_mismatch": "The file arrived damaged (checksum mismatch). Try again.",
+      "canceled": "Canceled.",
+      "unknown": "The transfer failed."
+    },
+    "offer": {
+      "title": "{name} wants to send you a file",
+      "body": "Nothing is saved until you accept. Only accept files you expect.",
+      "file": "File",
+      "size": "Size",
+      "countdown": "No answer in {s} s counts as Reject.",
+      "accept": "Accept",
+      "reject": "Reject"
+    },
+    "set": {
+      "title": "File transfer",
+      "hint": "Limits what this PC will send and receive.",
+      "limit": "Largest file size (MB)",
+      "limit_hint": "Between 1 and 1024. Larger files are refused on both ends.",
+      "limit_bad": "Enter a whole number from 1 to 1024.",
+      "saved": "Limit saved",
+      "menu": "Explorer right-click menu",
+      "menu_hint": "Adds “Send with Desk-Remote” when you right-click a file.",
+      "menu_on": "On",
+      "menu_off": "Off",
+      "menu_unavailable": "The right-click menu isn't in this build yet.",
+      "menu_failed": "Couldn't change the right-click menu."
+    },
+    "demo": {
+      "title": "File transfer test",
+      "pick": "Simulate Explorer pick",
+      "folder": "Simulate folder pick",
+      "offer": "Simulate incoming file"
+    }
   }
 }

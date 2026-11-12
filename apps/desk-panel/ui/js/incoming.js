@@ -53,7 +53,7 @@ export async function refreshIncoming() {
 
 // ---------- window helpers ----------
 
-async function surfaceWindow() {
+export async function surfaceWindow() {
   const win = appWindow();
   try {
     await win.show();
@@ -65,7 +65,7 @@ async function surfaceWindow() {
   }
 }
 
-const dropWindowPin = () => appWindow().setAlwaysOnTop(false).catch(() => {});
+export const dropWindowPin = () => appWindow().setAlwaysOnTop(false).catch(() => {});
 
 const setTitle = (watched) =>
   appWindow()
