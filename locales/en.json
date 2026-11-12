@@ -488,5 +488,17 @@
   },
   "shell_menu": {
     "send": "Send with Desk-Remote"
+  },
+  "tabs": {
+    "label": "Connected PCs",
+    "add": "Connect another PC",
+    "close": "Close {name}",
+    "close_session": "Close tab",
+    "split": "Side by side",
+    "state": {
+      "online": "connected",
+      "connecting": "connecting",
+      "lost": "disconnected"
+    }
   }
 }

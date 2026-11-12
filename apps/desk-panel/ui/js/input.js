@@ -19,6 +19,8 @@ export function normalize(canvas, clientX, clientY) {
 /**
  * Wires pointer/wheel/keyboard listeners on `canvas`.
  * `send(event)` receives `InputEvent`-shaped objects; `isActive()` gates everything.
+ * Returns `release()`: key-ups for every key still held, so a shortcut that moves focus away
+ * (Ctrl+Tab) cannot leave a modifier stuck down on the remote PC. It also runs on blur.
  */
 export function attachInput(canvas, send, isActive) {
   let pendingMove = null;
@@ -56,11 +58,20 @@ export function attachInput(canvas, send, isActive) {
     },
     { passive: false },
   );
+  const held = new Set();
   const key = (pressed) => (e) => {
     if (!isActive()) return;
     e.preventDefault();
+    if (pressed) held.add(e.code);
+    else held.delete(e.code);
     send({ kind: "key", code: e.code, pressed });
   };
   canvas.addEventListener("keydown", key(true));
   canvas.addEventListener("keyup", key(false));
+  const release = () => {
+    for (const code of held) send({ kind: "key", code, pressed: false });
+    held.clear();
+  };
+  canvas.addEventListener("blur", release);
+  return release;
 }

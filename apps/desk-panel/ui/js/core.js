@@ -64,9 +64,13 @@ export function go(name) {
   render();
 }
 
+/** tabs.js repaints the tab strip and pauses hidden sessions after every screen change. */
+export const hooks = { afterRender() {} };
+
 export function render() {
   document.title = `Desk-Remote · ${t("nav.pcs")}`;
   screens[S.screen]?.();
+  hooks.afterRender();
 }
 
 /** Keeps focus on a control after a re-render replaced it. */
