@@ -224,16 +224,51 @@ unsafe extern "system" fn console_ctrl(_kind: u32) -> windows::core::BOOL {
     windows::core::BOOL(1)
 }
 
-/// Blocks until Ctrl+C / console close, or until `max` elapsed (console mode only).
+/// Name of the per-session stop event used by console (test) mode. The binary has no console
+/// window, so `desk-service stop` signals this event instead of Ctrl+C.
+const STOP_EVENT: windows::core::PCWSTR = windows::core::w!(r"Local\DeskRemote-ConsoleStop");
+
+/// Asks a running `run --console` instance of the same user session to stop. Returns `false`
+/// when none is running.
+#[must_use]
+pub fn request_console_stop() -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{OpenEventW, SetEvent, EVENT_MODIFY_STATE};
+    // SAFETY: plain Win32 calls on a handle owned by this function.
+    unsafe {
+        let Ok(event) = OpenEventW(EVENT_MODIFY_STATE, false, STOP_EVENT) else {
+            return false;
+        };
+        let ok = SetEvent(event).is_ok();
+        let _ = CloseHandle(event);
+        ok
+    }
+}
+
+/// Blocks until Ctrl+C / console close / [`request_console_stop`], or until `max` elapsed
+/// (console mode only).
 pub fn wait_for_console_stop(max: Option<std::time::Duration>) {
+    use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+    use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
     // SAFETY: the handler only touches an atomic flag.
     let _ =
         unsafe { windows::Win32::System::Console::SetConsoleCtrlHandler(Some(console_ctrl), true) };
+    // SAFETY: the event handle is closed before returning.
+    let event = unsafe { CreateEventW(None, true, false, STOP_EVENT) }.ok();
     let started = std::time::Instant::now();
     while !CONSOLE_STOP.load(Ordering::SeqCst) {
         if max.is_some_and(|m| started.elapsed() >= m) {
-            return;
+            break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        match event {
+            // SAFETY: valid event handle created above.
+            Some(e) if unsafe { WaitForSingleObject(e, 100) } == WAIT_OBJECT_0 => break,
+            Some(_) => {}
+            None => std::thread::sleep(std::time::Duration::from_millis(100)),
+        }
+    }
+    if let Some(e) = event {
+        // SAFETY: closing the handle created above.
+        let _ = unsafe { CloseHandle(e) };
     }
 }

@@ -475,5 +475,8 @@
       "folder": "Simulate folder pick",
       "offer": "Simulate incoming file"
     }
+  },
+  "shell_menu": {
+    "send": "Send with Desk-Remote"
   }
 }

@@ -16,5 +16,8 @@ desk-logger = { workspace = true }
 desk-service-core = { workspace = true }
 tracing = { workspace = true }
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_System_Console"] }
+
 [build-dependencies]
 embed-resource = "3"

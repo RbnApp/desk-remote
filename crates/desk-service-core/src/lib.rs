@@ -27,7 +27,7 @@ pub mod takeover;
 mod tracker;
 
 pub use control::Control;
-pub use host::{wait_for_console_stop, HostOptions, ServiceHost};
+pub use host::{request_console_stop, wait_for_console_stop, HostOptions, ServiceHost};
 pub use hub::{ConsentEvent, Hub};
 pub use launch::{active_console_session, LaunchMode};
 pub use role::{host_allowed, host_allowed_for_role, HostRole};

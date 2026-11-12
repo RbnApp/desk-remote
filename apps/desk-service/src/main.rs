@@ -3,6 +3,7 @@
 //! Usage:
 //!   desk-service install                      register + start the Windows service (admin)
 //!   desk-service uninstall                    stop + remove the service (admin)
+//!   desk-service stop                         stop a running `run --console` instance (no window)
 //!   desk-service run                          entry point used by the Service Control Manager
 //!   desk-service run --console [--loopback] [--allow-on-panel-pc] [--data-dir D] [--port P] [--run-for SECS]
 //!                                             run in the foreground as the current user (dev/test);
@@ -11,6 +12,10 @@
 //!                                             without it the host never starts on a panel PC
 
 #![cfg(windows)]
+// GUI subsystem in release: the binary NEVER opens a console window (not as service, not in
+// `run --console`). Console-mode output goes to the log file; `--attach-console` is the only,
+// explicit developer way to also print to the launching terminal (attach, never a new window).
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use desk_error::{DeskError, DeskResult};
 use desk_logger::{LogLevel, LoggerConfig};
@@ -23,6 +28,7 @@ use std::time::Duration;
 struct Args {
     command: String,
     console: bool,
+    attach_console: bool,
     loopback: bool,
     allow_on_panel_pc: bool,
     data_dir: Option<PathBuf>,
@@ -41,6 +47,7 @@ fn parse_args() -> DeskResult<Args> {
         };
         match flag.as_str() {
             "--console" => args.console = true,
+            "--attach-console" => args.attach_console = true,
             "--loopback" => args.loopback = true,
             "--allow-on-panel-pc" => args.allow_on_panel_pc = true,
             "--data-dir" => args.data_dir = Some(PathBuf::from(value("--data-dir")?)),
@@ -109,11 +116,28 @@ fn run(args: &Args) -> DeskResult<()> {
             host.stop();
             Ok(())
         }
+        "stop" => {
+            if desk_service_core::request_console_stop() {
+                Ok(())
+            } else {
+                Err(DeskError::Service(
+                    "no console-mode agent is running".into(),
+                ))
+            }
+        }
         "run" => desk_service_core::run_dispatcher(paths),
         other => Err(DeskError::Config(format!(
-            "unknown command '{other}' (install | uninstall | run [--console [--loopback]])"
+            "unknown command '{other}' (install | uninstall | stop | run [--console [--loopback]])"
         ))),
     }
+}
+
+/// Attaches to the launching terminal's console (never creates a window). `false` when the
+/// parent has no console.
+fn attach_parent_console() -> bool {
+    use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+    // SAFETY: plain Win32 call without pointers.
+    unsafe { AttachConsole(ATTACH_PARENT_PROCESS) }.is_ok()
 }
 
 fn main() -> std::process::ExitCode {
@@ -121,7 +145,9 @@ fn main() -> std::process::ExitCode {
         Ok(a) => a,
         Err(_) => return std::process::ExitCode::from(2),
     };
-    let console = args.console || args.command != "run";
+    // Only an explicit developer flag prints to a terminal, and only by attaching to the
+    // parent's console; without it every message goes to the log file.
+    let console = args.attach_console && attach_parent_console();
     let paths = paths_for(&args);
     let config = LoggerConfig {
         level: LogLevel::Info,

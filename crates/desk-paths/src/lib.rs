@@ -204,6 +204,30 @@ impl DeskPaths {
     }
 }
 
+/// Win32 `CREATE_NO_WINDOW` process-creation flag: the child never gets a console window.
+/// The single definition for every process the product starts.
+pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Builds a [`std::process::Command`] that can never show a console window (Windows:
+/// `CREATE_NO_WINDOW`; other platforms: plain command). EVERY process the product starts
+/// must be created through this function.
+#[must_use]
+pub fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    let mut cmd = std::process::Command::new(program);
+    hide_window(&mut cmd);
+    cmd
+}
+
+/// Applies the no-console flag to an existing command (use when a command is built elsewhere).
+pub fn hide_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 /// Convenience function returning the default canonical paths.
 pub fn canonical() -> DeskPaths {
     DeskPaths::default()

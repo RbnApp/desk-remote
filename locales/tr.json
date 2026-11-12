@@ -475,5 +475,8 @@
       "folder": "Klasör seçimini taklit et",
       "offer": "Gelen dosyayı taklit et"
     }
+  },
+  "shell_menu": {
+    "send": "Desk-Remote ile gönder"
   }
 }
