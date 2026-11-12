@@ -16,7 +16,9 @@
     "on": "Bağlı",
     "off": "Bağlı değil",
     "starting": "Başlıyor…",
-    "checking": "Denetleniyor…"
+    "checking": "Denetleniyor…",
+    "needs_login": "Giriş gerekli",
+    "failed": "Durdu"
   },
   "status": {
     "online": "Çevrimiçi",
@@ -292,6 +294,7 @@
       "connecting": "Tarayıcıda girişin tamamlanması bekleniyor…",
       "connect_hint": "Tarayıcında bir giriş sayfası açılır. Girişi bitirince bu durum “bağlı”ya döner. Panel kendi bağlantısını kullanır; varsa Tailscale uygulamana dokunmaz.",
       "disconnect": "Oturumu kapat",
+      "cancel": "Beklemeyi bırak",
       "disconnect_hint": "Yalnız bu panelin tailnet oturumunu kapatır. Bu PC’deki başka bir Tailscale uygulaması etkilenmez.",
       "failed": "Giriş başlatılamadı. Tekrar dene.",
       "peers": "Diğer cihazlar",

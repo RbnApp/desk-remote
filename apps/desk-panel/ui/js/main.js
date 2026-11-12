@@ -7,6 +7,7 @@ import { incomingActions, setIncomingEnabled, startIncoming } from "./incoming.j
 import { startTransfer, transferActions } from "./transfer.js";
 import { onCodeInput, onTargetInput, pair, pickTarget, resetPair, submitPair } from "./pair.js";
 import {
+  cancelTailscaleConnect,
   connectTailscale,
   copyKeyCommand,
   onFarmKeyInput,
@@ -33,6 +34,7 @@ const actions = {
     render();
   },
   "ts-connect": () => connectTailscale(),
+  "ts-cancel": () => cancelTailscaleConnect(),
   "ts-keys": () => openKeysPage(),
   "ts-disconnect": () => disconnectTailscale(),
   "ts-copy": () => copyKeyCommand(),

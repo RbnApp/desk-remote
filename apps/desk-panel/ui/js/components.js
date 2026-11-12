@@ -90,8 +90,12 @@ export function NetStatus() {
     shape = "dot";
     cls = "online";
     label = t("net.on");
-  } else if (ts.state === "starting" || ts.state === "needs_login") {
+  } else if (ts.state === "starting") {
     label = t("net.starting");
+  } else if (ts.state === "needs_login") {
+    label = t("net.needs_login");
+  } else if (ts.state === "failed") {
+    label = t("net.failed");
   }
   return `<div class="side-foot" aria-label="${t("net.label")}"><span>${t("net.label")}</span>
     <div class="net-row"><span>${t("net.lan")}</span><span class="badge online">${ic("dot")}${t("net.lan_ok")}</span></div>

@@ -16,7 +16,9 @@
     "on": "Connected",
     "off": "Not connected",
     "starting": "Starting…",
-    "checking": "Checking…"
+    "checking": "Checking…",
+    "needs_login": "Sign-in needed",
+    "failed": "Stopped"
   },
   "status": {
     "online": "Online",
@@ -292,6 +294,7 @@
       "connecting": "Waiting for sign-in in your browser…",
       "connect_hint": "A sign-in page opens in your browser. Once you finish, this status turns to connected. The panel uses its own connection and never changes the Tailscale app, if you have one.",
       "disconnect": "Sign out",
+      "cancel": "Stop waiting",
       "disconnect_hint": "Signs only this panel out of your tailnet. Another Tailscale app on this PC is not affected.",
       "failed": "Couldn't start the sign-in. Try again.",
       "peers": "Other devices",
