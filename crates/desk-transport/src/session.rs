@@ -330,6 +330,13 @@ impl Session {
         self.write_raw(&keys.seal_static_key(identity.public_key())?)?;
 
         let mut mgr = pairing_step(pairing_mgr);
+        // The lock was released during network I/O: the code may have been used by a
+        // concurrent pairing or revoked after failed attempts. Single use is decided here.
+        if mgr.active_code() != Some(code.as_str()) {
+            return Err(DeskError::Crypto(
+                "pairing rejected: code already used or revoked".to_string(),
+            ));
+        }
         mgr.consume_code();
         mgr.add_trusted(&panel_pub)?;
         drop(mgr);
