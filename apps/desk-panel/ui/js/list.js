@@ -17,6 +17,24 @@ export async function loadPcs() {
   if (S.screen === "list" || S.screen === "pair") render();
 }
 
+const REFRESH_MS = 5000;
+
+/** Quiet refresh: statuses and latency update in place without the loading state. */
+setInterval(async () => {
+  if (S.screen !== "list" || S.listState === "loading" || S.listState === "error") return;
+  const focused = document.activeElement;
+  if (focused && focused.id === "q") return;
+  try {
+    const next = await invoke("list_pcs");
+    if (JSON.stringify(next) === JSON.stringify(S.pcs) || S.screen !== "list") return;
+    S.pcs = next;
+    S.listState = next.length ? "ready" : "empty";
+    refreshResults();
+  } catch {
+    /* keep the last known list */
+  }
+}, REFRESH_MS);
+
 const count = (filter) => (filter === "all" ? S.pcs.length : S.pcs.filter((p) => p.status === filter).length);
 
 function toolbar() {

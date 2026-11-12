@@ -540,3 +540,28 @@ fn persistence_survives_restart_and_still_rejects_strangers() -> DeskResult<()> 
     assert_err_contains(join(h2)?.0, "rejected unpaired peer");
     Ok(())
 }
+
+#[test]
+fn peer_target_parse_classifies_and_defaults_port() -> DeskResult<()> {
+    assert_eq!(
+        PeerTarget::parse("192.168.1.20")?,
+        PeerTarget::Lan(SocketAddr::from(([192, 168, 1, 20], DEFAULT_PORT)))
+    );
+    assert_eq!(
+        PeerTarget::parse(" 100.101.102.103:5000 ")?,
+        PeerTarget::Tailscale {
+            ip: IpAddr::from([100, 101, 102, 103]),
+            port: 5000
+        }
+    );
+    assert!(PeerTarget::parse("100.63.0.1")?
+        .socket_addr()
+        .ip()
+        .is_ipv4());
+    assert!(matches!(
+        PeerTarget::parse("100.63.0.1")?,
+        PeerTarget::Lan(_)
+    ));
+    assert!(PeerTarget::parse("no such host !!").is_err());
+    Ok(())
+}

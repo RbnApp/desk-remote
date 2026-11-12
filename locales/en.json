@@ -47,6 +47,7 @@
   },
   "warn": {
     "latency": "High latency",
+    "unpaired": "This PC no longer trusts the panel",
     "agent": "Agent out of date"
   },
   "list": {
@@ -102,7 +103,17 @@
     },
     "code": {
       "label": "Code shown on the PC",
-      "hint": "8 characters. The code is valid for 10 minutes and works once."
+      "hint": "8 characters. The code is valid for 5 minutes and works once."
+    },
+    "target": {
+      "label": "PC address",
+      "ph": "192.168.1.20 or office-pc",
+      "hint": "Pick a PC found on your network or Tailscale below, or type its IP address or name.",
+      "found": "Found nearby",
+      "none": "No PCs found yet. Type the address instead.",
+      "lan": "Local network",
+      "tailscale": "Tailscale",
+      "paired": "paired"
     },
     "name": {
       "label": "PC name (optional)",
@@ -142,6 +153,18 @@
       "network": {
         "title": "Couldn't reach the PC",
         "detail": "Check your connection (local network or Tailscale) and try again."
+      },
+      "rejected": {
+        "title": "The PC refused the code",
+        "detail": "The code is wrong, expired or already used. Click “Show new code” on the PC and try again."
+      },
+      "unpaired": {
+        "title": "Not paired",
+        "detail": "This PC does not trust this panel. Pair it again with a new code."
+      },
+      "target": {
+        "title": "Address missing",
+        "detail": "Pick a PC from the list or type its IP address or name."
       }
     },
     "ok": {
@@ -197,7 +220,9 @@
       "body": "{name} isn't responding. Reconnecting ({n}/{max})…",
       "retry": "Retry now",
       "fail_title": "Couldn't connect",
-      "fail_body": "{name} didn't respond after {max} attempts. The PC may be off or disconnected from the network."
+      "fail_body": "{name} didn't respond after {max} attempts. The PC may be off or disconnected from the network.",
+      "unpaired_title": "PC refused the connection",
+      "unpaired_body": "{name} no longer trusts this panel, or its key changed. Pair it again with a new code on the PC."
     },
     "unsupported": {
       "title": "This system can't decode H.264",

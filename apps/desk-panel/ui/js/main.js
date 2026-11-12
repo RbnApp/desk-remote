@@ -3,7 +3,7 @@
 import { S, appWindow, go, invoke, refocus, render } from "./core.js";
 import { applyTheme, loadCatalog, loadPreviews, watchSystemTheme } from "./theme.js";
 import { loadPcs, refreshResults } from "./list.js";
-import { onCodeInput, pair, resetPair, submitPair } from "./pair.js";
+import { onCodeInput, onTargetInput, pair, pickTarget, resetPair, submitPair } from "./pair.js";
 import {
   connectTailscale,
   copyKeyCommand,
@@ -37,6 +37,7 @@ const actions = {
   fs: () => toggleFullscreen(),
   "v-retry": () => retryNow(),
   "demo-drop": () => dropDemoConnection(),
+  "pick-target": (el) => pickTarget(el.dataset.address),
   "pair-again": () => {
     resetPair();
     render();
@@ -81,6 +82,8 @@ document.addEventListener("input", (e) => {
     refreshResults();
   } else if (id === "code") {
     onCodeInput(e.target);
+  } else if (id === "target") {
+    onTargetInput(value);
   } else if (id === "pname") {
     pair.name = value;
   } else if (id === "farmKey") {

@@ -941,11 +941,14 @@ name = "desk-panel"
 version = "0.1.0"
 dependencies = [
  "desk-config",
+ "desk-crypto",
  "desk-error",
  "desk-i18n",
  "desk-logger",
  "desk-paths",
+ "desk-protocol",
  "desk-theme",
+ "desk-transport",
  "desk-version",
  "serde",
  "serde_json",
@@ -1022,8 +1025,11 @@ dependencies = [
 name = "desk-transport"
 version = "0.1.0"
 dependencies = [
+ "desk-capture",
+ "desk-codec",
  "desk-crypto",
  "desk-error",
+ "desk-logger",
  "desk-paths",
  "desk-protocol",
  "mdns-sd",

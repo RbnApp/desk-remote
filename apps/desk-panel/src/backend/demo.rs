@@ -2,11 +2,12 @@
 //!
 //! Compiled only with `--features demo`; it is never part of a shipped build.
 
+use super::h264::{avc1_codec, nal_starts};
 use super::{
-    Backend, EventSink, InputEvent, PairError, PcInfo, PcStatus, SessionEvent, ViewerSession,
+    Backend, Candidate, EventSink, InputEvent, PairError, PcInfo, PcStatus, SessionEvent,
+    ViewerSession,
 };
 use desk_config::PairedPc;
-use desk_error::{DeskError, DeskResult};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -73,6 +74,7 @@ impl Backend for DemoBackend {
                 status: PcStatus::Online,
                 last_seen_min: 0,
                 warn: None,
+                latency_ms: Some(2),
             })
             .collect();
         rows.extend(FAKE_PCS.iter().map(|(id, name, status, min, warn)| PcInfo {
@@ -81,11 +83,16 @@ impl Backend for DemoBackend {
             status: *status,
             last_seen_min: *min,
             warn: warn.map(str::to_string),
+            latency_ms: (*status == PcStatus::Online).then_some(2),
         }));
         rows
     }
 
-    fn pair(&self, code: &str, name: Option<&str>) -> Result<PairedPc, PairError> {
+    fn discover(&self, _paired: &[PairedPc]) -> Vec<Candidate> {
+        Vec::new()
+    }
+
+    fn pair(&self, _target: &str, code: &str, name: Option<&str>) -> Result<PairedPc, PairError> {
         match code {
             "ABCD-2345" => {
                 let n = self.pair_counter.fetch_add(1, Ordering::Relaxed) + 1;
@@ -95,6 +102,7 @@ impl Backend for DemoBackend {
                     name: name
                         .filter(|s| !s.trim().is_empty())
                         .map_or(fallback, |s| s.trim().to_string()),
+                    address: None,
                 })
             }
             "EXPR-0000" => Err(PairError::Expired),
@@ -104,23 +112,19 @@ impl Backend for DemoBackend {
         }
     }
 
-    fn connect(&self, pc_id: &str, sink: EventSink) -> DeskResult<Box<dyn ViewerSession>> {
+    fn connect(&self, pc: &PairedPc, sink: EventSink) -> Result<Box<dyn ViewerSession>, PairError> {
+        let pc_id = pc.id.as_str();
         if self.fail_connects.load(Ordering::Relaxed) > 0 {
             self.fail_connects.fetch_sub(1, Ordering::Relaxed);
-            return Err(DeskError::Transport(
-                "demo: simulated unreachable PC".to_string(),
-            ));
+            return Err(PairError::Network);
         }
         if let Some((_, _, status, _, _)) = FAKE_PCS.iter().find(|p| p.0 == pc_id) {
             if matches!(status, PcStatus::Offline | PcStatus::Connecting) {
-                return Err(DeskError::Transport(
-                    "demo: PC is not reachable".to_string(),
-                ));
+                return Err(PairError::Network);
             }
         }
         let units = split_access_units(SAMPLE);
-        let codec = codec_string(&units)
-            .ok_or_else(|| DeskError::Codec("demo sample has no SPS".to_string()))?;
+        let codec = codec_string(&units).ok_or(PairError::Network)?;
         let stop = Arc::new(AtomicBool::new(false));
         if let Ok(mut slot) = self.active_stop.lock() {
             if let Some(previous) = slot.replace(Arc::clone(&stop)) {
@@ -131,7 +135,7 @@ impl Backend for DemoBackend {
         std::thread::Builder::new()
             .name("demo-session".to_string())
             .spawn(move || stream(&units, &codec, &sink, &thread_stop))
-            .map_err(DeskError::from)?;
+            .map_err(|_| PairError::Network)?;
         Ok(Box::new(DemoSession { stop }))
     }
 
@@ -155,7 +159,7 @@ struct DemoSession {
 }
 
 impl ViewerSession for DemoSession {
-    fn send_input(&self, event: InputEvent) {
+    fn send_input(&self, event: &InputEvent) {
         match event {
             InputEvent::MouseMove { x, y } => tracing::debug!(x, y, "demo: mouse move"),
             InputEvent::MouseButton {
@@ -164,7 +168,7 @@ impl ViewerSession for DemoSession {
                 x,
                 y,
             } => tracing::debug!(button, pressed, x, y, "demo: mouse button"),
-            InputEvent::Wheel { dx, dy } => tracing::debug!(dx, dy, "demo: wheel"),
+            InputEvent::Wheel { dy } => tracing::debug!(dy, "demo: wheel"),
             InputEvent::Key { code, pressed } => tracing::debug!(code, pressed, "demo: key"),
         }
     }
@@ -221,21 +225,6 @@ fn stream(units: &[AccessUnit], codec: &str, sink: &EventSink, stop: &AtomicBool
     sink(SessionEvent::Closed);
 }
 
-/// Offsets of the first byte after each Annex-B start code.
-fn nal_starts(stream: &[u8]) -> Vec<usize> {
-    let mut starts = Vec::new();
-    let mut i = 0;
-    while i + 3 <= stream.len() {
-        if stream[i] == 0 && stream[i + 1] == 0 && stream[i + 2] == 1 {
-            starts.push(i + 3);
-            i += 3;
-        } else {
-            i += 1;
-        }
-    }
-    starts
-}
-
 /// Groups NAL units into access units: parameter sets and SEI travel with the next slice.
 fn split_access_units(stream: &[u8]) -> Vec<AccessUnit> {
     let starts = nal_starts(stream);
@@ -260,20 +249,9 @@ fn split_access_units(stream: &[u8]) -> Vec<AccessUnit> {
     units
 }
 
-/// `avc1.PPCCLL` derived from the first SPS in the sample.
+/// `avc1.PPCCLL` of the first access unit.
 fn codec_string(units: &[AccessUnit]) -> Option<String> {
-    let first = units.first()?;
-    nal_starts(&first.data).iter().find_map(|&s| {
-        let nal = first.data.get(s..)?;
-        (nal.first()? & 0x1f == 7).then(|| {
-            format!(
-                "avc1.{:02X}{:02X}{:02X}",
-                nal.get(1).copied().unwrap_or(0),
-                nal.get(2).copied().unwrap_or(0),
-                nal.get(3).copied().unwrap_or(0)
-            )
-        })
-    })
+    avc1_codec(&units.first()?.data)
 }
 
 #[cfg(test)]
@@ -291,13 +269,13 @@ mod tests {
     #[test]
     fn pairing_codes_map_to_outcomes() {
         let backend = DemoBackend::new();
-        assert!(backend.pair("ABCD-2345", Some("Desk")).is_ok());
+        assert!(backend.pair("", "ABCD-2345", Some("Desk")).is_ok());
         assert_eq!(
-            backend.pair("EXPR-0000", None).err(),
+            backend.pair("", "EXPR-0000", None).err(),
             Some(PairError::Expired)
         );
         assert_eq!(
-            backend.pair("ZZZZ-9999", None).err(),
+            backend.pair("", "ZZZZ-9999", None).err(),
             Some(PairError::Invalid)
         );
     }

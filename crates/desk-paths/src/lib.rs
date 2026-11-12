@@ -82,6 +82,11 @@ impl DeskPaths {
         self.system_root.join("identity.key")
     }
 
+    /// Viewer-panel identity keypair (`<AppData>/DeskRemote/panel_identity.key`, DPAPI).
+    pub fn panel_identity_path(&self) -> PathBuf {
+        self.user_root.join("panel_identity.key")
+    }
+
     /// Trusted viewer-panel list on the host (`<ProgramData>/DeskRemote/trusted_peers.dat`, DPAPI).
     pub fn trusted_peers_path(&self) -> PathBuf {
         self.system_root.join("trusted_peers.dat")

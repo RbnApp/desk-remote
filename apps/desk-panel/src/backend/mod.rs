@@ -1,21 +1,18 @@
 //! Panel-side view of the transport layer.
 //!
-//! `desk-transport` / `desk-protocol` are still skeletons, so the panel talks to a
-//! [`Backend`] trait that mirrors the planned `Session` contract (pairing, viewer
-//! join/leave, `VideoConfig`/`VideoFrame`, `RequestKeyframe`, `InputEvent`, `Ping/Pong`).
-//! When the transport lands, one adapter implementing [`Backend`] replaces the stand-ins.
-
-// Without the demo feature nothing produces session events until `desk-transport` exists,
-// so the contract types are intentionally unconstructed in that build.
-#![cfg_attr(not(feature = "demo"), allow(dead_code))]
+//! The panel talks to a [`Backend`]: [`transport::TransportBackend`] in every real build
+//! (pairing, discovery, status probes and viewer sessions over `desk-transport`), and the
+//! synthetic `demo` backend only when the `demo` feature is enabled for tests.
 
 #[cfg(feature = "demo")]
 pub mod demo;
-#[cfg(not(feature = "demo"))]
-mod none;
+mod h264;
+#[cfg_attr(feature = "demo", allow(dead_code))]
+mod input_map;
+#[cfg_attr(feature = "demo", allow(dead_code))]
+mod transport;
 
 use desk_config::PairedPc;
-use desk_error::DeskResult;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -39,15 +36,36 @@ pub struct PcInfo {
     pub last_seen_min: u32,
     /// i18n key suffix under `warn.*` explaining a [`PcStatus::Warning`].
     pub warn: Option<String>,
+    /// Round-trip time of the last status probe, when the PC answered.
+    pub latency_ms: Option<u32>,
+}
+
+/// A PC the user could pair with, found on the LAN (mDNS) or in the tailnet.
+#[derive(Debug, Clone, Serialize)]
+pub struct Candidate {
+    pub name: String,
+    /// `ip:port` to pair with.
+    pub address: String,
+    /// `"lan"` or `"tailscale"`.
+    pub source: &'static str,
+    /// Already in the paired list.
+    pub paired: bool,
 }
 
 /// Why a pairing attempt failed; the codes are the i18n keys under `pair.err.*`.
+// Each backend produces a different subset: the real host cannot tell an expired or used
+// code from a wrong one (it answers `Rejected`), and the demo backend knows no `Unpaired`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum PairError {
     Invalid,
     Expired,
     Used,
     Network,
+    /// The host refused the code without saying why (wrong, expired or already used).
+    Rejected,
+    /// The host does not know this panel, or this panel does not know the host.
+    Unpaired,
 }
 
 impl PairError {
@@ -58,6 +76,8 @@ impl PairError {
             Self::Expired => "expired",
             Self::Used => "used",
             Self::Network => "network",
+            Self::Rejected => "rejected",
+            Self::Unpaired => "unpaired",
         }
     }
 }
@@ -76,8 +96,8 @@ pub enum InputEvent {
         x: u16,
         y: u16,
     },
+    /// Vertical scroll in web pixels (positive = down); the horizontal part is not forwarded.
     Wheel {
-        dx: i32,
         dy: i32,
     },
     Key {
@@ -114,7 +134,7 @@ pub type EventSink = Arc<dyn Fn(SessionEvent) + Send + Sync>;
 /// A live viewer session towards one PC.
 pub trait ViewerSession: Send {
     /// Forwards one input event (`InputEvent`).
-    fn send_input(&self, event: InputEvent);
+    fn send_input(&self, event: &InputEvent);
     /// Asks the host for a fresh keyframe (`RequestKeyframe`).
     fn request_keyframe(&self);
     /// Leaves the session (`ViewerLeave`).
@@ -125,10 +145,12 @@ pub trait ViewerSession: Send {
 pub trait Backend: Send + Sync {
     /// Current list rows for the paired PCs.
     fn list(&self, paired: &[PairedPc]) -> Vec<PcInfo>;
-    /// Redeems a pairing code (`PairRequest/PairResult`).
-    fn pair(&self, code: &str, name: Option<&str>) -> Result<PairedPc, PairError>;
-    /// Joins a PC as viewer (`ViewerJoin`) and starts streaming into `sink`.
-    fn connect(&self, pc_id: &str, sink: EventSink) -> DeskResult<Box<dyn ViewerSession>>;
+    /// PCs that could be paired (mDNS neighbours and online tailnet peers).
+    fn discover(&self, paired: &[PairedPc]) -> Vec<Candidate>;
+    /// Pairs with the PC at `target` (`ip[:port]` or a name) using its one-time code.
+    fn pair(&self, target: &str, code: &str, name: Option<&str>) -> Result<PairedPc, PairError>;
+    /// Joins a paired PC as viewer (`ViewerJoin`) and starts streaming into `sink`.
+    fn connect(&self, pc: &PairedPc, sink: EventSink) -> Result<Box<dyn ViewerSession>, PairError>;
     /// True for the synthetic test backend.
     fn is_demo(&self) -> bool {
         false
@@ -145,6 +167,6 @@ pub fn select() -> Arc<dyn Backend> {
     }
     #[cfg(not(feature = "demo"))]
     {
-        Arc::new(none::NoTransport)
+        Arc::new(transport::TransportBackend::new())
     }
 }

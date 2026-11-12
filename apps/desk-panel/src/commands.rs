@@ -1,9 +1,9 @@
 //! Tauri commands: the only bridge between the web UI and Rust.
 
-use crate::backend::{Backend, InputEvent, PcInfo, SessionEvent, ViewerSession};
-use crate::tailscale::{self, TailscaleStatus};
+use crate::backend::{Backend, Candidate, InputEvent, PcInfo, SessionEvent, ViewerSession};
 use desk_config::{ConfigManager, PairedPc, PanelConfig};
 use desk_theme::{ResolvedTheme, ThemeMode};
+use desk_transport::TailscaleDetector;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -30,6 +30,16 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 pub struct AppInfo {
     version: &'static str,
     demo: bool,
+}
+
+/// Tailscale state shown in the sidebar and the settings screen.
+#[derive(Serialize)]
+pub struct TailscaleInfo {
+    installed: bool,
+    connected: bool,
+    state: String,
+    host: Option<String>,
+    address: Option<String>,
 }
 
 /// Light and dark tokens of one palette, for the palette picker previews.
@@ -111,17 +121,27 @@ pub fn list_pcs(state: State<'_, AppState>) -> Vec<PcInfo> {
     state.backend.list(&paired)
 }
 
-/// Redeems a pairing code; the error value is the `pair.err.*` code.
+/// PCs that can be paired: mDNS neighbours and online tailnet peers.
 #[tauri::command]
-pub fn pair_pc(
+pub fn discover_pcs(state: State<'_, AppState>) -> Vec<Candidate> {
+    let paired = lock(&state.config).paired_pcs.clone();
+    state.backend.discover(&paired)
+}
+
+/// Pairs with the PC at `target` using its code; the error value is the `pair.err.*` code.
+#[tauri::command]
+pub async fn pair_pc(
     state: State<'_, AppState>,
+    target: String,
     code: String,
     name: Option<String>,
 ) -> Result<PairedPc, String> {
-    let pc = state
-        .backend
-        .pair(&code, name.as_deref())
-        .map_err(|e| e.code().to_string())?;
+    let backend = Arc::clone(&state.backend);
+    let pc =
+        tauri::async_runtime::spawn_blocking(move || backend.pair(&target, &code, name.as_deref()))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.code().to_string())?;
     let mut cfg = lock(&state.config);
     cfg.paired_pcs.retain(|p| p.id != pc.id);
     cfg.paired_pcs.push(pc.clone());
@@ -134,12 +154,18 @@ pub fn pair_pc(
 /// Frames travel as raw bytes (`[keyframe u8][ts_us u64 LE][Annex-B data]`); every other
 /// event is a JSON text message with a `type` field.
 #[tauri::command]
-pub fn viewer_connect(
+pub async fn viewer_connect(
     state: State<'_, AppState>,
     pc_id: String,
     events: Channel<InvokeResponseBody>,
 ) -> Result<(), String> {
     viewer_disconnect(state.clone());
+    let pc = lock(&state.config)
+        .paired_pcs
+        .iter()
+        .find(|p| p.id == pc_id)
+        .cloned()
+        .ok_or_else(|| "unpaired".to_string())?;
     let sink = Arc::new(move |event: SessionEvent| {
         let body = match event {
             SessionEvent::Frame {
@@ -173,10 +199,11 @@ pub fn viewer_connect(
             tracing::debug!(error = %e, "viewer channel closed");
         }
     });
-    let session = state
-        .backend
-        .connect(&pc_id, sink)
-        .map_err(|e| e.to_string())?;
+    let backend = Arc::clone(&state.backend);
+    let session = tauri::async_runtime::spawn_blocking(move || backend.connect(&pc, sink))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.code().to_string())?;
     *lock(&state.session) = Some(session);
     Ok(())
 }
@@ -191,7 +218,7 @@ pub fn viewer_disconnect(state: State<'_, AppState>) {
 #[tauri::command]
 pub fn viewer_input(state: State<'_, AppState>, event: InputEvent) {
     if let Some(session) = lock(&state.session).as_ref() {
-        session.send_input(event);
+        session.send_input(&event);
     }
 }
 
@@ -203,18 +230,28 @@ pub fn viewer_request_keyframe(state: State<'_, AppState>) {
 }
 
 #[tauri::command]
-pub async fn tailscale_status() -> Result<TailscaleStatus, String> {
-    tauri::async_runtime::spawn_blocking(tailscale::status)
-        .await
-        .map_err(|e| e.to_string())
+pub async fn tailscale_status() -> Result<TailscaleInfo, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let snapshot = TailscaleDetector::snapshot();
+        TailscaleInfo {
+            installed: snapshot.status.installed,
+            connected: snapshot.status.running,
+            state: snapshot.status.backend_state,
+            host: snapshot.host_name,
+            address: snapshot.status.ips.into_iter().next(),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Starts the Tailscale sign-in and opens the login page in the default browser.
 #[tauri::command]
 pub async fn tailscale_connect() -> Result<(), String> {
-    let url = tauri::async_runtime::spawn_blocking(tailscale::begin_sign_in)
+    let url = tauri::async_runtime::spawn_blocking(TailscaleDetector::begin_sign_in)
         .await
-        .map_err(|e| e.to_string())??;
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
     if let Some(url) = url {
         tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| e.to_string())?;
     }

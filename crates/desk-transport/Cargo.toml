@@ -20,4 +20,8 @@ mdns-sd = "0.13"
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# dev_host example only (fake PC for panel development)
+desk-capture = { workspace = true }
+desk-codec = { workspace = true }
+desk-logger = { workspace = true }
 

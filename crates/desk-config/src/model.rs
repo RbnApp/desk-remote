@@ -9,6 +9,9 @@ pub struct PairedPc {
     pub id: String,
     /// Display name chosen at pairing time.
     pub name: String,
+    /// Last known `host:port` (LAN or Tailscale) used to reach the PC without discovery.
+    #[serde(default)]
+    pub address: Option<String>,
 }
 
 /// Management panel configuration schema.
