@@ -92,6 +92,8 @@ pub struct ServiceHost {
     threads: Vec<JoinHandle<()>>,
     _announcer: Option<LanAnnouncer>,
     _tailnet: Option<TailnetGuard>,
+    paths: DeskPaths,
+    portable: bool,
 }
 
 impl ServiceHost {
@@ -148,7 +150,10 @@ impl ServiceHost {
         } else {
             None
         };
-        let tailnet = if svc.tailnet_helper && !opts.loopback_only {
+        let tailnet = if svc.tailnet_helper
+            && !opts.loopback_only
+            && opts.role == crate::role::HostRole::AgentService
+        {
             TailnetGuard::start(
                 &paths,
                 port,
@@ -192,6 +197,8 @@ impl ServiceHost {
             threads,
             _announcer: announcer,
             _tailnet: tailnet,
+            paths,
+            portable: opts.portable,
         })
     }
 
@@ -218,7 +225,18 @@ impl ServiceHost {
         for t in self.threads.drain(..) {
             let _ = t.join();
         }
+        if self.portable {
+            let _ = crate::tailnet::restore_official(&self.paths);
+        }
         tracing::info!("desk service stopped");
+    }
+}
+
+impl Drop for ServiceHost {
+    fn drop(&mut self) {
+        if self.portable {
+            let _ = crate::tailnet::restore_official(&self.paths);
+        }
     }
 }
 

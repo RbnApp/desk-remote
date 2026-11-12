@@ -80,8 +80,29 @@ fn tailnet_line(info: Option<&AgentInfo>) -> (String, bool) {
             Some(ip) => (t("tray.tailnet_connected").replace("{ip}", ip), true),
             None => (t("tray.tailnet_off"), false),
         },
-        Some(i) if i.tailnet == TailnetState::NeedsLogin => (t("tray.tailnet_login"), false),
+        Some(i) if i.tailnet == TailnetState::NeedsLogin => (t("tray.tailnet_login"), true),
         _ => (t("tray.tailnet_off"), false),
+    }
+}
+
+/// Opens a URL in the user's default browser (never creates a console window).
+pub fn open_browser(url: &str) {
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        tracing::warn!("ignoring non-http browser request");
+        return;
+    }
+    let operation = wide("open");
+    let wide_url = wide(url);
+    // SAFETY: ShellExecuteW is called with valid wide strings for default browser launch.
+    unsafe {
+        let _ = windows::Win32::UI::Shell::ShellExecuteW(
+            None,
+            PCWSTR(operation.as_ptr()),
+            PCWSTR(wide_url.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+        );
     }
 }
 
@@ -163,6 +184,9 @@ pub fn show(hwnd: HWND) {
             }
             let (line, copyable) = tailnet_line(Some(i));
             append(menu, ID_COPY_TAILNET, &line, copyable, false);
+            if i.takeover_needs_admin {
+                append(menu, 0, &t("tray.tailnet_needs_admin"), false, false);
+            }
         }
         separator(menu);
         append(menu, ID_SHOW_CODE, &t("tray.show_code"), true, false);
@@ -220,8 +244,14 @@ fn run(hwnd: HWND, picked: usize, info: Option<&AgentInfo>) {
             }
         }
         ID_COPY_TAILNET => {
-            if let Some((i, ip)) = info.and_then(|i| tailnet_ip(i).map(|ip| (i, ip))) {
-                copy_to_clipboard(hwnd, &endpoint(ip, i.port));
+            if let Some(i) = info {
+                if i.tailnet == TailnetState::NeedsLogin {
+                    if let Some(url) = &i.tailnet_auth_url {
+                        open_browser(url);
+                    }
+                } else if let Some((_, ip)) = tailnet_ip(i).map(|ip| (i, ip)) {
+                    copy_to_clipboard(hwnd, &endpoint(ip, i.port));
+                }
             }
         }
         ID_SHOW_CODE => crate::code::show(),
@@ -268,11 +298,11 @@ mod tests {
     }
 
     #[test]
-    fn tailnet_line_is_copyable_only_when_connected() {
+    fn tailnet_line_is_clickable_for_connected_and_login() {
         assert!(tailnet_line(Some(&info())).1);
         let mut login = info();
         login.tailnet = TailnetState::NeedsLogin;
-        assert!(!tailnet_line(Some(&login)).1);
+        assert!(tailnet_line(Some(&login)).1);
         assert!(!tailnet_line(None).1);
     }
 

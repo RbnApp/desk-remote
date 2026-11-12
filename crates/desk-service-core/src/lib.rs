@@ -35,5 +35,6 @@ pub use hub::{ConsentEvent, Hub};
 pub use launch::{active_console_session, LaunchMode};
 pub use role::{host_allowed, host_allowed_for_role, HostRole};
 pub use scm::{install, run_dispatcher, uninstall, SERVICE_NAME};
+pub use tailnet::{ensure_helper_extracted, helper_executable_path, restore_official};
 pub use tracker::{Backoff, SessionEvent, SessionTracker};
 pub use transfer::{TransferEvent, TransferListener, TransferState};
