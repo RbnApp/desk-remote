@@ -36,16 +36,6 @@ pub enum PeerTarget {
     LoopbackBridge(SocketAddr),
 }
 
-/// Primary outbound IPv4 of this PC (a UDP "connect" sends no packet; it only picks a route).
-#[must_use]
-pub fn primary_local_ip() -> Option<IpAddr> {
-    let socket = std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, 0)).ok()?;
-    socket
-        .connect((std::net::Ipv4Addr::new(192, 0, 2, 1), 9))
-        .ok()?;
-    socket.local_addr().ok().map(|a| a.ip())
-}
-
 /// Defensive: a discovery result that is this very PC (loopback, own address, or the panel's
 /// own device id) is never listed, so a PC cannot watch itself.
 #[must_use]

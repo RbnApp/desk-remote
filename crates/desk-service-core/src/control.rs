@@ -80,7 +80,7 @@ impl Control {
             local_ip: if loopback {
                 Some(LOOPBACK_IP.to_string())
             } else {
-                desk_transport::primary_local_ip()
+                desk_transport::primary_local_ip().map(|ip| ip.to_string())
             },
             port: self.port.load(Ordering::SeqCst),
             tailnet: report.state,
