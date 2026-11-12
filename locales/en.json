@@ -256,6 +256,12 @@
     }
   },
   "set": {
+    "tabs": {
+      "label": "Settings sections",
+      "appearance": "Appearance",
+      "transfer": "File transfer",
+      "connection": "Connection"
+    },
     "title": "Settings",
     "sub": "Appearance, language and connection",
     "palette": {
