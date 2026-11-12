@@ -1,7 +1,7 @@
 // "This PC" screen (accept incoming connections), the approval dialog and the session band.
 // Commands/events follow the DAPP-81 contract: incoming_* and incoming://request|session|ended.
 
-import { S, $, appWindow, esc, ic, invoke, mountApp, refocus, render, screens, t, toast } from "./core.js";
+import { S, $, appWindow, closeModal, esc, ic, invoke, modalEl, mountApp, openModal, refocus, render, screens, t, toast } from "./core.js";
 import { Shell } from "./components.js";
 
 const REQUEST_TIMEOUT_S = 30;
@@ -22,8 +22,7 @@ export const inc = {
   session: null,
 };
 
-let requestLeft = 0;
-let dialogReturnFocus = null;
+const MODAL_KEY = "incoming";
 
 function applyState(state) {
   Object.assign(inc, {
@@ -53,7 +52,7 @@ export async function refreshIncoming() {
 
 // ---------- window helpers ----------
 
-async function surfaceWindow() {
+export async function surfaceWindow() {
   const win = appWindow();
   try {
     await win.show();
@@ -65,7 +64,7 @@ async function surfaceWindow() {
   }
 }
 
-const dropWindowPin = () => appWindow().setAlwaysOnTop(false).catch(() => {});
+export const dropWindowPin = () => appWindow().setAlwaysOnTop(false).catch(() => {});
 
 const setTitle = (watched) =>
   appWindow()
@@ -150,40 +149,37 @@ function paintBand() {
 
 // ---------- approval dialog ----------
 
-function dialogHtml(request) {
+function openRequest(request) {
+  inc.pending = request;
   const trust = request.known
     ? `<span class="badge online">${ic("check")}${t("incoming.dialog.known")}</span>`
     : `<span class="badge warning">${ic("alert")}${t("incoming.dialog.unknown")}</span>`;
-  return `<div class="modal-back"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlgTitle" aria-describedby="dlgBody">
-    <div class="dlg-head"><div class="ico">${ic("monitor")}</div><div><h2 id="dlgTitle">${t("incoming.dialog.title", { name: esc(request.peer_name) })}</h2>${trust}</div></div>
-    <p class="hint" id="dlgBody">${t("incoming.dialog.body")}</p>
-    <dl class="kv"><dt>${t("incoming.dialog.fingerprint")}</dt><dd>${esc(request.fingerprint)}</dd></dl>
-    <label class="chk"><input type="checkbox" id="incAlways"><span>${t("incoming.dialog.always")}</span></label>
-    <div class="cd" aria-hidden="true"><i id="cdBar"></i></div>
-    <p class="hint" id="cdText">${t("incoming.dialog.countdown", { s: requestLeft })}</p>
-    <div class="dlg-act"><button class="btn danger" data-act="inc-reject" id="incReject">${ic("x")}${t("incoming.dialog.reject")}</button>
-      <button class="btn primary" data-act="inc-view">${ic("eye")}${t("incoming.dialog.view")}</button>
-      <button class="btn" data-act="inc-control">${ic("pointer")}${t("incoming.dialog.control")}</button></div></div></div>`;
-}
-
-function openRequest(request) {
-  inc.pending = request;
-  requestLeft = REQUEST_TIMEOUT_S;
-  dialogReturnFocus = document.activeElement;
-  $("#modal").innerHTML = dialogHtml(request);
-  $("#app").inert = true;
+  openModal({
+    key: MODAL_KEY,
+    role: "alertdialog",
+    icon: "monitor",
+    title: t("incoming.dialog.title", { name: esc(request.peer_name) }),
+    headExtra: trust,
+    body: `<p class="hint">${t("incoming.dialog.body")}</p>
+      <dl class="kv"><dt>${t("incoming.dialog.fingerprint")}</dt><dd>${esc(request.fingerprint)}</dd></dl>
+      <label class="chk"><input type="checkbox" id="incAlways"><span>${t("incoming.dialog.always")}</span></label>`,
+    countdown: { seconds: REQUEST_TIMEOUT_S, text: (s) => t("incoming.dialog.countdown", { s }), onExpire: () => answer("reject") },
+    buttons: [
+      { act: "inc-reject", id: "incReject", cls: "danger", icon: "x", label: t("incoming.dialog.reject") },
+      { act: "inc-view", cls: "primary", icon: "eye", label: t("incoming.dialog.view") },
+      { act: "inc-control", icon: "pointer", label: t("incoming.dialog.control") },
+    ],
+    // The safest answer owns the initial focus: an accidental Enter must not grant access.
+    focus: "#incReject",
+    onEscape: () => answer("reject"),
+    onClose: dropWindowPin,
+  });
   surfaceWindow();
-  // The safest answer owns the initial focus: an accidental Enter must not grant access.
-  $("#incReject")?.focus({ preventScroll: true });
 }
 
 function closeRequest() {
   inc.pending = null;
-  $("#modal").innerHTML = "";
-  $("#app").inert = false;
-  dropWindowPin();
-  if (dialogReturnFocus?.isConnected) dialogReturnFocus.focus({ preventScroll: true });
-  dialogReturnFocus = null;
+  closeModal(MODAL_KEY);
 }
 
 function paintAll() {
@@ -194,7 +190,7 @@ function paintAll() {
 async function answer(decision) {
   const request = inc.pending;
   if (!request) return;
-  const alwaysAllow = decision !== "reject" && Boolean($("#incAlways")?.checked);
+  const alwaysAllow = decision !== "reject" && Boolean(modalEl(MODAL_KEY)?.querySelector("#incAlways")?.checked);
   closeRequest();
   try {
     await invoke("incoming_answer", { requestId: request.request_id, decision, alwaysAllow });
@@ -204,17 +200,6 @@ async function answer(decision) {
 }
 
 function tick() {
-  if (inc.pending) {
-    requestLeft -= 1;
-    if (requestLeft <= 0) {
-      answer("reject");
-    } else {
-      const text = $("#cdText");
-      if (text) text.textContent = t("incoming.dialog.countdown", { s: requestLeft });
-      const bar = $("#cdBar");
-      if (bar) bar.style.width = `${Math.round((requestLeft / REQUEST_TIMEOUT_S) * 100)}%`;
-    }
-  }
   if (inc.enabled) {
     const ttl = $("#codeTtl");
     if (ttl) ttl.textContent = ttlText();
@@ -262,26 +247,6 @@ export const incomingActions = {
   "inc-demo-new": () => invoke("demo_incoming_request", { known: false }),
   "inc-demo-known": () => invoke("demo_incoming_request", { known: true }),
 };
-
-/** Escape rejects, Tab stays inside the dialog (the rest of the page is inert). */
-document.addEventListener("keydown", (e) => {
-  if (!inc.pending) return;
-  if (e.key === "Escape") {
-    e.preventDefault();
-    answer("reject");
-  } else if (e.key === "Tab") {
-    const items = [...document.querySelectorAll("#modal button, #modal input")];
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
-});
 
 export async function startIncoming() {
   const { listen } = window.__TAURI__.event;

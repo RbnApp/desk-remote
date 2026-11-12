@@ -11,6 +11,8 @@ mod incoming_demo;
 mod shell_menu;
 #[cfg(not(feature = "demo"))]
 mod transfer;
+#[cfg(feature = "demo")]
+mod transfer_demo;
 
 use commands::AppState;
 use desk_config::{ConfigManager, PanelConfig};
@@ -81,7 +83,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .manage(state);
     #[cfg(feature = "demo")]
-    let builder = builder.manage(incoming_demo::DemoIncoming::new());
+    let builder = builder
+        .manage(incoming_demo::DemoIncoming::new())
+        .manage(transfer_demo::DemoTransfer::new());
 
     #[cfg(feature = "demo")]
     let builder = builder.invoke_handler(tauri::generate_handler![
@@ -114,6 +118,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         incoming_demo::incoming_set_mode,
         incoming_demo::demo_incoming_request,
         incoming_demo::demo_incoming_peer_left,
+        transfer_demo::transfer_inspect,
+        transfer_demo::transfer_pick_files,
+        transfer_demo::transfer_limits,
+        transfer_demo::transfer_set_limit,
+        transfer_demo::transfer_send,
+        transfer_demo::transfer_cancel,
+        transfer_demo::transfer_answer,
+        transfer_demo::demo_transfer_pick,
+        transfer_demo::demo_transfer_offer,
     ]);
     #[cfg(not(feature = "demo"))]
     let builder = builder.invoke_handler(tauri::generate_handler![

@@ -271,6 +271,8 @@ table.rows{width:100%;border-collapse:separate;border-spacing:0;background:var(-
 /* Approval dialog */
 .modal-back{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:var(--s4);background:color-mix(in srgb,var(--background) 72%,transparent);backdrop-filter:blur(3px)}
 .dialog{width:min(480px,100%);max-height:100%;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--s5);display:flex;flex-direction:column;gap:var(--s4)}
+.modal-back[hidden]{display:none}
+.dlg-body{display:flex;flex-direction:column;gap:var(--s4)}
 .dlg-head{display:flex;gap:var(--s3);align-items:flex-start}
 .dlg-head h2{font-size:var(--fs-lg);margin-bottom:var(--s2)}
 .dlg-head .ico{width:44px;height:44px;flex:none;border-radius:var(--r-md);background:var(--surface-alt);border:1px solid var(--border);display:grid;place-items:center;color:var(--primary)}
@@ -281,3 +283,44 @@ table.rows{width:100%;border-collapse:separate;border-spacing:0;background:var(-
 .cd i{display:block;height:100%;width:100%;background:var(--warning);transition:width 1s linear}
 .dlg-act{display:flex;flex-wrap:wrap;gap:var(--s2);justify-content:flex-end}
 .dlg-act .btn.danger{margin-right:auto}
+
+/* ===== File transfer (DAPP-86) ===== */
+.dialog.wide{width:min(560px,100%)}
+.flist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--s1);max-height:190px;overflow:auto}
+.frow{display:flex;align-items:center;gap:var(--s3);padding:var(--s2) var(--s3);border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-alt);font-size:var(--fs-sm)}
+.frow.blocked{border-color:var(--warning)}
+.frow.blocked .fname{text-decoration:line-through;color:var(--text-muted)}
+.fname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.fsize{color:var(--text-muted);font-variant-numeric:tabular-nums}
+.pclist{display:flex;flex-direction:column;gap:var(--s1);max-height:200px;overflow:auto}
+.pcopt{display:flex;align-items:center;gap:var(--s3);min-height:var(--ctl);padding:0 var(--s3);border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);cursor:pointer}
+.pcopt:hover{background:var(--surface-hover)}
+.pcopt:has(input:checked){border-color:var(--primary);background:var(--surface-alt)}
+.pcopt:has(input:focus-visible){outline:2px solid var(--focus-ring);outline-offset:2px}
+.pcopt input{accent-color:var(--primary);margin:0}
+.pcopt .pn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.pcopt.off{cursor:not-allowed;background:var(--disabled-bg);color:var(--disabled-text)}
+.btn[disabled]{pointer-events:none}
+.hint.bad{color:var(--danger)}
+.narrow-input{width:140px}
+.h3{font-size:var(--fs-md);margin:0}
+#xband:empty{display:none}
+.band.rx{border-bottom-color:var(--primary);background:var(--surface-alt);color:var(--primary)}
+#tray:empty{display:none}
+#tray{position:fixed;right:var(--s4);bottom:var(--s4);z-index:20;width:min(380px,calc(100% - 2 * var(--s4)))}
+.tray{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--s3);box-shadow:0 8px 24px color-mix(in srgb,var(--text) 18%,transparent)}
+.tray ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--s3);max-height:300px;overflow:auto}
+.titem{display:flex;flex-direction:column;gap:var(--s2)}
+.tname{display:flex;gap:var(--s2);font-size:var(--fs-sm);min-width:0}
+.tname .peer{color:var(--text-muted);white-space:nowrap}
+.tbar{height:6px;border-radius:3px;background:var(--surface-pressed);overflow:hidden}
+.tbar i{display:block;height:100%;background:var(--primary);transition:width var(--t)}
+.tmeta{display:flex;align-items:center;gap:var(--s3);font-size:var(--fs-xs);color:var(--text-muted);font-variant-numeric:tabular-nums}
+.tmeta .spacer{flex:1}
+.titem.done{flex-direction:row;align-items:center;gap:var(--s2);font-size:var(--fs-sm)}
+.titem.done .tdone{flex:1;min-width:0;overflow-wrap:anywhere}
+.titem.ok svg.i{color:var(--success)}
+.titem.bad svg.i{color:var(--danger)}
+.frow{flex-wrap:wrap}
+.frow .badge{flex-basis:100%;white-space:normal}
+.flist,.pclist,.tray ul{scrollbar-color:var(--border) transparent}

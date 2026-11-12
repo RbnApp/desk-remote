@@ -405,6 +405,81 @@
       "known": "Tanınan cihaz taklit et"
     }
   },
+  "transfer": {
+    "send": "Dosya gönder",
+    "unavailable": "Dosya gönderme bu sürümde yok.",
+    "pick": {
+      "title": "Hangi PC'ye gönderilsin?",
+      "files": "Dosyalar",
+      "search": "PC ara",
+      "search_ph": "Ada göre ara",
+      "pcs": "PC'ler",
+      "none": "Eşleşen PC yok.",
+      "offline": "Çevrimdışı",
+      "send": "Gönder",
+      "cancel": "Vazgeç",
+      "choose_pc": "Göndermek için bir PC seç.",
+      "nothing": "Bunların hiçbiri gönderilemez.",
+      "skipped": "{n} öğe atlanacak.",
+      "too_large": "Çok büyük — en çok {mb} MB gönderilebilir.",
+      "folder": "Klasör gönderilemez, dosya seç.",
+      "network": "Ağ yolu gönderilemez, önce dosyayı bu PC'ye kopyala.",
+      "missing": "Bu öğe artık yok."
+    },
+    "list": {
+      "title": "Aktarımlar",
+      "to": "{pc} için",
+      "from": "{pc} kaynaklı",
+      "cancel": "İptal",
+      "cancel_named": "{name} gönderimini iptal et",
+      "dismiss": "Kapat",
+      "sent": "Gönderildi: {name} → {pc}",
+      "received": "Alındı: {name}",
+      "failed": "{name}: {reason}",
+      "speed": "{v}/sn",
+      "receiving": "Alınıyor: {name}"
+    },
+    "err": {
+      "too_large": "Dosya sınırdan büyük.",
+      "denied": "Karşı PC dosyayı reddetti.",
+      "no_answer": "Karşı PC yanıt vermedi.",
+      "busy": "Karşı PC başka bir aktarımla meşgul.",
+      "disk_full": "Karşı PC'de yeterli disk alanı yok.",
+      "unsupported_folder": "Klasör gönderilemez, dosya seç.",
+      "sha_mismatch": "Dosya bozuk ulaştı (sağlama toplamı uyuşmadı). Tekrar dene.",
+      "canceled": "İptal edildi.",
+      "unknown": "Aktarım başarısız."
+    },
+    "offer": {
+      "title": "{name} sana dosya göndermek istiyor",
+      "body": "Sen kabul etmeden hiçbir şey kaydedilmez. Yalnız beklediğin dosyaları kabul et.",
+      "file": "Dosya",
+      "size": "Boyut",
+      "countdown": "{s} sn içinde yanıt verilmezse Reddet sayılır.",
+      "accept": "Kabul et",
+      "reject": "Reddet"
+    },
+    "set": {
+      "title": "Dosya aktarımı",
+      "hint": "Bu PC'nin göndereceği ve alacağı dosyaları sınırlar.",
+      "limit": "En büyük dosya boyutu (MB)",
+      "limit_hint": "1 ile 1024 arası. Daha büyük dosyalar iki uçta da reddedilir.",
+      "limit_bad": "1 ile 1024 arasında bir tam sayı gir.",
+      "saved": "Sınır kaydedildi",
+      "menu": "Explorer sağ tık menüsü",
+      "menu_hint": "Bir dosyaya sağ tıklayınca “Desk-Remote ile gönder” seçeneğini ekler.",
+      "menu_on": "Açık",
+      "menu_off": "Kapalı",
+      "menu_unavailable": "Sağ tık menüsü bu sürümde yok.",
+      "menu_failed": "Sağ tık menüsü değiştirilemedi."
+    },
+    "demo": {
+      "title": "Dosya aktarımı testi",
+      "pick": "Explorer seçimini taklit et",
+      "folder": "Klasör seçimini taklit et",
+      "offer": "Gelen dosyayı taklit et"
+    }
+  },
   "shell_menu": {
     "send": "Desk-Remote ile gönder"
   }

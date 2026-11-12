@@ -2,6 +2,7 @@
 
 import { S, $, esc, ic, invoke, mountApp, openUrl, refocus, render, screens, t, toast } from "./core.js";
 import { Seg, Shell } from "./components.js";
+import { transferSettings } from "./transfer.js";
 import { applyTheme, loadCatalog } from "./theme.js";
 
 const KEYS_URL = "https://login.tailscale.com/admin/settings/keys";
@@ -92,6 +93,7 @@ function renderSettings() {
     <section class="sec"><div><h2>${t("set.palette.title")}</h2><p class="hint">${t("set.palette.hint")}</p></div><div class="pal" role="radiogroup" aria-label="${t("set.palette.title")}">${cards}</div></section>
     <section class="sec"><div><h2>${t("set.mode.title")}</h2><p class="hint">${t("set.mode.hint")}</p></div>${Seg("mode", t("set.mode.title"), modes, S.settings.mode)}</section>
     <section class="sec"><div><h2>${t("set.lang.title")}</h2><p class="hint">${t("set.lang.hint")}</p></div>${Seg("lang", t("set.lang.title"), langs, S.settings.language)}</section>
+    ${transferSettings()}
     ${tailscaleSection()}`;
   mountApp(Shell(body, "settings", head));
 }

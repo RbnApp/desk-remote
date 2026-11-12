@@ -4,6 +4,7 @@ import { S, appWindow, go, invoke, refocus, render } from "./core.js";
 import { applyTheme, loadCatalog, loadPreviews, watchSystemTheme } from "./theme.js";
 import { loadPcs, refreshResults } from "./list.js";
 import { incomingActions, setIncomingEnabled, startIncoming } from "./incoming.js";
+import { startTransfer, transferActions } from "./transfer.js";
 import { onCodeInput, onTargetInput, pair, pickTarget, resetPair, submitPair } from "./pair.js";
 import {
   connectTailscale,
@@ -48,6 +49,7 @@ const actions = {
   "ts-install": () => openInstallPage(),
   "ts-copy": () => copyKeyCommand(),
   ...incomingActions,
+  ...transferActions,
 };
 
 document.addEventListener("click", (e) => {
@@ -121,6 +123,7 @@ async function boot() {
     loadPcs();
     startSidebarPolling();
     startIncoming();
+    startTransfer();
   } finally {
     await appWindow().show();
   }
