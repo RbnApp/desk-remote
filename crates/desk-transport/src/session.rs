@@ -22,6 +22,7 @@ use desk_error::{DeskError, DeskResult};
 use desk_protocol::{FrameCodec, Message, PROTOCOL_VERSION};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(30);
@@ -32,6 +33,11 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const PREAMBLE_MAGIC: [u8; 4] = *b"DRM1";
 const MODE_SESSION: u8 = 0x02;
 const MODE_PAIR: u8 = 0x01;
+
+/// Locks the shared pairing state for one short step (never across network I/O).
+fn pairing_step(mgr: &Mutex<PairingManager>) -> MutexGuard<'_, PairingManager> {
+    mgr.lock().unwrap_or_else(|p| p.into_inner())
+}
 
 /// Encodes `msg` and encrypts it into length-prefixed Noise chunks ready for the socket.
 pub(crate) fn seal_message(transport: &mut NoiseTransport, msg: &Message) -> DeskResult<Vec<u8>> {
@@ -219,9 +225,12 @@ impl Session {
     /// * `PAIR` requires an active code in `pairing_mgr`; the panel key learned through the
     ///   PAKE is stored in the manager's trust store and must match the Noise static key.
     /// * Any panel whose static key is not trusted is rejected.
+    ///
+    /// The manager is locked only for the short steps that touch its state; a slow or
+    /// stalled peer never blocks other handshakes while the network is being read.
     pub fn authenticate_as_host(
         &mut self,
-        pairing_mgr: &mut PairingManager,
+        pairing_mgr: &Mutex<PairingManager>,
         identity: &DeviceIdentity,
     ) -> DeskResult<()> {
         self.set_timeout(Some(HANDSHAKE_TIMEOUT))?;
@@ -232,7 +241,7 @@ impl Session {
 
     fn host_handshake(
         &mut self,
-        pairing_mgr: &mut PairingManager,
+        pairing_mgr: &Mutex<PairingManager>,
         identity: &DeviceIdentity,
     ) -> DeskResult<()> {
         let mut preamble = [0u8; 5];
@@ -264,7 +273,7 @@ impl Session {
         let remote = hs
             .remote_static()
             .ok_or_else(|| DeskError::Crypto("peer static key missing".to_string()))?;
-        if !pairing_mgr.is_trusted(&remote) {
+        if !pairing_step(pairing_mgr).is_trusted(&remote) {
             return Err(DeskError::Crypto(format!(
                 "rejected unpaired peer {}",
                 device_id_from_public(&remote)
@@ -286,10 +295,10 @@ impl Session {
 
     fn host_pair(
         &mut self,
-        pairing_mgr: &mut PairingManager,
+        pairing_mgr: &Mutex<PairingManager>,
         identity: &DeviceIdentity,
     ) -> DeskResult<[u8; KEY_LEN]> {
-        let code = pairing_mgr
+        let code = pairing_step(pairing_mgr)
             .active_code()
             .map(str::to_string)
             .ok_or_else(|| DeskError::Crypto("no active pairing code".to_string()))?;
@@ -300,7 +309,7 @@ impl Session {
         let keys = match state.finish(&panel_msg) {
             Ok(k) => k,
             Err(e) => {
-                pairing_mgr.record_failure();
+                pairing_step(pairing_mgr).record_failure();
                 return Err(e);
             }
         };
@@ -309,7 +318,7 @@ impl Session {
         // obtains a value it could test guesses against offline.
         let tag = self.read_raw()?;
         if !keys.verify_confirmation(PakeRole::Panel, &tag) {
-            pairing_mgr.record_failure();
+            pairing_step(pairing_mgr).record_failure();
             return Err(DeskError::Crypto(
                 "pairing rejected: invalid pairing code".to_string(),
             ));
@@ -320,8 +329,10 @@ impl Session {
         let panel_pub = keys.open_static_key(&sealed)?;
         self.write_raw(&keys.seal_static_key(identity.public_key())?)?;
 
-        pairing_mgr.consume_code();
-        pairing_mgr.add_trusted(&panel_pub)?;
+        let mut mgr = pairing_step(pairing_mgr);
+        mgr.consume_code();
+        mgr.add_trusted(&panel_pub)?;
+        drop(mgr);
         Ok(panel_pub)
     }
 

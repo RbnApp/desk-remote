@@ -5,6 +5,7 @@
 //! verified, [`crate::takeover`] stops and disables the official client.
 
 use crate::takeover::{self, ScTailscale, TakeoverStatus};
+use desk_error::{DeskError, DeskResult};
 use desk_paths::DeskPaths;
 use serde::Deserialize;
 use std::io::BufReader;
@@ -36,7 +37,7 @@ impl TailnetGuard {
     /// Starts `desk-tailnet-helper listen` when it ships next to the service. The hand-over of
     /// an official client (if `take_over` is set) runs in the background once the helper is up.
     #[must_use]
-    pub fn start(paths: &DeskPaths, port: u16, take_over: bool) -> Option<Self> {
+    pub fn start(paths: &DeskPaths, port: u16, take_over: bool, harden: bool) -> Option<Self> {
         let exe = DeskPaths::sibling_exe("desk-tailnet-helper.exe").ok()?;
         if !exe.exists() {
             tracing::info!("desk-tailnet-helper not installed; tailnet access disabled");
@@ -44,6 +45,13 @@ impl TailnetGuard {
         }
         let state_dir = paths.system_dir().join("tailscale");
         DeskPaths::ensure_dir(&state_dir).ok()?;
+        if harden {
+            // The auth key (and node state) must not be readable by ordinary users.
+            if let Err(e) = restrict_to_admins(&state_dir) {
+                tracing::error!(error = %e, "cannot restrict the tailnet state folder; helper not started");
+                return None;
+            }
+        }
         let key_file = state_dir.join(AUTH_KEY_FILE);
         let auth_key = std::fs::read_to_string(&key_file)
             .ok()
@@ -86,6 +94,29 @@ impl TailnetGuard {
     }
 }
 
+/// Replaces the folder's ACL with full control for SYSTEM and Administrators only (inherited
+/// by files created later, such as `authkey.txt`). Well-known SIDs keep it language-neutral.
+pub(crate) fn restrict_to_admins(dir: &Path) -> DeskResult<()> {
+    let out = Command::new(DeskPaths::system_tool("icacls.exe"))
+        .arg(dir)
+        .args([
+            "/inheritance:r",
+            "/grant:r",
+            "*S-1-5-18:(OI)(CI)F",
+            "*S-1-5-32-544:(OI)(CI)F",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(DeskError::Service(format!(
+            "icacls failed: {}",
+            String::from_utf8_lossy(&out.stdout).trim()
+        )))
+    }
+}
+
 /// Waits for the helper's first report, then runs the hand-over gated on a real check.
 fn supervise(stdout: ChildStdout, port: u16, take_over: bool, state_dir: &Path) -> TakeoverStatus {
     let report = serde_json::Deserializer::from_reader(BufReader::new(stdout))
@@ -123,5 +154,43 @@ impl Drop for TailnetGuard {
         if let Some(w) = self.worker.take() {
             let _ = w.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Prints the folder ACL through `icacls` (system tool, absolute path).
+    fn acl_listing(dir: &Path) -> DeskResult<String> {
+        let out = Command::new(DeskPaths::system_tool("icacls.exe"))
+            .arg(dir)
+            .output()?;
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
+    #[test]
+    fn state_folder_is_limited_to_system_and_administrators() -> DeskResult<()> {
+        let tmp = tempfile::tempdir().map_err(DeskError::Io)?;
+        let dir = tmp.path().join("tailscale");
+        DeskPaths::ensure_dir(&dir)?;
+        restrict_to_admins(&dir)?;
+        let listing = acl_listing(&dir)?.replace(&dir.display().to_string(), "");
+        // One ACE line per principal; the first line also carries the path.
+        let aces: Vec<&str> = listing.lines().filter(|l| l.contains(":(")).collect();
+        assert_eq!(aces.len(), 2, "unexpected ACL: {listing}");
+        assert!(aces
+            .iter()
+            .any(|l| l.contains("SYSTEM") || l.contains("S-1-5-18")));
+        assert!(aces
+            .iter()
+            .any(|l| l.contains("Administrators") || l.contains("S-1-5-32-544")));
+        assert!(
+            !aces
+                .iter()
+                .any(|l| l.contains("Users") || l.contains("Everyone")),
+            "ordinary principals still listed: {listing}"
+        );
+        Ok(())
     }
 }

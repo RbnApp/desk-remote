@@ -25,6 +25,9 @@ pub struct HostOptions {
     pub port: Option<u16>,
     /// Non-canonical data root passed on to the helper (tests); `None` uses ProgramData.
     pub data_dir: Option<std::path::PathBuf>,
+    /// Development/test mode: listen on 127.0.0.1 only, no mDNS announcement and no tailnet
+    /// helper, so nothing is exposed to the network (and no firewall prompt appears).
+    pub loopback_only: bool,
 }
 
 /// A running agent.
@@ -48,11 +51,16 @@ impl ServiceHost {
         let trust = TrustStore::open(&paths.trusted_peers_path())?;
         let hub = Arc::new(Hub::new(identity, PairingManager::with_trust(trust)));
 
-        let listener = Arc::new(Listener::bind_any(opts.port.unwrap_or(svc.control_port))?);
+        let port = opts.port.unwrap_or(svc.control_port);
+        let listener = Arc::new(if opts.loopback_only {
+            Listener::bind_loopback(port)?
+        } else {
+            Listener::bind_any(port)?
+        });
         let port = listener.local_port()?;
         tracing::info!(port, device = %hub.identity().device_id(), "desk service listening");
 
-        let announcer = if svc.lan_announce {
+        let announcer = if svc.lan_announce && !opts.loopback_only {
             match LanAnnouncer::start_auto(&hub.identity().device_id(), port, desk_version::CURRENT)
             {
                 Ok(a) => Some(a),
@@ -64,8 +72,13 @@ impl ServiceHost {
         } else {
             None
         };
-        let tailnet = if svc.tailnet_helper {
-            TailnetGuard::start(&paths, port, svc.take_over_official_tailscale)
+        let tailnet = if svc.tailnet_helper && !opts.loopback_only {
+            TailnetGuard::start(
+                &paths,
+                port,
+                svc.take_over_official_tailscale,
+                opts.mode == LaunchMode::SystemService,
+            )
         } else {
             None
         };

@@ -6,6 +6,7 @@
 //! A failed verification leaves the official client untouched.
 
 use desk_error::{DeskError, DeskResult};
+use desk_paths::DeskPaths;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -143,7 +144,7 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 impl ScTailscale {
     fn sc(args: &[&str]) -> DeskResult<(bool, String)> {
         use std::os::windows::process::CommandExt;
-        let out = std::process::Command::new("sc.exe")
+        let out = std::process::Command::new(DeskPaths::system_tool("sc.exe"))
             .args(args)
             .creation_flags(CREATE_NO_WINDOW)
             .output()?;
@@ -215,7 +216,7 @@ impl OfficialTailscale for ScTailscale {
     fn close_tray(&self) -> DeskResult<()> {
         use std::os::windows::process::CommandExt;
         // Exit code 128 means "not running", which is fine.
-        let _ = std::process::Command::new("taskkill.exe")
+        let _ = std::process::Command::new(DeskPaths::system_tool("taskkill.exe"))
             .args(["/F", "/IM", "tailscale-ipn.exe"])
             .creation_flags(CREATE_NO_WINDOW)
             .output()?;

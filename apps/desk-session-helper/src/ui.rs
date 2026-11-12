@@ -6,7 +6,7 @@
 use crate::state::{Shared, WM_STATE_CHANGED};
 use desk_config::{ConfigManager, PanelConfig};
 use desk_i18n::{set_locale, t, Locale};
-use desk_paths::DeskPaths;
+use desk_paths::{DeskPaths, APP_ICON_RESOURCE_ID};
 use desk_theme::{resolve, ResolvedTheme, ThemeMode};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -25,13 +25,14 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    DispatchMessageW, GetClientRect, GetCursorPos, GetMessageW, KillTimer, LoadIconW, LoadImageW,
-    MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
-    SetForegroundWindow, SetTimer, SetWindowTextW, ShowWindow, TrackPopupMenu, TranslateMessage,
-    HICON, IDI_APPLICATION, IMAGE_ICON, LR_LOADFROMFILE, MB_ICONINFORMATION, MB_OK, MF_STRING, MSG,
-    SW_HIDE, SW_SHOW, TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CLOSE,
-    WM_COMMAND, WM_DESTROY, WM_LBUTTONUP, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_CAPTION,
-    WS_CHILD, WS_EX_TOOLWINDOW, WS_OVERLAPPED, WS_SYSMENU, WS_VISIBLE,
+    DispatchMessageW, GetClientRect, GetCursorPos, GetMessageW, GetSystemMetrics, KillTimer,
+    LoadIconW, LoadImageW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
+    RegisterWindowMessageW, SetForegroundWindow, SetTimer, SetWindowTextW, ShowWindow,
+    TrackPopupMenu, TranslateMessage, HICON, IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTCOLOR,
+    MB_ICONINFORMATION, MB_OK, MF_STRING, MSG, SM_CXSMICON, SW_HIDE, SW_SHOW, TPM_RETURNCMD,
+    TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP,
+    WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_EX_TOOLWINDOW,
+    WS_OVERLAPPED, WS_SYSMENU, WS_VISIBLE,
 };
 
 const WM_TRAY: u32 = WM_APP + 2;
@@ -121,27 +122,28 @@ fn os_locale() -> Locale {
     Locale::from_str_loose(&name)
 }
 
+/// Tray icon: the DAPP-76 icon embedded in this executable as resource 1, loaded at the
+/// size the shell wants for the notification area (16 px at 100 % scaling).
 fn load_icon() -> HICON {
-    if let Ok(path) = DeskPaths::tray_icon_path() {
-        if path.exists() {
-            let wide_path = wide(&path.to_string_lossy());
-            // SAFETY: NUL-terminated path buffer outlives the call.
-            if let Ok(handle) = unsafe {
-                LoadImageW(
-                    None,
-                    PCWSTR(wide_path.as_ptr()),
-                    IMAGE_ICON,
-                    0,
-                    0,
-                    LR_LOADFROMFILE,
-                )
-            } {
-                return HICON(handle.0);
-            }
+    // SAFETY: plain queries and a resource load from our own module; the integer resource
+    // id is encoded as a pseudo string pointer exactly as MAKEINTRESOURCE does.
+    unsafe {
+        let size = GetSystemMetrics(SM_CXSMICON);
+        let loaded = GetModuleHandleW(None).and_then(|module| {
+            LoadImageW(
+                Some(module.into()),
+                PCWSTR(usize::from(APP_ICON_RESOURCE_ID) as *const u16),
+                IMAGE_ICON,
+                size,
+                size,
+                LR_DEFAULTCOLOR,
+            )
+        });
+        match loaded {
+            Ok(handle) => HICON(handle.0),
+            Err(_) => LoadIconW(None, IDI_APPLICATION).unwrap_or_default(),
         }
     }
-    // SAFETY: stock icon, no ownership.
-    unsafe { LoadIconW(None, IDI_APPLICATION) }.unwrap_or_default()
 }
 
 fn tray_data(

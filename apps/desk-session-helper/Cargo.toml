@@ -22,6 +22,9 @@ desk-protocol = { workspace = true }
 desk-theme = { workspace = true }
 tracing = { workspace = true }
 
+[build-dependencies]
+embed-resource = "3"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Win32_Foundation",

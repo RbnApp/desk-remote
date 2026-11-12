@@ -180,7 +180,7 @@ fn handle(
     pipeline: &MediaPipeline,
 ) {
     let peer = session.peer_addr();
-    let auth = session.authenticate_as_host(&mut lock(pairing), identity);
+    let auth = session.authenticate_as_host(pairing, identity);
     if let Err(e) = auth {
         tracing::warn!(%peer, error = %e, "REFUSED");
         return;

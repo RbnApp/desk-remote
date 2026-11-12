@@ -22,6 +22,12 @@ impl Listener {
         Self::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)))
     }
 
+    /// Binds to 127.0.0.1 only on `port` (`0` picks a free port): development and tests,
+    /// nothing is reachable from the network and no firewall prompt appears.
+    pub fn bind_loopback(port: u16) -> DeskResult<Self> {
+        Self::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
+    }
+
     /// Port the listener is bound to.
     pub fn local_port(&self) -> DeskResult<u16> {
         Ok(self.local_addr()?.port())

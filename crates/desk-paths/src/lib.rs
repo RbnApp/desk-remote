@@ -7,8 +7,9 @@ const APP_NAME: &str = "DeskRemote";
 /// TCP port the PC agent listens on and the panel dials by default.
 pub const DEFAULT_PORT: u16 = 47800;
 const DEFAULT_SYSTEM_BASE: &str = r"C:\ProgramData";
-/// Tray icon location relative to the helper executable.
-pub const TRAY_ICON_RELATIVE: &str = r"icons\tray\desk-remote.ico";
+/// Resource id of the application icon embedded in the service and helper executables.
+pub const APP_ICON_RESOURCE_ID: u16 = 1;
+const DEFAULT_WINDOWS_DIR: &str = r"C:\Windows";
 const DEFAULT_USER_BASE: &str = r"C:\Users\Default\AppData\Roaming";
 
 /// Canonical path layout resolver.
@@ -123,10 +124,15 @@ impl DeskPaths {
         Ok(dir.join(file_name))
     }
 
-    /// Tray icon shipped next to the helper (`<exe dir>/icons/tray/desk-remote.ico`, DAPP-73).
-    /// The file may be absent; callers fall back to a system icon.
-    pub fn tray_icon_path() -> DeskResult<PathBuf> {
-        Self::sibling_exe(TRAY_ICON_RELATIVE)
+    /// Full path of a Windows system tool (`%SystemRoot%\System32\<name>`), so a planted
+    /// executable earlier on `PATH` or in the working directory can never be started instead.
+    #[must_use]
+    pub fn system_tool(file_name: &str) -> PathBuf {
+        let root = match std::env::var_os("SystemRoot") {
+            Some(v) if !v.is_empty() => PathBuf::from(v),
+            _ => PathBuf::from(DEFAULT_WINDOWS_DIR),
+        };
+        root.join("System32").join(file_name)
     }
 
     /// Windows Named Pipe name for the central service.
@@ -163,6 +169,14 @@ mod tests {
         assert_eq!(paths.panel_config_path(), user.join("panel.json"));
         assert_eq!(paths.relay_config_path(), root.join("relay.json"));
         assert_eq!(paths.identity_key_path(), root.join("identity.key"));
+    }
+
+    #[test]
+    fn system_tools_resolve_to_an_absolute_system32_path() {
+        let sc = DeskPaths::system_tool("sc.exe");
+        assert!(sc.is_absolute(), "{sc:?}");
+        assert!(sc.ends_with(r"System32\sc.exe"), "{sc:?}");
+        assert!(sc.exists(), "{sc:?}");
     }
 
     #[test]

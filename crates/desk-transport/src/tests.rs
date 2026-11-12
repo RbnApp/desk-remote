@@ -118,14 +118,15 @@ type HostOutcome = (DeskResult<()>, PairingManager);
 /// Host thread: accept one connection and authenticate it; the manager is handed back.
 fn host_auth_once(
     listener: Listener,
-    mut mgr: PairingManager,
+    mgr: PairingManager,
     identity: DeviceIdentity,
 ) -> JoinHandle<HostOutcome> {
     thread::spawn(move || {
+        let mgr = Mutex::new(mgr);
         let res = listener
             .accept()
-            .and_then(|mut s| s.authenticate_as_host(&mut mgr, &identity));
-        (res, mgr)
+            .and_then(|mut s| s.authenticate_as_host(&mgr, &identity));
+        (res, mgr.into_inner().unwrap_or_else(|p| p.into_inner()))
     })
 }
 
@@ -160,10 +161,10 @@ fn e2e_pair_then_session_10mb_with_wire_capture() -> DeskResult<()> {
     let host = thread::spawn({
         let host_id = host_id.clone();
         move || -> (DeskResult<()>, PairingManager) {
-            let mut mgr = mgr;
+            let mgr = Mutex::new(mgr);
             let res = (|| -> DeskResult<()> {
                 let mut s = listener.accept()?;
-                s.authenticate_as_host(&mut mgr, &host_id)?;
+                s.authenticate_as_host(&mgr, &host_id)?;
                 loop {
                     match s.recv()? {
                         Message::Ping { ts } => s.send(&Message::Pong { ts })?,
@@ -179,7 +180,7 @@ fn e2e_pair_then_session_10mb_with_wire_capture() -> DeskResult<()> {
                     }
                 }
             })();
-            (res, mgr)
+            (res, mgr.into_inner().unwrap_or_else(|p| p.into_inner()))
         }
     });
 
@@ -419,10 +420,10 @@ fn session_through_tap(
     let (l, a) = local_listener()?;
     let tap = start_tap(a, rewrite)?;
     let host = thread::spawn(move || {
-        let mut mgr = mgr;
+        let mgr = Mutex::new(mgr);
         let mut out = Vec::new();
         match l.accept().and_then(|mut s| {
-            s.authenticate_as_host(&mut mgr, &host_id)?;
+            s.authenticate_as_host(&mgr, &host_id)?;
             Ok(s)
         }) {
             Ok(mut s) => {

@@ -37,6 +37,7 @@ pub fn run_dispatcher(paths: DeskPaths) -> DeskResult<()> {
         mode: LaunchMode::SystemService,
         port: None,
         data_dir: None,
+        loopback_only: false,
     });
     service_dispatcher::start(SERVICE_NAME, ffi_service_main).map_err(|e| svc_err("dispatcher", e))
 }

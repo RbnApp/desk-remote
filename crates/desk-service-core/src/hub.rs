@@ -96,6 +96,12 @@ impl Hub {
         &self.identity
     }
 
+    /// The shared pairing state; handshakes lock it only for short steps.
+    #[must_use]
+    pub fn pairing(&self) -> &Mutex<PairingManager> {
+        &self.pairing
+    }
+
     /// Runs `f` with the pairing manager locked (handshakes, code creation).
     pub fn with_pairing<R>(&self, f: impl FnOnce(&mut PairingManager) -> R) -> R {
         f(&mut lock(&self.pairing))

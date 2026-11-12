@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+build = "../desk-session-helper/build.rs"
 
 [lints]
 workspace = true
@@ -14,3 +15,6 @@ desk-paths = { workspace = true }
 desk-logger = { workspace = true }
 desk-service-core = { workspace = true }
 tracing = { workspace = true }
+
+[build-dependencies]
+embed-resource = "3"

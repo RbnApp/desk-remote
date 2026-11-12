@@ -4,8 +4,9 @@
 //!   desk-service install                      register + start the Windows service (admin)
 //!   desk-service uninstall                    stop + remove the service (admin)
 //!   desk-service run                          entry point used by the Service Control Manager
-//!   desk-service run --console [--data-dir D] [--port P] [--run-for SECS]
-//!                                             run in the foreground as the current user (dev/test)
+//!   desk-service run --console [--loopback] [--data-dir D] [--port P] [--run-for SECS]
+//!                                             run in the foreground as the current user (dev/test);
+//!                                             --loopback: 127.0.0.1 only, no mDNS, no tailnet helper
 
 #![cfg(windows)]
 
@@ -20,6 +21,7 @@ use std::time::Duration;
 struct Args {
     command: String,
     console: bool,
+    loopback: bool,
     data_dir: Option<PathBuf>,
     port: Option<u16>,
     run_for: Option<Duration>,
@@ -36,6 +38,7 @@ fn parse_args() -> DeskResult<Args> {
         };
         match flag.as_str() {
             "--console" => args.console = true,
+            "--loopback" => args.loopback = true,
             "--data-dir" => args.data_dir = Some(PathBuf::from(value("--data-dir")?)),
             "--port" => {
                 args.port = Some(
@@ -82,6 +85,7 @@ fn run(args: &Args) -> DeskResult<()> {
                 mode: LaunchMode::CurrentUser,
                 port: args.port,
                 data_dir: args.data_dir.clone(),
+                loopback_only: args.loopback,
             })?;
             tracing::info!(port = host.port()?, "console mode: Ctrl+C stops");
             desk_service_core::wait_for_console_stop(args.run_for);
@@ -90,7 +94,7 @@ fn run(args: &Args) -> DeskResult<()> {
         }
         "run" => desk_service_core::run_dispatcher(paths),
         other => Err(DeskError::Config(format!(
-            "unknown command '{other}' (install | uninstall | run [--console])"
+            "unknown command '{other}' (install | uninstall | run [--console [--loopback]])"
         ))),
     }
 }
