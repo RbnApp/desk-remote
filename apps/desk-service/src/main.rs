@@ -72,7 +72,7 @@ fn run(args: &Args) -> DeskResult<()> {
             Ok(())
         }
         "uninstall" => {
-            desk_service_core::uninstall()?;
+            desk_service_core::uninstall(&paths)?;
             tracing::info!("service removed (ProgramData identity kept)");
             Ok(())
         }

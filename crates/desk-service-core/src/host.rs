@@ -65,7 +65,7 @@ impl ServiceHost {
             None
         };
         let tailnet = if svc.tailnet_helper {
-            TailnetGuard::start(&paths, port)
+            TailnetGuard::start(&paths, port, svc.take_over_official_tailscale)
         } else {
             None
         };

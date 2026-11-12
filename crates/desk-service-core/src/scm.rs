@@ -176,8 +176,9 @@ pub fn install(service_exe: &std::path::Path) -> DeskResult<()> {
     Ok(())
 }
 
-/// Stops and removes the service. Needs admin. Leaves ProgramData (identity) untouched.
-pub fn uninstall() -> DeskResult<()> {
+/// Stops and removes the service, then gives back an official Tailscale client this agent
+/// took over. Needs admin. Leaves ProgramData (identity) untouched.
+pub fn uninstall(paths: &DeskPaths) -> DeskResult<()> {
     let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
         .map_err(|e| svc_err("open service manager (administrator rights required)", e))?;
     let service = manager
@@ -199,5 +200,9 @@ pub fn uninstall() -> DeskResult<()> {
             std::thread::sleep(Duration::from_millis(200));
         }
     }
-    service.delete().map_err(|e| svc_err("delete service", e))
+    service.delete().map_err(|e| svc_err("delete service", e))?;
+    if crate::tailnet::restore_official(paths) {
+        tracing::info!("official Tailscale restored to its previous state");
+    }
+    Ok(())
 }

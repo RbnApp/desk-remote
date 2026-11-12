@@ -21,6 +21,7 @@ mod launch;
 mod scm;
 mod supervisor;
 mod tailnet;
+pub mod takeover;
 mod tracker;
 
 pub use host::{wait_for_console_stop, HostOptions, ServiceHost};

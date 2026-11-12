@@ -1,7 +1,7 @@
 //! Central network transport layer for Desk-Remote.
 //!
 //! Provides the single-point network transport contract for LAN direct connections (mDNS),
-//! Tailscale tailnet sessions (via official client or embedded tsnet helper),
+//! Tailscale tailnet sessions (always through the embedded tsnet helper),
 //! encrypted [`Session`] handling, and mutual pairing handshake verification.
 
 pub mod discovery;
@@ -12,7 +12,7 @@ pub mod tailscale;
 pub use discovery::{DiscoveredPeer, LanAnnouncer, LanBrowser, SERVICE_TYPE};
 pub use listener::Listener;
 pub use session::Session;
-pub use tailscale::{TailnetHelperController, TailscaleDetector, TailscaleStatus};
+pub use tailscale::{helper_online, TailnetHelperController, TailscaleDetector, TailscaleStatus};
 
 use desk_error::{DeskError, DeskResult};
 use std::net::{IpAddr, SocketAddr, TcpStream};

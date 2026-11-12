@@ -1010,6 +1010,8 @@ dependencies = [
  "desk-protocol",
  "desk-transport",
  "desk-version",
+ "serde",
+ "serde_json",
  "tempfile",
  "tracing",
  "windows",

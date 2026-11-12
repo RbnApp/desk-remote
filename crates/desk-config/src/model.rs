@@ -76,8 +76,11 @@ pub struct ServiceConfig {
     pub allow_unattended: bool,
     /// Announce this PC on the local network (mDNS).
     pub lan_announce: bool,
-    /// Start the embedded tailnet helper when no Tailscale client is installed.
+    /// Run the embedded tailnet helper (the only Tailscale path; no client is ever required).
     pub tailnet_helper: bool,
+    /// Stop and disable an official Tailscale client once the helper is verified online.
+    /// Uninstalling the service restores it. Config key: `take_over_official_tailscale`.
+    pub take_over_official_tailscale: bool,
     /// Capture frame rate while a viewer is connected.
     pub capture_fps: u32,
     /// Largest streamed frame (the capture is downscaled to fit).
@@ -94,6 +97,7 @@ impl Default for ServiceConfig {
             allow_unattended: true,
             lan_announce: true,
             tailnet_helper: true,
+            take_over_official_tailscale: true,
             capture_fps: 30,
             capture_max_width: 1920,
             capture_max_height: 1080,
