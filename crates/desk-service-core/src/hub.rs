@@ -233,7 +233,8 @@ impl Hub {
                 Some(
                     trust
                         .device_always_mode(device_id)
-                        .unwrap_or_else(|| "control".to_string()),
+                        // A missing mode never widens the grant.
+                        .unwrap_or_else(|| "view".to_string()),
                 )
             } else {
                 None
@@ -269,15 +270,16 @@ impl Hub {
                 Some(ConsentEvent::Session(active)),
             )
         } else if let Some(ref mode_str) = always_mode {
-            let mode = if mode_str == "view" {
-                SessionMode::View
+            // Only an explicit "control" grants control; anything else is view.
+            let (mode, mode_name) = if mode_str == "control" {
+                (SessionMode::Control, "control")
             } else {
-                SessionMode::Control
+                (SessionMode::View, "view")
             };
             let active = ActiveSessionInfo {
                 peer_name: peer_name.clone(),
                 fingerprint: fingerprint.clone(),
-                mode: mode_str.clone(),
+                mode: mode_name.to_string(),
             };
             st.active_session = Some(active.clone());
             (
