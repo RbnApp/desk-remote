@@ -12,6 +12,10 @@ pub const APP_ICON_RESOURCE_ID: u16 = 1;
 
 /// Subcommand that turns the agent executable into the per-session helper process.
 pub const HELPER_SUBCOMMAND: &str = "helper";
+/// File name of the panel executable (installed next to the Explorer menu extension).
+pub const PANEL_EXE_NAME: &str = "desk-panel.exe";
+/// Command-line flag with which Explorer entries hand the chosen paths to the panel.
+pub const SHELL_SEND_FLAG: &str = "--send";
 const DEFAULT_WINDOWS_DIR: &str = r"C:\Windows";
 const DEFAULT_USER_BASE: &str = r"C:\Users\Default\AppData\Roaming";
 const DEFAULT_PROFILES_DIR: &str = r"C:\Users";

@@ -20,6 +20,7 @@ members = [
     "apps/desk-service",
     "apps/desk-session-helper",
     "apps/desk-panel",
+    "apps/desk-shell-ext",
     "apps/desk-relay",
 ]
 

@@ -1,0 +1,34 @@
+[package]
+name = "desk-shell-ext"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "desk_remote_menu"
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+desk-i18n = { workspace = true }
+desk-paths = { workspace = true }
+windows-core = "0.62"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_System_Com",
+    "Win32_UI_Shell_Common",
+    "Win32_System_LibraryLoader",
+    "Win32_System_SystemServices",
+    "Win32_UI_Shell",
+] }
+
+[[test]]
+name = "com_roundtrip"
+path = "tests/com_roundtrip.rs"
+harness = false

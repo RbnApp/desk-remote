@@ -21,3 +21,6 @@ Thumbs.db
 
 # Tauri derleme sirasinda uretilen semalar
 apps/desk-panel/gen/
+
+# installer: generated strings
+packaging/generated/

@@ -19,7 +19,7 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Event consumed by the PC-picker UI.
 pub const PICK_EVENT: &str = "transfer://pick";
 /// Command-line flag written into the registry command.
-pub const SEND_FLAG: &str = "--send";
+pub const SEND_FLAG: &str = desk_paths::SHELL_SEND_FLAG;
 /// Window in which separate `--send` starts (one per selected file) are merged into one pick.
 const MERGE_WINDOW: Duration = Duration::from_millis(600);
 /// If the UI never claims the pick via `shell_pick_take`, it is emitted this long after load.
@@ -217,6 +217,18 @@ pub fn bring_to_front(app: &AppHandle) {
 /// Verb key; the `*` class covers every file type.
 const VERB_KEY: &str = r"HKCU\Software\Classes\*\shell\DeskRemoteSend";
 
+/// Identity name of the sparse package that gives Windows 11 its first-level menu entry
+/// (`packaging/AppxManifest.xml.in`).
+pub const MENU_PACKAGE_NAME: &str = "DeskRemote.ExplorerMenu";
+/// Sparse package and menu DLL as the installer lays them out beside the panel executable.
+pub const MENU_PACKAGE_FILE: &str = "DeskRemote-Menu.msix";
+pub const MENU_DLL_FILE: &str = "desk_remote_menu.dll";
+
+/// Single-quoted PowerShell string literal.
+pub fn powershell_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "''"))
+}
+
 /// Command line stored in the registry for `exe`.
 pub fn command_line(exe: &Path) -> String {
     format!("\"{}\" {SEND_FLAG} \"%1\"", exe.display())
@@ -239,7 +251,10 @@ pub fn label_for(locale_tag: &str) -> String {
 
 #[cfg(windows)]
 mod os {
-    use super::{command_line, exe_of_command, label_for, ShellMenuStatus, VERB_KEY};
+    use super::{
+        command_line, exe_of_command, label_for, powershell_quote, ShellMenuStatus, MENU_DLL_FILE,
+        MENU_PACKAGE_FILE, MENU_PACKAGE_NAME, VERB_KEY,
+    };
     use std::path::{Path, PathBuf};
 
     fn reg(args: &[&str]) -> Result<String, String> {
@@ -279,12 +294,93 @@ mod os {
         .unwrap_or_default()
     }
 
+    /// Windows 11 (build 22000+) is the only OS with a first-level menu that needs a package.
+    fn is_windows_11() -> bool {
+        reg(&[
+            "query",
+            r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+            "/v",
+            "CurrentBuildNumber",
+        ])
+        .ok()
+        .and_then(|o| {
+            o.lines()
+                .find(|l| l.contains("REG_SZ"))
+                .and_then(|l| l.split("REG_SZ").nth(1))
+                .and_then(|v| v.trim().parse::<u32>().ok())
+        })
+        .is_some_and(|build| build >= 22000)
+    }
+
+    /// The installer put the menu DLL and its sparse package beside the panel executable.
+    pub fn first_level_available(exe: &Path) -> bool {
+        let Some(dir) = exe.parent() else {
+            return false;
+        };
+        dir.join(MENU_DLL_FILE).is_file()
+            && dir.join(MENU_PACKAGE_FILE).is_file()
+            && is_windows_11()
+    }
+
+    /// The sparse package is registered for the current user.
+    pub fn first_level_registered() -> bool {
+        reg(&[
+            "query",
+            r"HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages",
+            "/f",
+            MENU_PACKAGE_NAME,
+            "/k",
+        ])
+        .is_ok_and(|o| o.contains(MENU_PACKAGE_NAME))
+    }
+
+    fn powershell(script: &str) -> Result<(), String> {
+        let exe = desk_paths::DeskPaths::system_tool(r"WindowsPowerShell\v1.0\powershell.exe");
+        let out = desk_paths::hidden_command(exe)
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                script,
+            ])
+            .output()
+            .map_err(|e| format!("powershell.exe: {e}"))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        }
+    }
+
+    /// Registers the sparse package (identity for the Windows 11 menu) for the current user.
+    /// Needs the package certificate in the machine's "Trusted People" store (installer step).
+    pub fn register_first_level(exe: &Path) -> Result<(), String> {
+        let dir = exe.parent().ok_or("panel directory unknown")?;
+        let script = format!(
+            "$ErrorActionPreference='Stop'; Add-AppxPackage -Path {} -ExternalLocation {}",
+            powershell_quote(&dir.join(MENU_PACKAGE_FILE).to_string_lossy()),
+            powershell_quote(&dir.to_string_lossy())
+        );
+        powershell(&script)
+    }
+
+    pub fn unregister_first_level() -> Result<(), String> {
+        if !first_level_registered() {
+            return Ok(());
+        }
+        powershell(&format!(
+            "$ErrorActionPreference='Stop'; Get-AppxPackage -Name {MENU_PACKAGE_NAME} | Remove-AppxPackage"
+        ))
+    }
+
     pub fn status(running_exe: &Path) -> ShellMenuStatus {
         let command = default_value(&format!(r"{VERB_KEY}\command"));
         let registered: Option<PathBuf> = command.as_deref().and_then(exe_of_command);
         ShellMenuStatus {
             supported: true,
-            enabled: command.is_some(),
+            enabled: command.is_some() || first_level_registered(),
             stale: registered.is_some_and(|p| {
                 !p.to_string_lossy()
                     .eq_ignore_ascii_case(&running_exe.to_string_lossy())
@@ -328,6 +424,15 @@ mod os {
             stale: false,
         }
     }
+    pub fn first_level_available(_exe: &Path) -> bool {
+        false
+    }
+    pub fn register_first_level(_exe: &Path) -> Result<(), String> {
+        Err("Explorer integration is Windows-only".to_string())
+    }
+    pub fn unregister_first_level() -> Result<(), String> {
+        Ok(())
+    }
     pub fn register(_key: &str, _exe: &Path, _language: &str) -> Result<(), String> {
         Err("Explorer integration is Windows-only".to_string())
     }
@@ -349,14 +454,29 @@ pub fn status() -> ShellMenuStatus {
 }
 
 /// Writes (or refreshes) the entry for the running executable.
+///
+/// Windows 11 with the installed menu package gets the first-level entry and no duplicate
+/// classic one; everything else (Windows 10, portable runs, a failed package registration)
+/// keeps the classic `HKCU` verb.
 pub fn enable(language: &str) -> Result<(), String> {
-    os::register(VERB_KEY, &running_exe()?, language)
+    let exe = running_exe()?;
+    if os::first_level_available(&exe) {
+        match os::register_first_level(&exe) {
+            Ok(()) => return os::unregister(VERB_KEY),
+            Err(e) => {
+                tracing::warn!(error = %e, "first-level menu unavailable, using the classic entry");
+            }
+        }
+    }
+    os::register(VERB_KEY, &exe, language)
 }
 
 /// Removes the entry. This is the single uninstall hook for the installer package (Wave 4):
 /// the installer calls `desk-panel.exe --remove-shell-menu` (see [`handle_cli_removal`]).
 pub fn disable() -> Result<(), String> {
-    os::unregister(VERB_KEY)
+    let classic = os::unregister(VERB_KEY);
+    let first_level = os::unregister_first_level();
+    classic.and(first_level)
 }
 
 /// Makes the registry match the saved preference; runs at panel start.
@@ -376,6 +496,21 @@ pub fn sync(enabled: bool, language: &str) {
     if let Err(e) = result {
         tracing::warn!(error = %e, "explorer menu sync failed");
     }
+}
+
+/// Flag used by the installer's install step.
+pub const ENABLE_FLAG: &str = "--enable-shell-menu";
+
+/// `desk-panel.exe --enable-shell-menu`: registers the entry (installer step) and tells the
+/// caller to exit.
+pub fn handle_cli_enable(args: &[String]) -> bool {
+    if !args.iter().any(|a| a == ENABLE_FLAG) {
+        return false;
+    }
+    if let Err(e) = enable("auto") {
+        tracing::warn!(error = %e, "explorer menu registration failed");
+    }
+    true
 }
 
 /// Flag used by the installer's uninstall step.
@@ -444,6 +579,14 @@ mod tests {
         );
         assert_eq!(exe_of_command(&cmd).as_deref(), Some(exe));
         assert_eq!(exe_of_command("no quotes"), None);
+    }
+
+    #[test]
+    fn powershell_literals_escape_single_quotes() {
+        assert_eq!(
+            powershell_quote(r"C:\Program Files\It's"),
+            r"'C:\Program Files\It''s'"
+        );
     }
 
     #[test]
