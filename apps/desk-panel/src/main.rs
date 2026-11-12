@@ -13,6 +13,8 @@ mod shell_menu;
 mod transfer;
 #[cfg(feature = "demo")]
 mod transfer_demo;
+#[cfg(feature = "demo")]
+mod viewer_demo;
 
 use commands::AppState;
 use desk_config::{ConfigManager, PanelConfig};
@@ -85,7 +87,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "demo")]
     let builder = builder
         .manage(incoming_demo::DemoIncoming::new())
-        .manage(transfer_demo::DemoTransfer::new());
+        .manage(transfer_demo::DemoTransfer::new())
+        .manage(viewer_demo::DemoViewers::new());
 
     #[cfg(feature = "demo")]
     let builder = builder.invoke_handler(tauri::generate_handler![
@@ -101,10 +104,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         commands::list_pcs,
         commands::discover_pcs,
         commands::pair_pc,
-        commands::viewer_connect,
-        commands::viewer_disconnect,
-        commands::viewer_input,
-        commands::viewer_request_keyframe,
+        viewer_demo::viewer_connect,
+        viewer_demo::viewer_disconnect,
+        viewer_demo::viewer_input,
+        viewer_demo::viewer_request_keyframe,
+        viewer_demo::viewer_set_active,
+        viewer_demo::viewer_sessions,
+        viewer_demo::demo_viewer_drop,
+        viewer_demo::demo_viewer_log,
+        viewer_demo::demo_viewer_stats,
         commands::tailscale_status,
         commands::tailscale_connect,
         commands::demo_drop,

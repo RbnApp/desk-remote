@@ -141,6 +141,7 @@ pub enum SessionEvent {
 pub type EventSink = Arc<dyn Fn(SessionEvent) + Send + Sync>;
 
 /// A live viewer session towards one PC.
+#[cfg_attr(feature = "demo", allow(dead_code))]
 pub trait ViewerSession: Send {
     /// Forwards one input event (`InputEvent`).
     fn send_input(&self, event: &InputEvent);
@@ -159,6 +160,7 @@ pub trait Backend: Send + Sync {
     /// Pairs with the PC at `target` (`ip[:port]` or a name) using its one-time code.
     fn pair(&self, target: &str, code: &str, name: Option<&str>) -> Result<PairedPc, PairError>;
     /// Joins a paired PC as viewer (`ViewerJoin`) and starts streaming into `sink`.
+    #[cfg_attr(feature = "demo", allow(dead_code))]
     fn connect(&self, pc: &PairedPc, sink: EventSink) -> Result<Box<dyn ViewerSession>, PairError>;
     #[cfg_attr(feature = "demo", allow(dead_code))]
     /// Opens an authenticated session to a paired PC for file transfer (no viewer join).

@@ -1,6 +1,8 @@
 //! Tauri commands: the only bridge between the web UI and Rust.
 
-use crate::backend::{Backend, Candidate, InputEvent, PcInfo, SessionEvent, ViewerSession};
+#[cfg(not(feature = "demo"))]
+use crate::backend::InputEvent;
+use crate::backend::{Backend, Candidate, EventSink, PcInfo, SessionEvent, ViewerSession};
 use desk_config::{ConfigManager, PairedPc, PanelConfig};
 use desk_theme::{ResolvedTheme, ThemeMode};
 use desk_transport::TailscaleDetector;
@@ -18,6 +20,7 @@ pub struct AppState {
     pub backend: Arc<dyn Backend>,
     pub config_path: PathBuf,
     pub config: Mutex<PanelConfig>,
+    #[cfg_attr(feature = "demo", allow(dead_code))]
     pub session: Mutex<Option<Box<dyn ViewerSession>>>,
     #[cfg_attr(feature = "demo", allow(dead_code))]
     pub incoming: Arc<crate::incoming::IncomingManager>,
@@ -193,24 +196,9 @@ pub async fn pair_pc(
     Ok(pc)
 }
 
-/// Joins a PC and streams `VideoConfig`/`VideoFrame`/`Rtt`/`Closed` into `events`.
-///
-/// Frames travel as raw bytes (`[keyframe u8][ts_us u64 LE][Annex-B data]`); every other
-/// event is a JSON text message with a `type` field.
-#[tauri::command]
-pub async fn viewer_connect(
-    state: State<'_, AppState>,
-    pc_id: String,
-    events: Channel<InvokeResponseBody>,
-) -> Result<(), String> {
-    viewer_disconnect(state.clone());
-    let pc = lock(&state.config)
-        .paired_pcs
-        .iter()
-        .find(|p| p.id == pc_id)
-        .cloned()
-        .ok_or_else(|| "unpaired".to_string())?;
-    let sink = Arc::new(move |event: SessionEvent| {
+/// Turns a viewer `Channel` into the sink a backend session pushes its events into.
+pub(crate) fn channel_sink(events: Channel<InvokeResponseBody>) -> EventSink {
+    Arc::new(move |event: SessionEvent| {
         let body = match event {
             SessionEvent::Frame {
                 ts_us,
@@ -245,7 +233,29 @@ pub async fn viewer_connect(
         if let Err(e) = events.send(body) {
             tracing::debug!(error = %e, "viewer channel closed");
         }
-    });
+    })
+}
+
+/// Joins a PC and streams `VideoConfig`/`VideoFrame`/`Rtt`/`Closed` into `events`.
+///
+/// Frames travel as raw bytes (`[keyframe u8][ts_us u64 LE][Annex-B data]`); every other
+/// event is a JSON text message with a `type` field.
+// The demo build serves the viewer commands from `viewer_demo`.
+#[cfg(not(feature = "demo"))]
+#[tauri::command]
+pub async fn viewer_connect(
+    state: State<'_, AppState>,
+    pc_id: String,
+    events: Channel<InvokeResponseBody>,
+) -> Result<(), String> {
+    viewer_disconnect(state.clone());
+    let pc = lock(&state.config)
+        .paired_pcs
+        .iter()
+        .find(|p| p.id == pc_id)
+        .cloned()
+        .ok_or_else(|| "unpaired".to_string())?;
+    let sink = channel_sink(events);
     let backend = Arc::clone(&state.backend);
     let session = tauri::async_runtime::spawn_blocking(move || backend.connect(&pc, sink))
         .await
@@ -255,6 +265,8 @@ pub async fn viewer_connect(
     Ok(())
 }
 
+// The demo build serves the viewer commands from `viewer_demo`.
+#[cfg(not(feature = "demo"))]
 #[tauri::command]
 pub fn viewer_disconnect(state: State<'_, AppState>) {
     if let Some(session) = lock(&state.session).take() {
@@ -262,6 +274,8 @@ pub fn viewer_disconnect(state: State<'_, AppState>) {
     }
 }
 
+// The demo build serves the viewer commands from `viewer_demo`.
+#[cfg(not(feature = "demo"))]
 #[tauri::command]
 pub fn viewer_input(state: State<'_, AppState>, event: InputEvent) {
     if let Some(session) = lock(&state.session).as_ref() {
@@ -269,6 +283,8 @@ pub fn viewer_input(state: State<'_, AppState>, event: InputEvent) {
     }
 }
 
+// The demo build serves the viewer commands from `viewer_demo`.
+#[cfg(not(feature = "demo"))]
 #[tauri::command]
 pub fn viewer_request_keyframe(state: State<'_, AppState>) {
     if let Some(session) = lock(&state.session).as_ref() {

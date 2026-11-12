@@ -16,16 +16,8 @@ import {
   saveSettings,
   startSidebarPolling,
 } from "./settings.js";
-import {
-  armHide,
-  closeViewer,
-  dropDemoConnection,
-  openViewer,
-  retryNow,
-  setControl,
-  toggleFullscreen,
-  viewerState,
-} from "./viewer.js";
+import { armHideAll, focusedViewer, openViewer, setControlFrom, toggleFullscreen, viewerActions, workspace } from "./viewer.js";
+import { startTabs, tabActions } from "./tabs.js";
 
 const actions = {
   connect: (el) => openViewer(el.dataset.id),
@@ -35,10 +27,6 @@ const actions = {
     render();
   },
   retry: () => loadPcs(),
-  disconnect: () => closeViewer(),
-  fs: () => toggleFullscreen(),
-  "v-retry": () => retryNow(),
-  "demo-drop": () => dropDemoConnection(),
   "pick-target": (el) => pickTarget(el.dataset.address),
   "pair-again": () => {
     resetPair();
@@ -48,6 +36,8 @@ const actions = {
   "ts-keys": () => openKeysPage(),
   "ts-install": () => openInstallPage(),
   "ts-copy": () => copyKeyCommand(),
+  ...viewerActions,
+  ...tabActions,
   ...incomingActions,
   ...transferActions,
 };
@@ -76,8 +66,8 @@ document.addEventListener("change", async (e) => {
     await onSettingChange(name, value);
   } else if (id === "incEnabled") {
     setIncomingEnabled(checked);
-  } else if (id === "ctl") {
-    setControl(checked);
+  } else if (e.target.dataset.ctl !== undefined) {
+    setControlFrom(e.target);
   }
 });
 
@@ -104,13 +94,13 @@ document.addEventListener("submit", (e) => {
 });
 
 document.addEventListener("mousemove", () => {
-  if (viewerState.fs && S.screen === "viewer") armHide();
+  if (workspace.fs && S.screen === "viewer") armHideAll();
 });
 
 document.addEventListener("keydown", (e) => {
   if (S.screen !== "viewer") return;
-  armHide();
-  if (e.key === "Escape" && viewerState.fs && !viewerState.control) toggleFullscreen();
+  armHideAll();
+  if (e.key === "Escape" && workspace.fs && !focusedViewer()?.control) toggleFullscreen();
 });
 
 async function boot() {
@@ -124,6 +114,7 @@ async function boot() {
     startSidebarPolling();
     startIncoming();
     startTransfer();
+    startTabs();
   } finally {
     await appWindow().show();
   }

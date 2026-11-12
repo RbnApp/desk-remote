@@ -488,5 +488,17 @@
   },
   "shell_menu": {
     "send": "Desk-Remote ile gönder"
+  },
+  "tabs": {
+    "label": "Bağlı bilgisayarlar",
+    "add": "Başka bir bilgisayara bağlan",
+    "close": "{name} sekmesini kapat",
+    "close_session": "Sekmeyi kapat",
+    "split": "Yan yana",
+    "state": {
+      "online": "bağlı",
+      "connecting": "bağlanıyor",
+      "lost": "koptu"
+    }
   }
 }

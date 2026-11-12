@@ -12,8 +12,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const SAMPLE: &[u8] = include_bytes!("../../demo/sample.h264");
+pub(crate) const SAMPLE: &[u8] = include_bytes!("../../demo/sample.h264");
 const FPS: u32 = 30;
+const PAUSE_POLL: Duration = Duration::from_millis(20);
 const FAILED_ATTEMPTS_AFTER_DROP: u32 = 2;
 
 type FakePc = (
@@ -144,7 +145,7 @@ impl Backend for DemoBackend {
         let thread_stop = Arc::clone(&stop);
         std::thread::Builder::new()
             .name("demo-session".to_string())
-            .spawn(move || stream(&units, &codec, &sink, &thread_stop))
+            .spawn(move || stream(&units, &codec, &sink, &thread_stop, &AtomicBool::new(false)))
             .map_err(|_| PairError::Network)?;
         Ok(Box::new(DemoSession { stop }))
     }
@@ -194,6 +195,7 @@ impl Backend for DemoBackend {
     }
 }
 
+#[cfg_attr(feature = "demo", allow(dead_code))]
 struct DemoSession {
     stop: Arc<AtomicBool>,
 }
@@ -223,12 +225,20 @@ impl ViewerSession for DemoSession {
 }
 
 /// One Annex-B access unit.
-struct AccessUnit {
+pub(crate) struct AccessUnit {
     keyframe: bool,
     data: Vec<u8>,
 }
 
-fn stream(units: &[AccessUnit], codec: &str, sink: &EventSink, stop: &AtomicBool) {
+/// Streams the looping sample into `sink` until `stop`; while `paused` nothing is sent and the
+/// stream restarts on a keyframe when it resumes.
+pub(crate) fn stream(
+    units: &[AccessUnit],
+    codec: &str,
+    sink: &EventSink,
+    stop: &AtomicBool,
+    paused: &AtomicBool,
+) {
     sink(SessionEvent::Config {
         codec: codec.to_string(),
         fps: FPS,
@@ -243,6 +253,11 @@ fn stream(units: &[AccessUnit], codec: &str, sink: &EventSink, stop: &AtomicBool
         for unit in units {
             if stop.load(Ordering::Relaxed) {
                 break 'outer;
+            }
+            if paused.load(Ordering::Relaxed) {
+                std::thread::sleep(PAUSE_POLL);
+                next = Instant::now();
+                continue 'outer;
             }
             sink(SessionEvent::Frame {
                 ts_us,
@@ -266,7 +281,7 @@ fn stream(units: &[AccessUnit], codec: &str, sink: &EventSink, stop: &AtomicBool
 }
 
 /// Groups NAL units into access units: parameter sets and SEI travel with the next slice.
-fn split_access_units(stream: &[u8]) -> Vec<AccessUnit> {
+pub(crate) fn split_access_units(stream: &[u8]) -> Vec<AccessUnit> {
     let starts = nal_starts(stream);
     let mut units = Vec::new();
     let mut pending: Vec<u8> = Vec::new();
@@ -290,7 +305,7 @@ fn split_access_units(stream: &[u8]) -> Vec<AccessUnit> {
 }
 
 /// `avc1.PPCCLL` of the first access unit.
-fn codec_string(units: &[AccessUnit]) -> Option<String> {
+pub(crate) fn codec_string(units: &[AccessUnit]) -> Option<String> {
     avc1_codec(&units.first()?.data)
 }
 
