@@ -137,7 +137,10 @@ impl LanBrowser {
 mod tests {
     use super::*;
 
+    // Opens a real mDNS socket on 0.0.0.0:5353; every rebuilt test binary would raise a new
+    // Windows Firewall prompt. Run explicitly on test PCs: cargo test -p desk-transport -- --ignored
     #[test]
+    #[ignore = "binds 0.0.0.0:5353 (mDNS); triggers a Windows Firewall prompt"]
     fn test_announcer_creation_and_teardown() {
         let announcer = LanAnnouncer::start("agent-test-unit", "127.0.0.1", 7777, "0.1.0");
         assert!(announcer.is_ok());
