@@ -16,6 +16,8 @@ const LOOPBACK_IP: &str = "127.0.0.1";
 struct TailnetReport {
     state: TailnetState,
     ips: Vec<String>,
+    auth_url: Option<String>,
+    takeover_needs_admin: bool,
 }
 
 /// Runtime switches and facts shared by the hub, the host and the tailnet supervisor.
@@ -49,8 +51,8 @@ impl Control {
         self.view_only.swap(enabled, Ordering::SeqCst) != enabled
     }
 
-    /// Stores the tailnet helper's first report (`status` as printed by the helper).
-    pub fn set_tailnet_report(&self, status: &str, ips: &[String]) {
+    /// Stores the tailnet helper's report (`status` as printed by the helper).
+    pub fn set_tailnet_report(&self, status: &str, ips: &[String], auth_url: Option<&str>) {
         let state = match status {
             "listening" | "running" if !ips.is_empty() => TailnetState::Connected,
             "needs_auth" => TailnetState::NeedsLogin,
@@ -63,6 +65,13 @@ impl Control {
         } else {
             Vec::new()
         };
+        report.auth_url = auth_url.map(ToString::to_string);
+    }
+
+    /// Records whether taking over official Tailscale requires administrator privileges.
+    pub fn set_takeover_needs_admin(&self, needs_admin: bool) {
+        let mut report = lock(&self.tailnet);
+        report.takeover_needs_admin = needs_admin;
     }
 
     /// Builds the snapshot for the tray menu.
@@ -85,6 +94,8 @@ impl Control {
             port: self.port.load(Ordering::SeqCst),
             tailnet: report.state,
             tailnet_ips: report.ips.clone(),
+            tailnet_auth_url: report.auth_url.clone(),
+            takeover_needs_admin: report.takeover_needs_admin,
             device_id: identity.device_id(),
             fingerprint: identity.fingerprint(),
             viewers: u32::try_from(viewers).unwrap_or(u32::MAX),
@@ -115,13 +126,20 @@ mod tests {
         let ips = vec!["100.64.0.7".to_string()];
         let state = |c: &Control| c.snapshot(&identity, 0, false).tailnet;
         assert_eq!(state(&control), TailnetState::Off, "nothing reported yet");
-        control.set_tailnet_report("listening", &ips);
+        control.set_tailnet_report("listening", &ips, None);
         assert_eq!(state(&control), TailnetState::Connected);
         assert_eq!(control.snapshot(&identity, 0, false).tailnet_ips, ips);
-        control.set_tailnet_report("needs_auth", &[]);
+        control.set_tailnet_report("needs_auth", &[], Some("https://login.example.com"));
         assert_eq!(state(&control), TailnetState::NeedsLogin);
+        assert_eq!(
+            control
+                .snapshot(&identity, 0, false)
+                .tailnet_auth_url
+                .as_deref(),
+            Some("https://login.example.com")
+        );
         assert!(control.snapshot(&identity, 0, false).tailnet_ips.is_empty());
-        control.set_tailnet_report("error", &ips);
+        control.set_tailnet_report("error", &ips, None);
         assert_eq!(state(&control), TailnetState::Off);
         Ok(())
     }

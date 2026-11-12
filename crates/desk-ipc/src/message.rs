@@ -79,6 +79,8 @@ mod tests {
                 viewers: 2,
                 unavailable: false,
                 view_only: true,
+                tailnet_auth_url: None,
+                takeover_needs_admin: false,
             }),
             IpcMessage::FileIncoming {
                 transfer_id: "t1".to_string(),

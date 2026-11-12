@@ -9,11 +9,16 @@ use crate::takeover::{self, ScTailscale, TakeoverStatus};
 use desk_error::{DeskError, DeskResult};
 use desk_paths::DeskPaths;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdout, Stdio};
 use std::sync::Arc;
 use std::thread::JoinHandle;
+
+/// Embedded byte payload of `desk-tailnet-helper.exe` compiled during build.
+pub const EMBEDDED_HELPER_BYTES: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/desk-tailnet-helper.exe"));
 
 /// One-time auth key dropped by the panel / installer; deleted after the first successful use.
 const AUTH_KEY_FILE: &str = "authkey.txt";
@@ -25,6 +30,55 @@ struct HelperReport {
     status: String,
     #[serde(default)]
     ips: Vec<String>,
+    #[serde(default)]
+    auth_url: Option<String>,
+}
+
+/// Canonical path where the embedded helper executable is stored.
+pub fn helper_executable_path(paths: &DeskPaths) -> PathBuf {
+    paths.tailnet_helper_path()
+}
+
+/// Ensures the embedded helper is extracted to `<data>/system/bin/desk-tailnet-helper.exe` with SHA verification.
+/// If the file already exists and its SHA-256 matches, it is not rewritten.
+pub fn ensure_helper_extracted(paths: &DeskPaths, harden: bool) -> DeskResult<PathBuf> {
+    let target = helper_executable_path(paths);
+    let bin_dir = paths.system_dir().join("bin");
+    DeskPaths::ensure_dir(&bin_dir)?;
+
+    if harden {
+        let _ = restrict_to_admins(&bin_dir);
+    }
+
+    if EMBEDDED_HELPER_BYTES.is_empty() {
+        if let Ok(sib) = DeskPaths::sibling_exe("desk-tailnet-helper.exe") {
+            if sib.exists() {
+                return Ok(sib);
+            }
+        }
+        return Ok(target);
+    }
+
+    let expected_hash = Sha256::digest(EMBEDDED_HELPER_BYTES);
+    let needs_write = match std::fs::read(&target) {
+        Ok(existing) => Sha256::digest(&existing) != expected_hash,
+        Err(_) => true,
+    };
+
+    if needs_write {
+        tracing::info!(
+            target = %target.display(),
+            bytes = EMBEDDED_HELPER_BYTES.len(),
+            "extracting embedded tailnet helper (SHA-256 verified)"
+        );
+        std::fs::write(&target, EMBEDDED_HELPER_BYTES)
+            .map_err(|e| DeskError::Service(format!("cannot write tailnet helper: {e}")))?;
+        if harden {
+            let _ = restrict_file_to_admins(&target);
+        }
+    }
+
+    Ok(target)
 }
 
 /// Owns the helper child process; it is killed when the guard drops.
@@ -34,8 +88,9 @@ pub struct TailnetGuard {
 }
 
 impl TailnetGuard {
-    /// Starts `desk-tailnet-helper listen` when it ships next to the service. The hand-over of
-    /// an official client (if `take_over` is set) runs in the background once the helper is up.
+    /// Starts `desk-tailnet-helper listen` from `<data>/system/bin/` (or sibling).
+    /// The hand-over of an official client (if `take_over` is set) runs in the
+    /// background once the helper is verified reachable on the tailnet.
     #[must_use]
     pub fn start(
         paths: &DeskPaths,
@@ -44,11 +99,17 @@ impl TailnetGuard {
         harden: bool,
         control: Arc<Control>,
     ) -> Option<Self> {
-        let exe = DeskPaths::sibling_exe("desk-tailnet-helper.exe").ok()?;
-        if !exe.exists() {
-            tracing::info!("desk-tailnet-helper not installed; tailnet access disabled");
-            return None;
-        }
+        let exe = match ensure_helper_extracted(paths, harden) {
+            Ok(p) if p.exists() => p,
+            _ => match DeskPaths::sibling_exe("desk-tailnet-helper.exe") {
+                Ok(p) if p.exists() => p,
+                _ => {
+                    tracing::info!("desk-tailnet-helper not installed; tailnet access disabled");
+                    return None;
+                }
+            },
+        };
+
         let state_dir = paths.system_dir().join("tailscale");
         DeskPaths::ensure_dir(&state_dir).ok()?;
         if harden {
@@ -85,7 +146,7 @@ impl TailnetGuard {
             .name("desk-tailnet".to_string())
             .spawn(move || {
                 let status = supervise(stdout, port, take_over, &state_dir, &control);
-                tracing::info!(?status, "official Tailscale hand-over");
+                tracing::info!(?status, "official Tailscale hand-over outcome");
                 if matches!(status, TakeoverStatus::TookOver | TakeoverStatus::NotNeeded) {
                     // The key is single-use; the node state in `state_dir` keeps the login.
                     let _ = std::fs::remove_file(&key_file);
@@ -121,7 +182,28 @@ pub(crate) fn restrict_to_admins(dir: &Path) -> DeskResult<()> {
     }
 }
 
-/// Waits for the helper's first report, then runs the hand-over gated on a real check.
+/// Replaces a single file's ACL with full control for SYSTEM and Administrators only.
+pub(crate) fn restrict_file_to_admins(file: &Path) -> DeskResult<()> {
+    let out = desk_paths::hidden_command(DeskPaths::system_tool("icacls.exe"))
+        .arg(file)
+        .args([
+            "/inheritance:r",
+            "/grant:r",
+            "*S-1-5-18:F",
+            "*S-1-5-32-544:F",
+        ])
+        .output()?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(DeskError::Service(format!(
+            "icacls file failed: {}",
+            String::from_utf8_lossy(&out.stdout).trim()
+        )))
+    }
+}
+
+/// Waits for helper reports (needs_auth, listening, etc.) and executes the hand-over once listening.
 fn supervise(
     stdout: ChildStdout,
     port: u16,
@@ -129,27 +211,35 @@ fn supervise(
     state_dir: &Path,
     control: &Control,
 ) -> TakeoverStatus {
-    let report = serde_json::Deserializer::from_reader(BufReader::new(stdout))
-        .into_iter::<HelperReport>()
-        .next()
-        .and_then(Result::ok);
-    if let Some(r) = &report {
-        control.set_tailnet_report(&r.status, &r.ips);
+    let mut last_status = TakeoverStatus::Unverified;
+    let stream =
+        serde_json::Deserializer::from_reader(BufReader::new(stdout)).into_iter::<HelperReport>();
+
+    for item in stream {
+        let Ok(report) = item else { break };
+        tracing::info!(status = %report.status, ips = ?report.ips, "tailnet helper report");
+        control.set_tailnet_report(&report.status, &report.ips, report.auth_url.as_deref());
+
+        if report.status == "listening" {
+            let ips = report.ips.clone();
+            let verify = move || desk_transport::helper_online("listening", &ips, port);
+            last_status =
+                takeover::take_over(&ScTailscale, take_over, verify, &record_path(state_dir));
+            if last_status == TakeoverStatus::NeedsAdmin {
+                control.set_takeover_needs_admin(true);
+            }
+            break;
+        }
     }
-    let verify = || {
-        report
-            .as_ref()
-            .is_some_and(|r| desk_transport::helper_online(&r.status, &r.ips, port))
-    };
-    takeover::take_over(&ScTailscale, take_over, verify, &record_path(state_dir))
+    last_status
 }
 
 fn record_path(state_dir: &Path) -> PathBuf {
     state_dir.join(RECORD_FILE)
 }
 
-/// Restores an official Tailscale client that this agent took over (called by `uninstall`).
-pub(crate) fn restore_official(paths: &DeskPaths) -> bool {
+/// Restores an official Tailscale client that this agent took over (called on shutdown / uninstall).
+pub fn restore_official(paths: &DeskPaths) -> bool {
     let record = record_path(&paths.system_dir().join("tailscale"));
     match takeover::restore(&ScTailscale, &record) {
         Ok(restored) => restored,
@@ -204,6 +294,20 @@ mod tests {
                 .any(|l| l.contains("Users") || l.contains("Everyone")),
             "ordinary principals still listed: {listing}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn helper_extraction_creates_target_path() -> DeskResult<()> {
+        let tmp = tempfile::tempdir().map_err(DeskError::Io)?;
+        let paths = DeskPaths::custom(tmp.path().join("system"), tmp.path().join("user"));
+        let target = ensure_helper_extracted(&paths, false)?;
+        assert_eq!(target, paths.tailnet_helper_path());
+        if !EMBEDDED_HELPER_BYTES.is_empty() {
+            assert!(target.exists());
+            let read_bytes = std::fs::read(&target).map_err(DeskError::Io)?;
+            assert_eq!(read_bytes.len(), EMBEDDED_HELPER_BYTES.len());
+        }
         Ok(())
     }
 }

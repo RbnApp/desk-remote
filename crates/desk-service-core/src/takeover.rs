@@ -34,6 +34,8 @@ pub trait OfficialTailscale {
     fn set_start_type(&self, start_type: u32) -> DeskResult<()>;
     /// Closes the tray application (best effort).
     fn close_tray(&self) -> DeskResult<()>;
+    /// Returns whether the caller has administrator privileges to control services.
+    fn is_admin(&self) -> bool;
 }
 
 /// Outcome, written to `tailnet-status.json` next to the helper state.
@@ -48,6 +50,8 @@ pub enum TakeoverStatus {
     Unverified,
     /// Official client stopped and disabled; original settings recorded for restore.
     TookOver,
+    /// Official client is present, but administrator privileges are required to take it over.
+    NeedsAdmin,
     /// A control step failed (after verification); see `error`.
     Failed { error: String },
 }
@@ -79,6 +83,10 @@ pub fn take_over(
     }
     if !verify() {
         return TakeoverStatus::Unverified;
+    }
+    if !ctl.is_admin() {
+        tracing::warn!("administrator permission required to take over official Tailscale service");
+        return TakeoverStatus::NeedsAdmin;
     }
     // Keep the first record: a second run would otherwise store "disabled" as the original.
     if !record_path.exists() {
@@ -216,6 +224,44 @@ impl OfficialTailscale for ScTailscale {
             .output()?;
         Ok(())
     }
+
+    fn is_admin(&self) -> bool {
+        is_current_process_admin()
+    }
+}
+
+/// Checks whether the calling process is running with elevated administrator rights.
+#[cfg(windows)]
+pub fn is_current_process_admin() -> bool {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Security::{
+        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    // SAFETY: standard Win32 query for process token elevation.
+    unsafe {
+        let mut token = HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
+            return false;
+        }
+        let mut elevation = TOKEN_ELEVATION::default();
+        let mut ret_len = 0u32;
+        let ok = GetTokenInformation(
+            token,
+            TokenElevation,
+            Some(&mut elevation as *mut _ as *mut _),
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut ret_len,
+        );
+        let _ = windows::Win32::Foundation::CloseHandle(token);
+        ok.is_ok() && elevation.TokenIsElevated != 0
+    }
+}
+
+#[cfg(not(windows))]
+pub fn is_current_process_admin() -> bool {
+    false
 }
 
 #[cfg(test)]
@@ -227,6 +273,7 @@ mod tests {
         state: RefCell<Option<OfficialState>>,
         calls: RefCell<Vec<String>>,
         fail_stop: bool,
+        is_admin: bool,
     }
 
     impl Fake {
@@ -235,6 +282,7 @@ mod tests {
                 state: RefCell::new(state),
                 calls: RefCell::new(Vec::new()),
                 fail_stop: false,
+                is_admin: true,
             }
         }
         fn running_auto() -> Self {
@@ -277,6 +325,9 @@ mod tests {
             self.calls.borrow_mut().push("close_tray".into());
             Ok(())
         }
+        fn is_admin(&self) -> bool {
+            self.is_admin
+        }
     }
 
     fn tmp() -> tempfile::TempDir {
@@ -313,6 +364,24 @@ mod tests {
             fake.calls()
         );
         assert!(!rec(&dir).exists());
+    }
+
+    #[test]
+    fn takeover_requires_admin_permission_and_does_not_touch_service() {
+        let dir = tmp();
+        let mut fake = Fake::running_auto();
+        fake.is_admin = false;
+        let status = take_over(&fake, true, || true, &rec(&dir));
+        assert_eq!(status, TakeoverStatus::NeedsAdmin);
+        assert!(
+            fake.calls().is_empty(),
+            "no control call without admin: {:?}",
+            fake.calls()
+        );
+        assert!(
+            !rec(&dir).exists(),
+            "record must not be written without admin"
+        );
     }
 
     #[test]

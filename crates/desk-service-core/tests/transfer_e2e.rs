@@ -462,7 +462,8 @@ mod agent {
         let stop = Arc::new(AtomicBool::new(false));
         let helper = if with_helper {
             let name = format!(
-                r"\\.\pipe\DeskRemote-xfer-helper-{}",
+                r"\\.\pipe\DeskRemote-xfer-helper-{}-{}",
+                std::process::id(),
                 NEXT.fetch_add(1, Ordering::SeqCst)
             );
             let server = IpcServer::bind(

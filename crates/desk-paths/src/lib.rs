@@ -218,6 +218,12 @@ impl DeskPaths {
         root.join("System32").join(file_name)
     }
 
+    /// Full path where the embedded tailnet helper is extracted: `<system>/bin/desk-tailnet-helper.exe`.
+    #[must_use]
+    pub fn tailnet_helper_path(&self) -> PathBuf {
+        self.system_root.join("bin").join("desk-tailnet-helper.exe")
+    }
+
     /// Windows Named Pipe name for the central service.
     pub fn pipe_service() -> &'static str {
         r"\\.\pipe\DeskRemote-Service"

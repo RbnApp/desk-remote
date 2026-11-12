@@ -29,6 +29,12 @@ pub struct AgentInfo {
     pub tailnet: TailnetState,
     /// Tailnet addresses of this node (empty unless connected).
     pub tailnet_ips: Vec<String>,
+    /// Browser login URL when TailnetState is NeedsLogin.
+    #[serde(default)]
+    pub tailnet_auth_url: Option<String>,
+    /// True when official Tailscale takeover requires administrator privileges.
+    #[serde(default)]
+    pub takeover_needs_admin: bool,
     /// Stable device ID viewers see while pairing.
     pub device_id: String,
     /// Long form of the identity key digest (see `DeviceIdentity::fingerprint`).

@@ -92,6 +92,7 @@ func outputJSON(v interface{}) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(v)
+	_ = os.Stdout.Sync()
 }
 
 func runAuth(ctx context.Context, s *tsnet.Server) {
@@ -163,6 +164,41 @@ func runStatus(ctx context.Context, s *tsnet.Server) {
 
 // runListen accepts connections on the tailnet and forwards them to a local loopback port.
 func runListen(ctx context.Context, s *tsnet.Server, tailnetPort int, bridgeAddr string) {
+	if err := s.Start(); err != nil {
+		outputJSON(HelperStatus{Status: "error", Error: err.Error()})
+		os.Exit(1)
+	}
+
+	lc, err := s.LocalClient()
+	if err != nil {
+		outputJSON(HelperStatus{Status: "error", Error: err.Error()})
+		os.Exit(1)
+	}
+
+	w, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState)
+	if err != nil {
+		outputJSON(HelperStatus{Status: "error", Error: err.Error()})
+		os.Exit(1)
+	}
+	defer w.Close()
+
+	for {
+		n, err := w.Next()
+		if err != nil {
+			outputJSON(HelperStatus{Status: "error", Error: err.Error()})
+			os.Exit(1)
+		}
+		if n.BrowseToURL != nil {
+			outputJSON(HelperStatus{
+				Status:  "needs_auth",
+				AuthURL: *n.BrowseToURL,
+			})
+		}
+		if n.State != nil && *n.State == ipn.Running {
+			break
+		}
+	}
+
 	st, err := s.Up(ctx)
 	if err != nil {
 		outputJSON(HelperStatus{Status: "error", Error: err.Error()})
