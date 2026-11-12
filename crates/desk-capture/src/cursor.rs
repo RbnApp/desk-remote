@@ -21,7 +21,8 @@ use windows::Win32::Graphics::Gdi::{
     BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    DrawIconEx, GetCursorInfo, GetIconInfo, CURSORINFO, CURSOR_SHOWING, DI_NORMAL, HICON, ICONINFO,
+    DrawIconEx, GetCursorInfo, GetIconInfo, LoadCursorW, CURSORINFO, CURSOR_SHOWING, DI_NORMAL,
+    HICON, ICONINFO, IDC_ARROW,
 };
 
 /// Cursor bitmaps larger than this (per side) are cut off; real cursors are 32..=96 px.
@@ -76,6 +77,27 @@ pub fn normalize_to_monitor(x: i32, y: i32, monitor: ScreenRect) -> Option<(u16,
         axis(x, monitor.left, monitor.width())?,
         axis(y, monitor.top, monitor.height())?,
     ))
+}
+
+/// Which image the viewer should get for one cursor sample.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShapeChoice {
+    /// The cursor Windows reports.
+    Real,
+    /// The standard arrow: Windows reports no usable cursor.
+    Arrow,
+}
+
+/// Decides the image from the `GetCursorInfo` state. A PC without a mouse (hidden or suppressed
+/// cursor, empty handle) still has a pointer the remote user drives, so it is drawn as the arrow
+/// instead of vanishing. Visibility then only depends on the cursor being over the monitor.
+#[must_use]
+pub fn choose_shape(showing: bool, has_handle: bool) -> ShapeChoice {
+    if showing && has_handle {
+        ShapeChoice::Real
+    } else {
+        ShapeChoice::Arrow
+    }
 }
 
 /// Combines the same cursor drawn over black and over white (both BGRA) into straight-alpha
@@ -137,21 +159,28 @@ impl CursorTracker {
         };
         // SAFETY: `info.cbSize` is set; the structure is a valid out-parameter.
         unsafe { GetCursorInfo(&mut info) }.ok()?;
-        let showing = info.flags.0 & CURSOR_SHOWING.0 != 0 && !info.hCursor.is_invalid();
+        let showing = info.flags.0 & CURSOR_SHOWING.0 != 0;
         let inside = normalize_to_monitor(info.ptScreenPos.x, info.ptScreenPos.y, monitor);
         let (x, y) = inside.unwrap_or((0, 0));
-        if !showing {
-            return Some(CursorUpdate {
-                pos: CursorPos {
-                    x,
-                    y,
-                    shape_id: 0,
-                    visible: false,
-                },
-                new_shape: None,
-            });
-        }
-        let handle = info.hCursor.0 as isize;
+        let cursor = match choose_shape(showing, !info.hCursor.is_invalid()) {
+            ShapeChoice::Real => HICON(info.hCursor.0),
+            // SAFETY: shared system cursor; never destroyed.
+            ShapeChoice::Arrow => match unsafe { LoadCursorW(None, IDC_ARROW) } {
+                Ok(arrow) => HICON(arrow.0),
+                Err(_) => {
+                    return Some(CursorUpdate {
+                        pos: CursorPos {
+                            x,
+                            y,
+                            shape_id: 0,
+                            visible: false,
+                        },
+                        new_shape: None,
+                    })
+                }
+            },
+        };
+        let handle = cursor.0 as isize;
         let id = if let Some(id) = self.shapes.get(&handle) {
             *id
         } else {
@@ -165,7 +194,7 @@ impl CursorTracker {
         };
         let new_shape = if self.sent.insert(id) {
             // A cursor that cannot be rendered is retried when it changes, not every tick.
-            render_shape(id, HICON(info.hCursor.0))
+            render_shape(id, cursor)
         } else {
             None
         };
@@ -354,6 +383,43 @@ mod tests {
             &[0, 0, 0, 255],
             "inverting pixel becomes opaque black"
         );
+    }
+
+    #[test]
+    fn shape_choice_real_when_showing_arrow_otherwise() {
+        assert_eq!(choose_shape(true, true), ShapeChoice::Real);
+        assert_eq!(choose_shape(false, true), ShapeChoice::Arrow, "suppressed");
+        assert_eq!(choose_shape(false, false), ShapeChoice::Arrow, "no flags");
+        assert_eq!(
+            choose_shape(true, false),
+            ShapeChoice::Arrow,
+            "empty handle"
+        );
+    }
+
+    #[test]
+    fn outside_the_monitor_stays_hidden() {
+        assert_eq!(normalize_to_monitor(5000, 5, rect(0, 0, 1920, 1080)), None);
+    }
+
+    /// Moves the real pointer, so it is opt-in: `cargo test -p desk-capture -- --ignored`.
+    #[test]
+    #[ignore = "moves the physical pointer"]
+    fn position_follows_the_pointer_without_a_mouse() {
+        use windows::Win32::UI::WindowsAndMessaging::SetCursorPos;
+        let mut tracker = CursorTracker::new();
+        let m = rect(0, 0, 100_000, 100_000);
+        for (px, py) in [(300, 200), (640, 480)] {
+            if unsafe { SetCursorPos(px, py) }.is_err() {
+                return;
+            }
+            let Some(u) = tracker.poll(m) else { return };
+            assert_eq!(
+                (u.pos.x, u.pos.y),
+                normalize_to_monitor(px, py, m).unwrap_or_default()
+            );
+            assert!(u.pos.visible);
+        }
     }
 
     #[test]
