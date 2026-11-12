@@ -20,6 +20,7 @@ desk-logger = { workspace = true }
 desk-paths = { workspace = true }
 desk-protocol = { workspace = true }
 desk-theme = { workspace = true }
+desk-transfer = { workspace = true }
 desk-version = { workspace = true }
 tracing = { workspace = true }
 

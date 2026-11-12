@@ -9,6 +9,8 @@ pub mod incoming;
 #[cfg(feature = "demo")]
 mod incoming_demo;
 mod shell_menu;
+#[cfg(not(feature = "demo"))]
+mod transfer;
 
 use commands::AppState;
 use desk_config::{ConfigManager, PanelConfig};
@@ -36,6 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let loopback = std::env::args().any(|arg| arg == "--loopback");
     let incoming = Arc::new(incoming::IncomingManager::new(paths, loopback));
+    incoming.set_max_upload_mb(panel_config.max_upload_mb);
     let picks = PickCollector::new();
     let (menu_enabled, menu_language) = (panel_config.shell_menu, panel_config.language.clone());
 
@@ -46,6 +49,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         session: Mutex::new(None),
         incoming,
         picks: Arc::clone(&picks),
+        #[cfg(not(feature = "demo"))]
+        transfers: Arc::default(),
     };
 
     // One panel only: a second `--send` start hands its paths to the running panel and exits.
@@ -58,6 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         ))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .on_page_load({
             let picks = Arc::clone(&picks);
             move |webview, payload| {
@@ -138,6 +144,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         commands::incoming_answer,
         commands::incoming_disconnect,
         commands::incoming_set_mode,
+        commands::transfer_send,
+        commands::transfer_cancel,
+        commands::transfer_limits,
+        commands::transfer_set_limit,
+        commands::transfer_inspect,
+        commands::transfer_pick_files,
+        commands::transfer_answer,
     ]);
 
     builder.run(tauri::generate_context!())?;

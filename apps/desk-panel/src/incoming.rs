@@ -5,9 +5,10 @@
 
 use desk_crypto::{DeviceIdentity, TrustStore};
 use desk_paths::DeskPaths;
-use desk_service_core::{ConsentEvent, HostOptions, HostRole, ServiceHost};
+use desk_service_core::{ConsentEvent, HostOptions, HostRole, ServiceHost, TransferEvent};
 use desk_transport::{primary_local_ip, TailscaleDetector};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use tauri::{AppHandle, Emitter};
 
@@ -48,6 +49,7 @@ pub struct IncomingManager {
     paths: DeskPaths,
     loopback_only: bool,
     port: Option<u16>,
+    max_upload_mb: AtomicU32,
 }
 
 impl IncomingManager {
@@ -65,6 +67,28 @@ impl IncomingManager {
             paths,
             loopback_only,
             port,
+            max_upload_mb: AtomicU32::new(desk_config::DEFAULT_MAX_UPLOAD_MB),
+        }
+    }
+
+    /// Upload limit for files this PC receives; applies to a running host at once.
+    pub fn set_max_upload_mb(&self, mb: u32) {
+        self.max_upload_mb.store(mb, Ordering::SeqCst);
+        if let Some(host) = lock(&self.host).as_ref() {
+            host.hub().transfers().set_max_upload_mb(mb);
+        }
+    }
+
+    /// The user's answer to a `transfer://offer`.
+    pub fn transfer_answer(&self, transfer_id: &str, accept: bool) -> Result<(), String> {
+        let guard = lock(&self.host);
+        let Some(host) = guard.as_ref() else {
+            return Err("incoming host not running".to_string());
+        };
+        if host.hub().transfers().answer(transfer_id, accept) {
+            Ok(())
+        } else {
+            Err("no such offer".to_string())
         }
     }
 
@@ -192,6 +216,31 @@ impl IncomingManager {
                     ConsentEvent::Ended { reason } => {
                         let _ = app_clone
                             .emit("incoming://ended", serde_json::json!({ "reason": reason }));
+                    }
+                })));
+
+            host.hub()
+                .transfers()
+                .set_max_upload_mb(self.max_upload_mb.load(Ordering::SeqCst));
+            let app_offers = app.clone();
+            host.hub()
+                .transfers()
+                .set_listener(Some(Arc::new(move |ev| match ev {
+                    TransferEvent::Offer {
+                        transfer_id,
+                        peer_name,
+                        name,
+                        size,
+                    } => {
+                        let _ = app_offers.emit(
+                            "transfer://offer",
+                            serde_json::json!({
+                                "transfer_id": transfer_id,
+                                "peer_name": peer_name,
+                                "name": name,
+                                "size": size,
+                            }),
+                        );
                     }
                 })));
 

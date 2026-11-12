@@ -12,6 +12,7 @@ members = [
     "crates/desk-protocol",
     "crates/desk-crypto",
     "crates/desk-ipc",
+    "crates/desk-transfer",
     "crates/desk-service-core",
     "crates/desk-capture",
     "crates/desk-codec",
@@ -47,6 +48,7 @@ desk-transport = { path = "crates/desk-transport", version = "0.1.0" }
 desk-protocol = { path = "crates/desk-protocol", version = "0.1.0" }
 desk-crypto = { path = "crates/desk-crypto", version = "0.1.0" }
 desk-ipc = { path = "crates/desk-ipc", version = "0.1.0" }
+desk-transfer = { path = "crates/desk-transfer", version = "0.1.0" }
 desk-service-core = { path = "crates/desk-service-core", version = "0.1.0" }
 desk-capture = { path = "crates/desk-capture", version = "0.1.0" }
 desk-codec = { path = "crates/desk-codec", version = "0.1.0" }

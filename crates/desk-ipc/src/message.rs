@@ -31,6 +31,11 @@ pub enum IpcMessage {
     DisconnectAllRequest,
     /// Helper -> service: block (`true`) or allow remote input; resets when the service restarts.
     SetViewOnly { enabled: bool },
+    /// Service -> helper: who sends the file offered next (`Wire(FileOffer)` follows).
+    FileIncoming {
+        transfer_id: String,
+        peer_name: String,
+    },
     /// Service -> helper: exit cleanly.
     Shutdown,
 }
@@ -74,6 +79,15 @@ mod tests {
                 viewers: 2,
                 unavailable: false,
                 view_only: true,
+            }),
+            IpcMessage::FileIncoming {
+                transfer_id: "t1".to_string(),
+                peer_name: "Laptop".to_string(),
+            },
+            IpcMessage::Wire(Message::FileChunk {
+                transfer_id: "t1".to_string(),
+                offset: 0,
+                data: vec![9; 1000],
             }),
             IpcMessage::DisconnectAllRequest,
             IpcMessage::SetViewOnly { enabled: true },

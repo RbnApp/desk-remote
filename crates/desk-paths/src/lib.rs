@@ -14,6 +14,8 @@ const DEFAULT_USER_BASE: &str = r"C:\Users\Default\AppData\Roaming";
 const DEFAULT_PROFILES_DIR: &str = r"C:\Users";
 /// File name of the viewer-panel identity, also the proof that a user runs the panel.
 const PANEL_IDENTITY_FILE: &str = "panel_identity.key";
+/// Sub-folder of Downloads that holds received files.
+const RECEIVED_SUBDIR: &str = "Desk-Remote";
 /// Machine-wide "this PC is a management panel" marker (written best effort by the panel).
 const PANEL_MARKER_FILE: &str = "panel-role.marker";
 
@@ -160,6 +162,20 @@ impl DeskPaths {
         self.user_root.join("trusted_hosts.dat")
     }
 
+    /// Folder received files land in: `<profile>\Downloads\Desk-Remote`. Resolved in the
+    /// calling user's context (the session helper or the panel, never the SYSTEM service).
+    /// Custom (test) roots keep it inside their own tree.
+    #[must_use]
+    pub fn received_files_dir(&self) -> PathBuf {
+        let profile = std::env::var_os("USERPROFILE").filter(|v| !v.is_empty());
+        match profile {
+            Some(profile) if self.profiles_root.is_some() => PathBuf::from(profile)
+                .join("Downloads")
+                .join(RECEIVED_SUBDIR),
+            _ => self.user_root.join("received"),
+        }
+    }
+
     /// Ensures that the specified directory exists, creating parent directories if needed.
     pub fn ensure_dir(dir: &Path) -> DeskResult<()> {
         std::fs::create_dir_all(dir).map_err(|e| {
@@ -300,6 +316,14 @@ mod tests {
         assert!(sc.is_absolute(), "{sc:?}");
         assert!(sc.ends_with(r"System32\sc.exe"), "{sc:?}");
         assert!(sc.exists(), "{sc:?}");
+    }
+
+    #[test]
+    fn received_files_land_in_downloads_for_real_roots_and_in_the_tree_for_test_roots() {
+        let custom = DeskPaths::custom(r"Z:\s", r"Z:\u");
+        assert_eq!(custom.received_files_dir(), PathBuf::from(r"Z:\u\received"));
+        let real = DeskPaths::default().received_files_dir();
+        assert!(real.ends_with(r"Downloads\Desk-Remote") || real.ends_with("received"));
     }
 
     #[test]

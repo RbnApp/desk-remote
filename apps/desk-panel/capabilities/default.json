@@ -13,6 +13,7 @@
     "core:window:allow-set-always-on-top",
     "core:window:allow-request-user-attention",
     "core:window:allow-set-title",
-    "opener:allow-open-url"
+    "opener:allow-open-url",
+    "dialog:allow-open"
   ]
 }

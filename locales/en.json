@@ -306,6 +306,8 @@
     "viewers_some": "Viewing this PC now:",
     "balloon_title": "Your screen is being viewed",
     "balloon_body": "A paired device is watching this PC.",
+    "file_title": "File received",
+    "file_body": "File from {peer}: {name}",
     "code_title": "Pairing code",
     "code_hint": "Type this code in the Desk-Remote panel.",
     "code_expires": "Valid for {m}:{s}",

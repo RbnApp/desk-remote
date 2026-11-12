@@ -117,6 +117,10 @@ impl ServiceHost {
             opts.consent_gate,
         ));
 
+        hub.transfers()
+            .set_max_upload_mb(desk_config::clamp_upload_mb(svc.max_upload_mb));
+        hub.transfers().set_received_dir(paths.received_files_dir());
+
         let port = opts.port.unwrap_or(svc.control_port);
         let listener = Arc::new(if opts.loopback_only {
             Listener::bind_loopback(port)?

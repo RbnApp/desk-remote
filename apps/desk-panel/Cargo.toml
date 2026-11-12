@@ -24,14 +24,19 @@ desk-paths = { workspace = true }
 desk-protocol = { workspace = true }
 desk-service-core = { workspace = true }
 desk-theme = { workspace = true }
+desk-transfer = { workspace = true }
 desk-transport = { workspace = true }
 desk-version = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

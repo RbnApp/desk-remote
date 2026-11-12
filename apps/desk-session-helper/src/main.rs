@@ -10,6 +10,7 @@
 mod about;
 mod code;
 mod dialog;
+mod inbox;
 mod link;
 mod menu;
 mod state;

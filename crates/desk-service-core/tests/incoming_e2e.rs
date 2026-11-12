@@ -274,7 +274,8 @@ fn simultaneous_bidirectional_connections() -> DeskResult<()> {
     let mut session_b_to_a = connect(PeerTarget::loopback(rig_a.port))?;
     session_b_to_a.authenticate_as_client(&id_client_b, &mut trust_b_as_client, Some(&code_a))?;
 
-    std::thread::sleep(Duration::from_millis(200));
+    // A silent connection is registered as a viewer once the host stopped waiting for a file offer.
+    std::thread::sleep(Duration::from_millis(900));
 
     assert!(rig_a.host.hub().pending_request().is_some());
     assert!(rig_b.host.hub().pending_request().is_some());

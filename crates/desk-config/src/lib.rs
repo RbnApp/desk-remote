@@ -8,7 +8,10 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 
-pub use model::{PairedPc, PanelConfig, RelayConfig, ServiceConfig};
+pub use model::{
+    clamp_upload_mb, PairedPc, PanelConfig, RelayConfig, ServiceConfig, DEFAULT_MAX_UPLOAD_MB,
+    MAX_UPLOAD_MB_CEILING,
+};
 
 /// Writes string content to a file atomically via a temporary swap file.
 pub fn write_atomic(path: &Path, content: &str) -> DeskResult<()> {
@@ -138,6 +141,25 @@ mod tests {
 
         assert_eq!(cfg.palette, "petrol");
         assert_eq!(cfg.mode, "dark");
+    }
+
+    #[test]
+    fn upload_limit_defaults_to_100_mb_and_is_clamped() {
+        assert_eq!(PanelConfig::default().max_upload_mb, 100);
+        assert_eq!(ServiceConfig::default().max_upload_mb, 100);
+        assert_eq!(clamp_upload_mb(0), 100);
+        assert_eq!(clamp_upload_mb(1), 1);
+        assert_eq!(clamp_upload_mb(1024), 1024);
+        assert_eq!(clamp_upload_mb(5000), 1024);
+        // An older file without the key keeps working and gets the default.
+        let old: PanelConfig = serde_json::from_str(r#"{"palette":"ink"}"#).unwrap_or_default();
+        assert_eq!(old.max_upload_mb, 100);
+        let mut cfg = PanelConfig {
+            max_upload_mb: 9999,
+            ..PanelConfig::default()
+        };
+        cfg.sanitize();
+        assert_eq!(cfg.max_upload_mb, 1024);
     }
 
     #[test]
