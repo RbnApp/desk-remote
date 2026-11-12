@@ -1,0 +1,25 @@
+{
+  "app": {
+    "name": "Desk-Remote",
+    "description": "Düşük ek yüklü, kendi sunucunda çalışan uzak masaüstü"
+  },
+  "status": {
+    "online": "Çevrimiçi",
+    "offline": "Çevrimdışı",
+    "connecting": "Bağlanıyor",
+    "connected": "Bağlandı",
+    "disconnected": "Bağlantı kesildi"
+  },
+  "theme": {
+    "system": "Sistem",
+    "light": "Açık",
+    "dark": "Koyu",
+    "palette_ink": "Mürekkep",
+    "palette_petrol": "Petrol"
+  },
+  "error": {
+    "unknown": "Bilinmeyen bir hata oluştu",
+    "connection_failed": "Uzak makineye bağlanılamadı",
+    "timeout": "İşlem zaman aşımına uğradı"
+  }
+}

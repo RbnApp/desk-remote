@@ -1,0 +1,13 @@
+{
+  "threshold": 3,
+  "reporters": ["console"],
+  "ignore": [
+    "**/target/**",
+    "**/tests/**",
+    "**/locales/**",
+    "**/*.json",
+    "**/*.md"
+  ],
+  "format": ["rust"],
+  "minTokens": 50
+}

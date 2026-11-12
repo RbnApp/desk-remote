@@ -1,0 +1,25 @@
+{
+  "app": {
+    "name": "Desk-Remote",
+    "description": "Low-overhead self-hosted remote desktop"
+  },
+  "status": {
+    "online": "Online",
+    "offline": "Offline",
+    "connecting": "Connecting",
+    "connected": "Connected",
+    "disconnected": "Disconnected"
+  },
+  "theme": {
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark",
+    "palette_ink": "Ink",
+    "palette_petrol": "Petrol"
+  },
+  "error": {
+    "unknown": "An unknown error occurred",
+    "connection_failed": "Failed to connect to remote machine",
+    "timeout": "Operation timed out"
+  }
+}

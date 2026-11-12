@@ -1,0 +1,14 @@
+[package]
+name = "desk-theme"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+desk-error = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

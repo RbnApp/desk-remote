@@ -28,18 +28,23 @@ Desk-Remote/
 │   ├── desk-config/              # Typed configuration, validation, storage (CENTRAL)
 │   ├── desk-paths/               # Canonical OS paths & directories (CENTRAL)
 │   ├── desk-error/               # Centralized error enums and codes (CENTRAL)
+│   ├── desk-theme/               # Central theme token reader & resolver (CENTRAL)
 │   ├── desk-transport/           # Network transport, WebRTC, P2P & relay (CENTRAL)
 │   ├── desk-protocol/            # Binary framing, message schemas, serialization (CENTRAL)
 │   ├── desk-crypto/              # Key management, device identity, encryption (CENTRAL)
 │   ├── desk-ipc/                 # Named Pipes IPC (service <-> helper <-> panel) (CENTRAL)
 │   ├── desk-i18n/                # Localization engine & translation catalogs (CENTRAL)
 │   ├── desk-version/             # Build-time and runtime version contract (CENTRAL)
-│   └── desk-service-core/        # Windows service dispatcher & process lifecycle (CENTRAL)
+│   ├── desk-service-core/        # Windows service dispatcher & process lifecycle (CENTRAL)
+│   ├── desk-capture/             # Screen capture engine (DXGI / WGC) (Phase 1 Wave 2)
+│   ├── desk-codec/               # Hardware & software video encoder/decoder (Phase 1 Wave 2)
+│   └── desk-input/               # Remote input injection & translation (Phase 1 Wave 2)
+├── design/                       # Central design tokens and visual specifications (CENTRAL)
+│   └── tokens/                   # Theme token catalogs (themes.json)
 ├── docs/                         # Project documentation
 │   └── architecture/             # Architecture rules, guidelines, gates
 ├── locales/                      # Translation catalogs (en.json, tr.json)
-├── spikes/                       # Experimental spikes (isolated, not part of workspace)
-│   └── capture/                  # Phase 0 DXGI capture spike (DAPP-61 Baran)
+├── scripts/                      # Build, test, and quality gate automation scripts
 ├── Cargo.toml                    # Root workspace manifest
 ├── VERSION                       # Canonical version string (0.1.0)
 ├── AGENTS.md                     # Core rules & documentation map
@@ -47,7 +52,7 @@ Desk-Remote/
 ```
 
 > [!NOTE]
-> **Phase 0 Status Notice**: Video capture (DXGI Desktop Duplication / Windows Graphics Capture) and hardware video encoding (NVENC / QuickSync / AMF) are actively being evaluated in Phase 0 spikes (`spikes/capture`) by Vera (DAPP-60) and Baran (DAPP-61). The final dedicated crates for frame capture (`crates/desk-capture`) and media encoding (`crates/desk-codec`) will be finalized after Phase 0 spikes conclude. Do not introduce speculative or premature capture crate abstractions ahead of spike verification.
+> **Phase 0 Status Update**: Phase 0 spikes for video capture and hardware encoding (DAPP-60 Vera, DAPP-61 Baran) have completed successfully. Dedicated workspace skeletons for screen capture (`crates/desk-capture`), video encoding (`crates/desk-codec`), and remote input (`crates/desk-input`) are established in Phase 1 Wave 1. Full implementations based on spike findings will land in Wave 2.
 
 ---
 

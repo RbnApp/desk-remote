@@ -1,0 +1,17 @@
+[package]
+name = "desk-panel"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+desk-config = { workspace = true }
+desk-error = { workspace = true }
+desk-i18n = { workspace = true }
+desk-logger = { workspace = true }
+desk-theme = { workspace = true }
+tracing = { workspace = true }

@@ -1,0 +1,15 @@
+[package]
+name = "desk-session-helper"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+desk-error = { workspace = true }
+desk-logger = { workspace = true }
+desk-ipc = { workspace = true }
+tracing = { workspace = true }

@@ -1,0 +1,17 @@
+[package]
+name = "desk-config"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+desk-error = { workspace = true }
+desk-paths = { workspace = true }
+desk-theme = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }

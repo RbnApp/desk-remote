@@ -1,0 +1,61 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/desk-error",
+    "crates/desk-logger",
+    "crates/desk-paths",
+    "crates/desk-config",
+    "crates/desk-version",
+    "crates/desk-i18n",
+    "crates/desk-theme",
+    "crates/desk-transport",
+    "crates/desk-protocol",
+    "crates/desk-crypto",
+    "crates/desk-ipc",
+    "crates/desk-service-core",
+    "crates/desk-capture",
+    "crates/desk-codec",
+    "crates/desk-input",
+    "apps/desk-service",
+    "apps/desk-session-helper",
+    "apps/desk-panel",
+    "apps/desk-relay",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Desk-Remote Contributors"]
+license = "MIT"
+
+[workspace.lints.clippy]
+print_stdout = "deny"
+print_stderr = "deny"
+dbg_macro = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+
+[workspace.dependencies]
+desk-error = { path = "crates/desk-error", version = "0.1.0" }
+desk-logger = { path = "crates/desk-logger", version = "0.1.0" }
+desk-paths = { path = "crates/desk-paths", version = "0.1.0" }
+desk-config = { path = "crates/desk-config", version = "0.1.0" }
+desk-version = { path = "crates/desk-version", version = "0.1.0" }
+desk-i18n = { path = "crates/desk-i18n", version = "0.1.0" }
+desk-theme = { path = "crates/desk-theme", version = "0.1.0" }
+desk-transport = { path = "crates/desk-transport", version = "0.1.0" }
+desk-protocol = { path = "crates/desk-protocol", version = "0.1.0" }
+desk-crypto = { path = "crates/desk-crypto", version = "0.1.0" }
+desk-ipc = { path = "crates/desk-ipc", version = "0.1.0" }
+desk-service-core = { path = "crates/desk-service-core", version = "0.1.0" }
+desk-capture = { path = "crates/desk-capture", version = "0.1.0" }
+desk-codec = { path = "crates/desk-codec", version = "0.1.0" }
+desk-input = { path = "crates/desk-input", version = "0.1.0" }
+
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+tempfile = "3.10"

@@ -1,0 +1,3 @@
+# Desk-Remote Clippy configuration
+# Strict zero-tolerance for rogue prints, debug statements, and unhandled unwraps
+msrv = "1.78.0"

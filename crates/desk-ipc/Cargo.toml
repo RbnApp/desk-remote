@@ -1,0 +1,13 @@
+[package]
+name = "desk-ipc"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+desk-error = { workspace = true }
+desk-paths = { workspace = true }
