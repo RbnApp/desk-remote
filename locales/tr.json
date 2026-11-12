@@ -446,8 +446,13 @@
       "busy": "Karşı PC başka bir aktarımla meşgul.",
       "disk_full": "Karşı PC'de yeterli disk alanı yok.",
       "unsupported_folder": "Klasör gönderilemez, dosya seç.",
-      "sha_mismatch": "Dosya bozuk ulaştı (sağlama toplamı uyuşmadı). Tekrar dene.",
-      "canceled": "İptal edildi.",
+      "hash_mismatch": "Dosya bozuk ulaştı (sağlama toplamı uyuşmadı). Tekrar dene.",
+      "cancelled": "İptal edildi.",
+      "cancelled_by_peer": "Karşı PC aktarımı iptal etti.",
+      "network": "Karşı PC ile bağlantı koptu. Tekrar dene.",
+      "read_failed": "Dosya bu PC'de okunamadı.",
+      "timeout": "Karşı PC dosyayı zamanında onaylamadı.",
+      "unpaired": "Bu PC artık eşli değil. Yeniden eşleştir.",
       "unknown": "Aktarım başarısız."
     },
     "offer": {

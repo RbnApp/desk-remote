@@ -446,8 +446,13 @@
       "busy": "The other PC is busy with another transfer.",
       "disk_full": "Not enough disk space on the other PC.",
       "unsupported_folder": "Folders can't be sent. Pick files instead.",
-      "sha_mismatch": "The file arrived damaged (checksum mismatch). Try again.",
-      "canceled": "Canceled.",
+      "hash_mismatch": "The file arrived damaged (checksum mismatch). Try again.",
+      "cancelled": "Canceled.",
+      "cancelled_by_peer": "The other PC canceled the transfer.",
+      "network": "The connection to the other PC was lost. Try again.",
+      "read_failed": "The file couldn't be read on this PC.",
+      "timeout": "The other PC didn't confirm the file in time.",
+      "unpaired": "This PC is no longer paired. Pair it again.",
       "unknown": "The transfer failed."
     },
     "offer": {

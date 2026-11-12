@@ -12,7 +12,7 @@ const DEFAULT_LIMIT_MB = 100;
 const MIN_LIMIT_MB = 1;
 const MAX_LIMIT_MB = 1024;
 const SPEED_SMOOTHING = 0.4;
-const KNOWN_ERRORS = ["too_large", "denied", "no_answer", "busy", "disk_full", "unsupported_folder", "sha_mismatch", "canceled"];
+const KNOWN_ERRORS = ["too_large", "denied", "no_answer", "busy", "disk_full", "unsupported_folder", "hash_mismatch", "cancelled", "cancelled_by_peer", "network", "read_failed", "timeout", "unpaired"];
 
 /** Live transfer state; `available` is false when the build has no transfer commands. */
 export const tx = {
@@ -318,7 +318,7 @@ function onDone({ transfer_id: id, name, ok, error }) {
   const item = tx.items.get(id) ?? (addItem(id, { name, peer: "", dir: "out" }), tx.items.get(id));
   Object.assign(item, { state: ok ? "ok" : "fail", error: error ?? "", sent: ok ? item.total : item.sent });
   paintTray();
-  if (ok || error === "canceled") setTimeout(() => dismiss(id), DONE_LINGER_MS);
+  if (ok || error === "cancelled") setTimeout(() => dismiss(id), DONE_LINGER_MS);
 }
 
 function dismiss(id) {

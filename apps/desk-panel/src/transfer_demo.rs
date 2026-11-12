@@ -122,7 +122,7 @@ fn planned_error(name: &str, size: u64, limit_mb: u64) -> Option<&'static str> {
     } else if lower.contains("disk") {
         Some("disk_full")
     } else if lower.contains("sha") {
-        Some("sha_mismatch")
+        Some("hash_mismatch")
     } else {
         None
     }
@@ -173,7 +173,7 @@ fn run_send(app: &AppHandle, id: &str, file: &FileEntry, limit_mb: u64, cancel: 
     for step in 1..=STEPS {
         std::thread::sleep(STEP_DELAY);
         if cancel.load(Ordering::Relaxed) {
-            return done(false, Some("canceled"));
+            return done(false, Some("cancelled"));
         }
         if plan == Some("disk_full") && step == STEPS / 2 {
             return done(false, plan);
