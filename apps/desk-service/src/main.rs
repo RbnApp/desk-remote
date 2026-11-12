@@ -4,9 +4,11 @@
 //!   desk-service install                      register + start the Windows service (admin)
 //!   desk-service uninstall                    stop + remove the service (admin)
 //!   desk-service run                          entry point used by the Service Control Manager
-//!   desk-service run --console [--loopback] [--data-dir D] [--port P] [--run-for SECS]
+//!   desk-service run --console [--loopback] [--allow-on-panel-pc] [--data-dir D] [--port P] [--run-for SECS]
 //!                                             run in the foreground as the current user (dev/test);
 //!                                             --loopback: 127.0.0.1 only, no mDNS, no tailnet helper
+//!                                             --allow-on-panel-pc: developer override, console only;
+//!                                             without it the host never starts on a panel PC
 
 #![cfg(windows)]
 
@@ -22,6 +24,7 @@ struct Args {
     command: String,
     console: bool,
     loopback: bool,
+    allow_on_panel_pc: bool,
     data_dir: Option<PathBuf>,
     port: Option<u16>,
     run_for: Option<Duration>,
@@ -39,6 +42,7 @@ fn parse_args() -> DeskResult<Args> {
         match flag.as_str() {
             "--console" => args.console = true,
             "--loopback" => args.loopback = true,
+            "--allow-on-panel-pc" => args.allow_on_panel_pc = true,
             "--data-dir" => args.data_dir = Some(PathBuf::from(value("--data-dir")?)),
             "--port" => {
                 args.port = Some(
@@ -70,6 +74,8 @@ fn run(args: &Args) -> DeskResult<()> {
     let paths = paths_for(args);
     match args.command.as_str() {
         "install" => {
+            // Role check first: it needs no administrator rights and no UAC prompt.
+            desk_service_core::role::refuse_install_on_panel_pc(&paths)?;
             desk_service_core::install(&DeskPaths::sibling_exe("desk-service.exe")?)?;
             tracing::info!("service installed and started");
             Ok(())
@@ -80,12 +86,19 @@ fn run(args: &Args) -> DeskResult<()> {
             Ok(())
         }
         "run" if args.console => {
+            if !desk_service_core::role::host_allowed(&paths, args.allow_on_panel_pc) {
+                tracing::warn!(
+                    "this PC is a management panel; the agent host is NOT started (developer override: --allow-on-panel-pc)"
+                );
+                return Ok(());
+            }
             let host = ServiceHost::start(HostOptions {
                 paths,
                 mode: LaunchMode::CurrentUser,
                 port: args.port,
                 data_dir: args.data_dir.clone(),
                 loopback_only: args.loopback,
+                allow_on_panel_pc: args.allow_on_panel_pc,
             })?;
             tracing::info!(port = host.port()?, "console mode: Ctrl+C stops");
             desk_service_core::wait_for_console_stop(args.run_for);

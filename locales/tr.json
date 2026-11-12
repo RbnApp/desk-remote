@@ -45,6 +45,10 @@
     "day": "{n} gün önce",
     "label": "Son görülme"
   },
+  "role": {
+    "panel_pc_no_agent": "Bu bilgisayar yönetim paneli olarak kullanılıyor; PC ajanı buraya kurulmaz.",
+    "agent_on_panel_pc": "Bu PC'de PC ajanı kurulu; ana makinede ajan çalışmamalı."
+  },
   "warn": {
     "latency": "Yüksek gecikme",
     "unpaired": "Bu PC paneli artık tanımıyor",

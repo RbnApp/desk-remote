@@ -28,6 +28,8 @@ pub struct HostOptions {
     /// Development/test mode: listen on 127.0.0.1 only, no mDNS announcement and no tailnet
     /// helper, so nothing is exposed to the network (and no firewall prompt appears).
     pub loopback_only: bool,
+    /// Developer override (`run --console --allow-on-panel-pc`); the SCM path never sets it.
+    pub allow_on_panel_pc: bool,
 }
 
 /// A running agent.
@@ -45,6 +47,11 @@ impl ServiceHost {
     /// Loads identity and trust, binds the viewer port and starts the worker threads.
     pub fn start(opts: HostOptions) -> DeskResult<Self> {
         let paths = opts.paths;
+        if !crate::role::host_allowed(&paths, opts.allow_on_panel_pc) {
+            return Err(DeskError::Service(
+                "this PC is a management panel; the PC agent host does not start here".to_string(),
+            ));
+        }
         DeskPaths::ensure_dir(paths.system_dir())?;
         let svc: ServiceConfig = ConfigManager::load_or_default(&paths.service_config_path())?;
         let identity = DeviceIdentity::load_or_create(&paths.identity_key_path())?;

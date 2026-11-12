@@ -34,6 +34,31 @@ pub enum PeerTarget {
     LoopbackBridge(SocketAddr),
 }
 
+/// Primary outbound IPv4 of this PC (a UDP "connect" sends no packet; it only picks a route).
+#[must_use]
+pub fn primary_local_ip() -> Option<IpAddr> {
+    let socket = std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, 0)).ok()?;
+    socket
+        .connect((std::net::Ipv4Addr::new(192, 0, 2, 1), 9))
+        .ok()?;
+    socket.local_addr().ok().map(|a| a.ip())
+}
+
+/// Defensive: a discovery result that is this very PC (loopback, own address, or the panel's
+/// own device id) is never listed, so a PC cannot watch itself.
+#[must_use]
+pub fn is_this_pc(
+    addresses: &[IpAddr],
+    local: Option<IpAddr>,
+    device_id: &str,
+    own_id: Option<&str>,
+) -> bool {
+    own_id == Some(device_id)
+        || addresses
+            .iter()
+            .any(|a| a.is_loopback() || local == Some(*a))
+}
+
 /// TCP port a Desk-Remote host listens on unless its address says otherwise (single source: desk-paths).
 pub use desk_paths::DEFAULT_PORT;
 
@@ -110,3 +135,21 @@ pub fn listen(bind_addr: SocketAddr) -> DeskResult<Listener> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod this_pc_tests {
+    use super::*;
+
+    #[test]
+    fn this_pc_is_never_listed() {
+        let v4 = |d| IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, d));
+        let me = v4(5);
+        let other = v4(9);
+        let lo = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+        assert!(is_this_pc(&[me], Some(me), "d1", None));
+        assert!(is_this_pc(&[other, lo], Some(me), "d1", None));
+        assert!(is_this_pc(&[other], Some(me), "mine", Some("mine")));
+        assert!(!is_this_pc(&[other], Some(me), "d1", Some("mine")));
+        assert!(!is_this_pc(&[other], None, "d1", None));
+    }
+}

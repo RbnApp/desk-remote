@@ -30,6 +30,8 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 pub struct AppInfo {
     version: &'static str,
     demo: bool,
+    /// The PC agent service is registered on this panel PC (misplaced; the UI shows a banner).
+    agent_on_pc: bool,
 }
 
 /// Tailscale state shown in the sidebar and the settings screen.
@@ -52,11 +54,18 @@ pub struct PalettePreview {
     dark: ResolvedTheme,
 }
 
+/// The panel never owns the agent: an installed agent service on this PC is a misplacement.
+/// The service itself is left alone (stopping it is an administrator decision).
+fn agent_misplaced(service_installed: impl Fn() -> bool) -> bool {
+    service_installed()
+}
+
 #[tauri::command]
 pub fn app_info(state: State<'_, AppState>) -> AppInfo {
     AppInfo {
         version: desk_version::CURRENT,
         demo: state.backend.is_demo(),
+        agent_on_pc: agent_misplaced(desk_service_core::role::agent_service_installed),
     }
 }
 
@@ -262,4 +271,15 @@ pub async fn tailscale_connect() -> Result<(), String> {
 #[tauri::command]
 pub fn demo_drop(state: State<'_, AppState>) {
     state.backend.simulate_drop();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::agent_misplaced;
+
+    #[test]
+    fn banner_follows_the_service_state() {
+        assert!(agent_misplaced(|| true));
+        assert!(!agent_misplaced(|| false));
+    }
 }

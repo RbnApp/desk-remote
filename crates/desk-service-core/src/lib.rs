@@ -18,6 +18,7 @@ mod engine;
 mod host;
 mod hub;
 mod launch;
+pub mod role;
 mod scm;
 mod supervisor;
 mod tailnet;

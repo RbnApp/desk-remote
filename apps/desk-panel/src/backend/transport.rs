@@ -12,8 +12,8 @@ use desk_error::{DeskError, DeskResult};
 use desk_paths::DeskPaths;
 use desk_protocol::Message;
 use desk_transport::{
-    connect_timeout, LanBrowser, PeerTarget, Session, SessionReader, SessionWriter,
-    TailscaleDetector, DEFAULT_PORT,
+    connect_timeout, is_this_pc, primary_local_ip, LanBrowser, PeerTarget, Session, SessionReader,
+    SessionWriter, TailscaleDetector, DEFAULT_PORT,
 };
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -86,6 +86,11 @@ pub struct TransportBackend {
 
 impl TransportBackend {
     pub fn new() -> Self {
+        // Tell the SYSTEM-side agent guard that this PC is a panel (best effort; the guard
+        // also scans profiles for the panel identity when ProgramData is not writable).
+        if let Err(e) = DeskPaths::default().mark_panel_pc() {
+            tracing::debug!(error = %e, "panel role marker not written");
+        }
         let identity = DeviceIdentity::load_or_create(&DeskPaths::default().panel_identity_path())
             .map_err(|e| tracing::error!(error = %e, "panel identity unavailable"))
             .ok();
@@ -123,7 +128,12 @@ impl Inner {
         let mut found = Vec::new();
         match LanBrowser::browse(MDNS_SCAN) {
             Ok(peers) => {
+                let own_id = self.identity.as_ref().map(|i| i.device_id().to_string());
+                let local = primary_local_ip();
                 for peer in peers {
+                    if is_this_pc(&peer.addresses, local, &peer.device_id, own_id.as_deref()) {
+                        continue;
+                    }
                     let ip = peer
                         .addresses
                         .iter()

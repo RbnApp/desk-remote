@@ -45,6 +45,10 @@
     "day": "{n} d ago",
     "label": "Last seen"
   },
+  "role": {
+    "panel_pc_no_agent": "This computer is used as the management panel; the PC agent is not installed here.",
+    "agent_on_panel_pc": "The PC agent is installed on this computer; the agent must not run on the main machine."
+  },
   "warn": {
     "latency": "High latency",
     "unpaired": "This PC no longer trusts the panel",

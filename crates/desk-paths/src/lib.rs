@@ -11,12 +11,19 @@ const DEFAULT_SYSTEM_BASE: &str = r"C:\ProgramData";
 pub const APP_ICON_RESOURCE_ID: u16 = 1;
 const DEFAULT_WINDOWS_DIR: &str = r"C:\Windows";
 const DEFAULT_USER_BASE: &str = r"C:\Users\Default\AppData\Roaming";
+const DEFAULT_PROFILES_DIR: &str = r"C:\Users";
+/// File name of the viewer-panel identity, also the proof that a user runs the panel.
+const PANEL_IDENTITY_FILE: &str = "panel_identity.key";
+/// Machine-wide "this PC is a management panel" marker (written best effort by the panel).
+const PANEL_MARKER_FILE: &str = "panel-role.marker";
 
 /// Canonical path layout resolver.
 #[derive(Debug, Clone)]
 pub struct DeskPaths {
     system_root: PathBuf,
     user_root: PathBuf,
+    /// Directory holding every user profile (`C:\Users`); `None` skips the machine-wide scan.
+    profiles_root: Option<PathBuf>,
 }
 
 impl Default for DeskPaths {
@@ -31,9 +38,15 @@ impl Default for DeskPaths {
             _ => PathBuf::from(DEFAULT_USER_BASE).join(APP_NAME),
         };
 
+        let profiles_root = std::env::var_os("PUBLIC")
+            .filter(|v| !v.is_empty())
+            .and_then(|public| PathBuf::from(public).parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_PROFILES_DIR));
+
         Self {
             system_root,
             user_root,
+            profiles_root: Some(profiles_root),
         }
     }
 }
@@ -44,7 +57,52 @@ impl DeskPaths {
         Self {
             system_root: system_root.as_ref().to_path_buf(),
             user_root: user_root.as_ref().to_path_buf(),
+            profiles_root: None,
         }
+    }
+
+    /// Same as [`DeskPaths::custom`] but with a profiles directory for the panel-PC scan (tests).
+    #[must_use]
+    pub fn with_profiles_root(mut self, profiles_root: impl AsRef<Path>) -> Self {
+        self.profiles_root = Some(profiles_root.as_ref().to_path_buf());
+        self
+    }
+
+    /// Machine-wide panel-role marker (`<ProgramData>/DeskRemote/panel-role.marker`).
+    pub fn panel_marker_path(&self) -> PathBuf {
+        self.system_root.join(PANEL_MARKER_FILE)
+    }
+
+    /// Single source for "is this PC a management panel?". A PC is a panel when the panel
+    /// left the machine-wide marker, or any user profile (this one included) holds a panel
+    /// identity. The profile scan keeps the answer correct for the SYSTEM service, which
+    /// cannot see another user's `%APPDATA%`, and when the marker could not be written.
+    pub fn is_panel_pc(&self) -> bool {
+        if self.panel_marker_path().is_file() || self.panel_identity_path().is_file() {
+            return true;
+        }
+        let Some(profiles) = &self.profiles_root else {
+            return false;
+        };
+        let Ok(entries) = std::fs::read_dir(profiles) else {
+            return false;
+        };
+        entries.flatten().any(|profile| {
+            profile
+                .path()
+                .join("AppData")
+                .join("Roaming")
+                .join(APP_NAME)
+                .join(PANEL_IDENTITY_FILE)
+                .is_file()
+        })
+    }
+
+    /// Records that this PC is a management panel (best effort, idempotent).
+    pub fn mark_panel_pc(&self) -> DeskResult<()> {
+        Self::ensure_dir(&self.system_root)?;
+        std::fs::write(self.panel_marker_path(), b"desk-remote panel host\n")
+            .map_err(|e| DeskError::Paths(format!("cannot write the panel marker: {e}")))
     }
 
     /// Machine-wide ProgramData base path for Desk-Remote.
@@ -169,6 +227,47 @@ mod tests {
         assert_eq!(paths.panel_config_path(), user.join("panel.json"));
         assert_eq!(paths.relay_config_path(), root.join("relay.json"));
         assert_eq!(paths.identity_key_path(), root.join("identity.key"));
+    }
+
+    #[test]
+    fn panel_pc_detection_uses_marker_own_identity_and_other_profiles() -> DeskResult<()> {
+        let dir = std::env::temp_dir().join(format!("desk-paths-role-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let fresh = || {
+            DeskPaths::custom(dir.join("system"), dir.join("me"))
+                .with_profiles_root(dir.join("Users"))
+        };
+        std::fs::create_dir_all(dir.join("Users"))?;
+        assert!(!fresh().is_panel_pc());
+
+        let other = dir
+            .join("Users")
+            .join("bob")
+            .join("AppData")
+            .join("Roaming")
+            .join(APP_NAME);
+        std::fs::create_dir_all(&other)?;
+        std::fs::write(other.join(PANEL_IDENTITY_FILE), b"x")?;
+        assert!(fresh().is_panel_pc(), "another profile's identity counts");
+        std::fs::remove_dir_all(dir.join("Users").join("bob"))?;
+        assert!(!fresh().is_panel_pc());
+
+        fresh().mark_panel_pc()?;
+        fresh().mark_panel_pc()?;
+        assert!(fresh().is_panel_pc(), "marker counts");
+        std::fs::remove_file(fresh().panel_marker_path())?;
+
+        std::fs::create_dir_all(dir.join("me"))?;
+        std::fs::write(fresh().panel_identity_path(), b"x")?;
+        assert!(fresh().is_panel_pc(), "own identity counts");
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
+    }
+
+    #[test]
+    fn custom_roots_never_scan_real_profiles() {
+        let paths = DeskPaths::custom(r"Z:\no-such\system", r"Z:\no-such\user");
+        assert!(!paths.is_panel_pc());
     }
 
     #[test]

@@ -88,7 +88,8 @@ function body() {
 function renderList() {
   const online = S.pcs.filter((p) => p.status === "online").length;
   const head = `<header class="head"><div class="grow"><h1>${t("list.title")}</h1><div class="sub">${t("list.sub", { n: S.pcs.length, on: online })}</div></div><button class="btn primary" data-go="pair">${ic("plus")}${t("list.add")}</button></header>`;
-  mountApp(Shell(body(), "list", head));
+  const misplaced = S.info.agent_on_pc ? `<div class="msg warn" role="alert">${t("role.agent_on_panel_pc")}</div>` : "";
+  mountApp(Shell(misplaced + body(), "list", head));
 }
 
 /** Search typing re-renders only the result block so the input keeps focus. */

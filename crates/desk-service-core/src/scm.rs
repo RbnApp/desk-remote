@@ -38,6 +38,7 @@ pub fn run_dispatcher(paths: DeskPaths) -> DeskResult<()> {
         port: None,
         data_dir: None,
         loopback_only: false,
+        allow_on_panel_pc: false,
     });
     service_dispatcher::start(SERVICE_NAME, ffi_service_main).map_err(|e| svc_err("dispatcher", e))
 }
@@ -102,12 +103,19 @@ fn run_service() -> DeskResult<()> {
         .get()
         .and_then(|m| m.lock().ok().and_then(|mut g| g.take()))
         .ok_or_else(|| DeskError::Service("service options missing".to_string()))?;
-    let host = match ServiceHost::start(options) {
-        Ok(h) => h,
-        Err(e) => {
-            report(ServiceState::Stopped, ServiceControlAccept::empty(), 1);
-            return Err(e);
+    // On a panel PC the service stays up but idle: stopping with an error would only make
+    // the recovery actions restart it forever.
+    let host = if crate::role::host_allowed(&options.paths, options.allow_on_panel_pc) {
+        match ServiceHost::start(options) {
+            Ok(h) => Some(h),
+            Err(e) => {
+                report(ServiceState::Stopped, ServiceControlAccept::empty(), 1);
+                return Err(e);
+            }
         }
+    } else {
+        tracing::warn!("this PC is a management panel; the agent host is not started");
+        None
     };
     report(
         ServiceState::Running,
@@ -119,11 +127,17 @@ fn run_service() -> DeskResult<()> {
     while let Ok(cmd) = rx.recv() {
         match cmd {
             Cmd::Stop => break,
-            Cmd::Session(ev) => host.session_event(ev),
+            Cmd::Session(ev) => {
+                if let Some(h) = &host {
+                    h.session_event(ev);
+                }
+            }
         }
     }
     report(ServiceState::StopPending, ServiceControlAccept::empty(), 0);
-    host.stop();
+    if let Some(h) = host {
+        h.stop();
+    }
     report(ServiceState::Stopped, ServiceControlAccept::empty(), 0);
     Ok(())
 }

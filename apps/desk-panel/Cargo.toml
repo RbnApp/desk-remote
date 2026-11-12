@@ -22,6 +22,7 @@ desk-i18n = { workspace = true }
 desk-logger = { workspace = true }
 desk-paths = { workspace = true }
 desk-protocol = { workspace = true }
+desk-service-core = { workspace = true }
 desk-theme = { workspace = true }
 desk-transport = { workspace = true }
 desk-version = { workspace = true }
