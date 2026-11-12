@@ -73,35 +73,23 @@ struct TailscaleCliNode {
     online: Option<bool>,
 }
 
-/// Suppresses the console window on Windows.
-fn hidden(cmd: &mut Command) -> &mut Command {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-    cmd
-}
-
 /// Builds a Tailscale CLI command: `PATH` first, then the default Windows install folder.
 fn cli_command(args: &[&str]) -> Option<Command> {
-    let mut probe = Command::new("tailscale");
+    let mut probe = desk_paths::hidden_command("tailscale");
     probe
         .arg("version")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let program = if hidden(&mut probe).status().is_ok() {
+    let program = if probe.status().is_ok() {
         PathBuf::from("tailscale")
     } else if Path::new(CLI_FALLBACK).exists() {
         PathBuf::from(CLI_FALLBACK)
     } else {
         return None;
     };
-    let mut cmd = Command::new(program);
+    let mut cmd = desk_paths::hidden_command(program);
     cmd.args(args);
-    hidden(&mut cmd);
     Some(cmd)
 }
 
@@ -272,9 +260,8 @@ impl TailnetHelperController {
             )));
         }
 
-        let mut cmd = Command::new(&self.helper_binary);
+        let mut cmd = desk_paths::hidden_command(&self.helper_binary);
         cmd.args(["auth", "--state-dir", &state_dir.to_string_lossy()]);
-        hidden(&mut cmd);
 
         let output = cmd.output().map_err(|e| {
             DeskError::Transport(format!("Failed to execute desk-tailnet-helper: {e}"))

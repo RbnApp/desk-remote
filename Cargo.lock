@@ -1000,6 +1000,7 @@ dependencies = [
  "desk-service-core",
  "embed-resource",
  "tracing",
+ "windows",
 ]
 
 [[package]]

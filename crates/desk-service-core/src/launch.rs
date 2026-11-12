@@ -7,18 +7,18 @@
 //!   obtain other users' tokens, so the helper simply starts as the current user.
 
 use desk_error::{DeskError, DeskResult};
-use std::os::windows::process::CommandExt;
 use std::path::Path;
-use std::process::{Child, Command};
+use std::process::Child;
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
 use windows::Win32::System::RemoteDesktop::{
     ProcessIdToSessionId, WTSGetActiveConsoleSessionId, WTSQueryUserToken,
 };
+use windows::Win32::System::Threading::PROCESS_CREATION_FLAGS;
 use windows::Win32::System::Threading::{
     CreateProcessAsUserW, GetCurrentProcessId, TerminateProcess, WaitForSingleObject,
-    CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, PROCESS_INFORMATION, STARTUPINFOW,
+    CREATE_UNICODE_ENVIRONMENT, PROCESS_INFORMATION, STARTUPINFOW,
 };
 
 /// How the helper process is started.
@@ -131,9 +131,8 @@ pub fn launch_helper(
     }
     match mode {
         LaunchMode::CurrentUser => {
-            let child = Command::new(exe)
+            let child = desk_paths::hidden_command(exe)
                 .args(args)
-                .creation_flags(CREATE_NO_WINDOW.0)
                 .spawn()
                 .map_err(|e| service_err("cannot start session helper", e))?;
             Ok(HelperProcess {
@@ -191,7 +190,7 @@ fn spawn_with_token(
             None,
             None,
             false,
-            CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
+            CREATE_UNICODE_ENVIRONMENT | PROCESS_CREATION_FLAGS(desk_paths::CREATE_NO_WINDOW),
             Some(environment.cast_const()),
             PCWSTR::null(),
             &startup,
