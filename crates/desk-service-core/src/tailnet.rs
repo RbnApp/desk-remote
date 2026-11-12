@@ -4,6 +4,7 @@
 //! If an official client is running, the helper joins the tailnet first and, once that is
 //! verified, [`crate::takeover`] stops and disables the official client.
 
+use crate::control::Control;
 use crate::takeover::{self, ScTailscale, TakeoverStatus};
 use desk_error::{DeskError, DeskResult};
 use desk_paths::DeskPaths;
@@ -12,6 +13,7 @@ use std::io::BufReader;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdout, Command, Stdio};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -37,7 +39,13 @@ impl TailnetGuard {
     /// Starts `desk-tailnet-helper listen` when it ships next to the service. The hand-over of
     /// an official client (if `take_over` is set) runs in the background once the helper is up.
     #[must_use]
-    pub fn start(paths: &DeskPaths, port: u16, take_over: bool, harden: bool) -> Option<Self> {
+    pub fn start(
+        paths: &DeskPaths,
+        port: u16,
+        take_over: bool,
+        harden: bool,
+        control: Arc<Control>,
+    ) -> Option<Self> {
         let exe = DeskPaths::sibling_exe("desk-tailnet-helper.exe").ok()?;
         if !exe.exists() {
             tracing::info!("desk-tailnet-helper not installed; tailnet access disabled");
@@ -79,7 +87,7 @@ impl TailnetGuard {
         let worker = std::thread::Builder::new()
             .name("desk-tailnet".to_string())
             .spawn(move || {
-                let status = supervise(stdout, port, take_over, &state_dir);
+                let status = supervise(stdout, port, take_over, &state_dir, &control);
                 tracing::info!(?status, "official Tailscale hand-over");
                 if matches!(status, TakeoverStatus::TookOver | TakeoverStatus::NotNeeded) {
                     // The key is single-use; the node state in `state_dir` keeps the login.
@@ -118,11 +126,20 @@ pub(crate) fn restrict_to_admins(dir: &Path) -> DeskResult<()> {
 }
 
 /// Waits for the helper's first report, then runs the hand-over gated on a real check.
-fn supervise(stdout: ChildStdout, port: u16, take_over: bool, state_dir: &Path) -> TakeoverStatus {
+fn supervise(
+    stdout: ChildStdout,
+    port: u16,
+    take_over: bool,
+    state_dir: &Path,
+    control: &Control,
+) -> TakeoverStatus {
     let report = serde_json::Deserializer::from_reader(BufReader::new(stdout))
         .into_iter::<HelperReport>()
         .next()
         .and_then(Result::ok);
+    if let Some(r) = &report {
+        control.set_tailnet_report(&r.status, &r.ips);
+    }
     let verify = || {
         report
             .as_ref()

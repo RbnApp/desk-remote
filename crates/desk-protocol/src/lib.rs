@@ -84,6 +84,19 @@ pub enum Message {
     Pong { ts: u64 },
     /// Connection health and latency status.
     Status { online: bool, latency_ms: u32 },
+    /// The PC user changed what a viewer may do (agent -> viewer, informational).
+    Notice { kind: NoticeKind },
+}
+
+/// What a [`Message::Notice`] tells the viewer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NoticeKind {
+    /// The PC user disconnected every viewer; the connection closes right after.
+    DisconnectedByHost,
+    /// Remote input is blocked on the PC (watch only).
+    ViewOnlyOn,
+    /// Remote input is allowed again.
+    ViewOnlyOff,
 }
 
 /// Length-delimited and CRC32-validated framing codec.
@@ -250,6 +263,12 @@ mod tests {
             Message::Status {
                 online: true,
                 latency_ms: 12,
+            },
+            Message::Notice {
+                kind: NoticeKind::DisconnectedByHost,
+            },
+            Message::Notice {
+                kind: NoticeKind::ViewOnlyOn,
             },
         ];
 

@@ -13,10 +13,12 @@
 //! ## Dependencies
 //! `desk-protocol` (framing, [`Message`] payloads), `desk-paths` (pipe names), `desk-error`.
 
+mod info;
 mod message;
 #[cfg(windows)]
 mod pipe;
 
+pub use info::{AgentInfo, TailnetState};
 pub use message::IpcMessage;
 #[cfg(windows)]
 pub use pipe::{

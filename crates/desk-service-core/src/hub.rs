@@ -4,13 +4,14 @@
 //! viewer -> hub -> helper. The hub owns no sockets and no processes, which keeps the
 //! routing rules unit-testable.
 
+use crate::control::Control;
 use desk_crypto::{DeviceIdentity, PairingManager, PAIRING_CODE_TTL};
 use desk_ipc::{IpcConnection, IpcMessage};
-use desk_protocol::Message;
+use desk_protocol::{Message, NoticeKind};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Frames queued per viewer before the slowest viewer starts dropping (and asks for an IDR).
 const VIEWER_QUEUE: usize = 90;
@@ -73,6 +74,7 @@ pub struct Hub {
     state: Mutex<State>,
     pairing: Mutex<PairingManager>,
     identity: DeviceIdentity,
+    control: Arc<Control>,
     next_id: AtomicU64,
 }
 
@@ -87,6 +89,7 @@ impl Hub {
             state: Mutex::new(State::default()),
             pairing: Mutex::new(pairing),
             identity,
+            control: Arc::new(Control::default()),
             next_id: AtomicU64::new(1),
         }
     }
@@ -94,6 +97,12 @@ impl Hub {
     #[must_use]
     pub fn identity(&self) -> &DeviceIdentity {
         &self.identity
+    }
+
+    /// Tray-menu controls (watch-only switch, port, tailnet report).
+    #[must_use]
+    pub fn control(&self) -> &Arc<Control> {
+        &self.control
     }
 
     /// The shared pairing state; handshakes lock it only for short steps.
@@ -141,6 +150,11 @@ impl Hub {
                 let _ = viewer.tx.try_send(cfg);
             }
             let _ = viewer.tx.try_send(status);
+            if self.control.view_only() {
+                let _ = viewer.tx.try_send(Message::Notice {
+                    kind: NoticeKind::ViewOnlyOn,
+                });
+            }
             (st.helper.as_ref().map(|(_, c)| c.clone()), st.joined_ids())
         };
         tracing::info!(viewer = id, "viewer joined");
@@ -148,6 +162,7 @@ impl Hub {
             let _ = conn.send(&IpcMessage::Wire(Message::ViewerJoin));
             let _ = conn.send(&IpcMessage::Viewers { device_ids: list });
         }
+        self.push_agent_info();
     }
 
     /// The viewer stopped watching (explicit leave or disconnect). Idempotent.
@@ -165,6 +180,7 @@ impl Hub {
             let _ = conn.send(&IpcMessage::Wire(Message::ViewerLeave));
             let _ = conn.send(&IpcMessage::Viewers { device_ids: list });
         }
+        self.push_agent_info();
     }
 
     /// Drops the viewer entirely (connection closed).
@@ -176,6 +192,9 @@ impl Hub {
     /// Forwards viewer input / keyframe requests to the helper. Ignored unless the viewer
     /// has joined, so a merely paired panel cannot drive the PC.
     pub fn forward_from_viewer(&self, id: ViewerId, msg: Message) {
+        if self.control.view_only() && matches!(msg, Message::InputEvent(_)) {
+            return;
+        }
         let helper = {
             let st = lock(&self.state);
             match st.viewers.get(&id) {
@@ -185,6 +204,65 @@ impl Hub {
         };
         if let Some(conn) = helper {
             let _ = conn.send(&IpcMessage::Wire(msg));
+        }
+    }
+
+    /// Tells every viewer the PC user ended the session and drops them all. Trust is kept,
+    /// so a viewer can reconnect without a new pairing code. Returns how many were dropped.
+    pub fn disconnect_all(&self) -> usize {
+        let ids: Vec<ViewerId> = {
+            let st = lock(&self.state);
+            let notice = Message::Notice {
+                kind: NoticeKind::DisconnectedByHost,
+            };
+            for viewer in st.viewers.values() {
+                let _ = viewer.tx.try_send(notice.clone());
+            }
+            st.viewers.keys().copied().collect()
+        };
+        for id in &ids {
+            // Leaving first keeps the helper's capture count right; removing the entry drops
+            // the sender, which ends the viewer's bridge loop once it sent the notice.
+            self.viewer_leave(*id);
+            lock(&self.state).viewers.remove(id);
+        }
+        tracing::info!(
+            dropped = ids.len(),
+            "all viewers disconnected by the PC user"
+        );
+        ids.len()
+    }
+
+    /// Blocks (or allows) remote input and tells the connected viewers.
+    pub fn set_view_only(&self, enabled: bool) {
+        if !self.control.set_view_only(enabled) {
+            return;
+        }
+        let kind = if enabled {
+            NoticeKind::ViewOnlyOn
+        } else {
+            NoticeKind::ViewOnlyOff
+        };
+        for viewer in lock(&self.state).viewers.values() {
+            let _ = viewer.tx.try_send(Message::Notice { kind });
+        }
+        tracing::info!(enabled, "watch-only mode changed");
+        self.push_agent_info();
+    }
+
+    /// Sends the tray menu snapshot to the attached helper (if any).
+    pub fn push_agent_info(&self) {
+        let (helper, viewers, unavailable) = {
+            let st = lock(&self.state);
+            (
+                st.helper.as_ref().map(|(_, c)| c.clone()),
+                st.joined_ids().len(),
+                !st.available(),
+            )
+        };
+        if let Some(conn) = helper {
+            let info = self.control.snapshot(&self.identity, viewers, unavailable);
+            let _ = conn.send(&IpcMessage::AgentInfo(info));
         }
     }
 
@@ -212,6 +290,7 @@ impl Hub {
         }
         let _ = conn.send(&IpcMessage::Viewers { device_ids: list });
         tracing::info!(viewers = joined, "session helper attached");
+        self.push_agent_info();
         token
     }
 
@@ -257,6 +336,11 @@ impl Hub {
             }
             IpcMessage::NoDisplay => self.update_availability(|st| st.no_display = true),
             IpcMessage::PairingCodeRequest => self.answer_pairing_request(),
+            IpcMessage::AgentInfoRequest => self.push_agent_info(),
+            IpcMessage::DisconnectAllRequest => {
+                self.disconnect_all();
+            }
+            IpcMessage::SetViewOnly { enabled } => self.set_view_only(enabled),
             IpcMessage::HelperHello { session_id, pid } => {
                 tracing::info!(session_id, pid, "helper hello");
             }
@@ -277,6 +361,8 @@ impl Hub {
             let status = st.status();
             tracing::info!(available = st.available(), "desktop availability changed");
             st.broadcast(&status);
+            drop(st);
+            self.push_agent_info();
         }
     }
 
@@ -396,6 +482,137 @@ mod tests {
         assert_eq!(hub.joined_count(), 1);
         hub.remove_viewer(id);
         assert_eq!(hub.joined_count(), 0);
+        Ok(())
+    }
+
+    fn input() -> Message {
+        Message::InputEvent(desk_protocol::InputPayload::Key {
+            scancode: 30,
+            down: true,
+        })
+    }
+
+    /// Hub with a joined viewer and a connected helper pipe; returns the helper's end.
+    fn hub_with_helper() -> DeskResult<(Hub, ViewerId, Receiver<Message>, IpcConnection)> {
+        use desk_ipc::{pipe_access_sddl, IpcClient, IpcServer};
+        use std::time::Duration;
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let name = format!(
+            r"\\.\pipe\DeskRemote-hub-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::SeqCst)
+        );
+        let server = IpcServer::bind(&name, &pipe_access_sddl(&desk_ipc::current_user_sid()?))?;
+        let client = std::thread::spawn({
+            let name = name.clone();
+            move || IpcClient::connect(&name, Duration::from_secs(5))
+        });
+        let service_end = server
+            .accept(Duration::from_secs(5))?
+            .ok_or_else(|| desk_error::DeskError::Ipc("no client".to_string()))?;
+        let helper_end = client
+            .join()
+            .map_err(|_| desk_error::DeskError::Ipc("client thread".to_string()))??;
+        let hub = hub()?;
+        hub.attach_helper(service_end);
+        let (id, rx) = hub.register_viewer("A");
+        hub.viewer_join(id);
+        Ok((hub, id, rx, helper_end))
+    }
+
+    fn drain(conn: &IpcConnection) -> Vec<IpcMessage> {
+        let mut out = Vec::new();
+        while let Ok(Some(m)) = conn.recv_timeout(std::time::Duration::from_millis(150)) {
+            out.push(m);
+        }
+        out
+    }
+
+    #[test]
+    fn view_only_drops_input_but_keeps_keyframe_requests_and_resets_per_hub() -> DeskResult<()> {
+        let (hub, id, rx, helper) = hub_with_helper()?;
+        let _ = drain(&helper);
+        hub.forward_from_viewer(id, input());
+        assert!(drain(&helper)
+            .iter()
+            .any(|m| matches!(m, IpcMessage::Wire(Message::InputEvent(_)))));
+
+        hub.on_helper_message(IpcMessage::SetViewOnly { enabled: true });
+        let seen = drain(&helper);
+        assert!(seen
+            .iter()
+            .any(|m| matches!(m, IpcMessage::AgentInfo(i) if i.view_only)));
+        hub.forward_from_viewer(id, input());
+        hub.forward_from_viewer(id, Message::RequestKeyframe);
+        let seen = drain(&helper);
+        assert!(!seen
+            .iter()
+            .any(|m| matches!(m, IpcMessage::Wire(Message::InputEvent(_)))));
+        assert!(seen
+            .iter()
+            .any(|m| matches!(m, IpcMessage::Wire(Message::RequestKeyframe))));
+        let notices: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok())
+            .filter_map(|m| match m {
+                Message::Notice { kind } => Some(kind),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(notices, vec![NoticeKind::ViewOnlyOn]);
+
+        hub.on_helper_message(IpcMessage::SetViewOnly { enabled: false });
+        let _ = drain(&helper);
+        hub.forward_from_viewer(id, input());
+        assert!(drain(&helper)
+            .iter()
+            .any(|m| matches!(m, IpcMessage::Wire(Message::InputEvent(_)))));
+
+        // A restarted service starts with the switch off.
+        assert!(!self::hub()?.control().view_only());
+        Ok(())
+    }
+
+    #[test]
+    fn a_late_viewer_is_told_that_view_only_is_on() -> DeskResult<()> {
+        let hub = hub()?;
+        hub.set_view_only(true);
+        let (id, rx) = hub.register_viewer("late");
+        hub.viewer_join(id);
+        let kinds: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+        assert!(kinds.contains(&Message::Notice {
+            kind: NoticeKind::ViewOnlyOn
+        }));
+        Ok(())
+    }
+
+    #[test]
+    fn disconnect_all_notifies_closes_every_viewer_and_tells_the_helper() -> DeskResult<()> {
+        let (hub, _id, rx_a, helper) = hub_with_helper()?;
+        let (b, rx_b) = hub.register_viewer("B"); // paired but not watching
+        let _ = b;
+        let _ = drain(&helper);
+
+        assert_eq!(hub.disconnect_all(), 2);
+        assert_eq!(hub.joined_count(), 0);
+        for rx in [&rx_a, &rx_b] {
+            let mut got = Vec::new();
+            let closed = loop {
+                match rx.try_recv() {
+                    Ok(m) => got.push(m),
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => break true,
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break false,
+                }
+            };
+            assert!(got.contains(&Message::Notice {
+                kind: NoticeKind::DisconnectedByHost
+            }));
+            assert!(closed, "the sender must be dropped so the bridge ends");
+        }
+        let seen = drain(&helper);
+        assert!(seen
+            .iter()
+            .any(|m| matches!(m, IpcMessage::Wire(Message::ViewerLeave))));
+        // The bridge's own cleanup afterwards is a harmless no-op.
+        hub.remove_viewer(b);
         Ok(())
     }
 

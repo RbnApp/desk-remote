@@ -7,7 +7,9 @@
 #![cfg(windows)]
 #![windows_subsystem = "windows"]
 
+mod about;
 mod link;
+mod menu;
 mod state;
 mod ui;
 

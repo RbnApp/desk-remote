@@ -6,12 +6,14 @@
 
 pub mod discovery;
 pub mod listener;
+pub mod local_addr;
 pub mod session;
 pub mod split;
 pub mod tailscale;
 
 pub use discovery::{DiscoveredPeer, LanAnnouncer, LanBrowser, SERVICE_TYPE};
 pub use listener::Listener;
+pub use local_addr::primary_local_ip;
 pub use session::Session;
 pub use split::{SessionReader, SessionWriter};
 pub use tailscale::{

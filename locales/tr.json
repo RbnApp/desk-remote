@@ -289,7 +289,29 @@
     "code_expires": "Geçerlilik: {m}:{s}",
     "code_expired": "Kodun süresi doldu.",
     "code_new": "Yeni kod",
-    "code_unavailable": "Hizmet yanıt vermiyor."
+    "code_unavailable": "Hizmet yanıt vermiyor.",
+    "tooltip_view_only": "Uzaktan kontrol engelli (yalnız izleme)",
+    "status_online": "Çevrimiçi · {n} izleyici",
+    "status_waiting": "Bağlantı bekleniyor",
+    "status_locked": "Kilitli",
+    "status_offline": "Hizmet yanıt vermiyor",
+    "pc_name": "PC: {name}  (kopyalamak için tıkla)",
+    "local_ip": "Yerel IP: {ip}  (kopyalamak için tıkla)",
+    "local_ip_none": "Yerel IP: alınamadı",
+    "tailnet_connected": "Tailscale: {ip}  (kopyalamak için tıkla)",
+    "tailnet_login": "Tailscale: giriş gerekli",
+    "tailnet_off": "Tailscale: kapalı",
+    "disconnect_all": "Tüm izleyicileri şimdi ayır",
+    "view_only": "Uzaktan kontrolü engelle (yalnız izleme)",
+    "about": "Hakkında…"
+  },
+  "about": {
+    "title": "Desk-Remote hakkında",
+    "product": "Desk-Remote",
+    "version": "Sürüm {v}",
+    "device_id": "Cihaz kimliği",
+    "fingerprint": "Kimlik parmak izi",
+    "hint": "Eşleştirirken panelde görünenlerle karşılaştır."
   },
   "common": {
     "close": "Kapat"

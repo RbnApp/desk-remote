@@ -1037,6 +1037,7 @@ dependencies = [
  "desk-paths",
  "desk-protocol",
  "desk-theme",
+ "desk-version",
  "embed-resource",
  "tracing",
  "windows",

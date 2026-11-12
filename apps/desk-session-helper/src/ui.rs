@@ -11,7 +11,7 @@ use desk_theme::{resolve, ResolvedTheme, ThemeMode};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateFontW, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint, FillRect,
     GetStockObject, InvalidateRect, SelectObject, SetBkMode, SetTextColor, DEFAULT_GUI_FONT,
@@ -24,22 +24,19 @@ use windows::Win32::UI::Shell::{
     NIM_MODIFY, NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    DispatchMessageW, GetClientRect, GetCursorPos, GetMessageW, GetSystemMetrics, KillTimer,
-    LoadIconW, LoadImageW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
-    RegisterWindowMessageW, SetForegroundWindow, SetTimer, SetWindowTextW, ShowWindow,
-    TrackPopupMenu, TranslateMessage, HICON, IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTCOLOR,
-    MB_ICONINFORMATION, MB_OK, MF_STRING, MSG, SM_CXSMICON, SW_HIDE, SW_SHOW, TPM_RETURNCMD,
-    TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP,
-    WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_EX_TOOLWINDOW,
-    WS_OVERLAPPED, WS_SYSMENU, WS_VISIBLE,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW,
+    GetSystemMetrics, KillTimer, LoadIconW, LoadImageW, MessageBoxW, PostMessageW, PostQuitMessage,
+    RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetTimer, SetWindowTextW,
+    ShowWindow, TranslateMessage, HICON, IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTCOLOR,
+    MB_ICONINFORMATION, MB_OK, MSG, SM_CXSMICON, SW_HIDE, SW_SHOW, WINDOW_EX_STYLE, WM_APP,
+    WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP,
+    WM_TIMER, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_EX_TOOLWINDOW, WS_OVERLAPPED, WS_SYSMENU,
+    WS_VISIBLE,
 };
 
 const WM_TRAY: u32 = WM_APP + 2;
 const WM_QUIT_UI: u32 = WM_APP + 3;
 const TRAY_ID: u32 = 1;
-const MENU_SHOW_CODE: usize = 1;
-const MENU_VIEWERS: usize = 2;
 const BUTTON_NEW_CODE: usize = 100;
 const TIMER_REFRESH: usize = 1;
 
@@ -48,11 +45,11 @@ static THEME: OnceLock<Mutex<ResolvedTheme>> = OnceLock::new();
 static CODE_HWND: Mutex<isize> = Mutex::new(0);
 static WAS_VIEWED: AtomicBool = AtomicBool::new(false);
 
-fn shared() -> Option<&'static Arc<Shared>> {
+pub(crate) fn shared() -> Option<&'static Arc<Shared>> {
     SHARED.get()
 }
 
-fn wide(text: &str) -> Vec<u16> {
+pub(crate) fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
@@ -66,7 +63,7 @@ fn fill(buf: &mut [u16], text: &str) {
 }
 
 /// `#RRGGBB` theme token to a GDI colour (falls back to black on malformed input).
-fn colorref(token: &str) -> COLORREF {
+pub(crate) fn colorref(token: &str) -> COLORREF {
     let hex = token.trim_start_matches('#');
     let value = u32::from_str_radix(hex.get(..6).unwrap_or("000000"), 16).unwrap_or(0);
     let (r, g, b) = ((value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF);
@@ -124,11 +121,16 @@ fn os_locale() -> Locale {
 
 /// Tray icon: the DAPP-76 icon embedded in this executable as resource 1, loaded at the
 /// size the shell wants for the notification area (16 px at 100 % scaling).
-fn load_icon() -> HICON {
-    // SAFETY: plain queries and a resource load from our own module; the integer resource
-    // id is encoded as a pseudo string pointer exactly as MAKEINTRESOURCE does.
+pub(crate) fn load_icon() -> HICON {
+    // SAFETY: plain metrics query.
+    load_icon_sized(unsafe { GetSystemMetrics(SM_CXSMICON) })
+}
+
+/// The same embedded icon at an explicit pixel size (the caller destroys it).
+pub(crate) fn load_icon_sized(size: i32) -> HICON {
+    // SAFETY: a resource load from our own module; the integer resource id is encoded as a
+    // pseudo string pointer exactly as MAKEINTRESOURCE does.
     unsafe {
-        let size = GetSystemMetrics(SM_CXSMICON);
         let loaded = GetModuleHandleW(None).and_then(|module| {
             LoadImageW(
                 Some(module.into()),
@@ -161,28 +163,37 @@ fn tray_data(
     }
 }
 
-fn tooltip(viewers: usize) -> String {
-    if viewers == 0 {
+fn tooltip(viewers: usize, view_only: bool) -> String {
+    let base = if viewers == 0 {
         t("tray.tooltip_idle")
     } else {
         t("tray.tooltip_viewed").replace("{n}", &viewers.to_string())
+    };
+    if view_only {
+        format!(
+            "{base}
+{}",
+            t("tray.tooltip_view_only")
+        )
+    } else {
+        base
     }
 }
 
 fn tray_add(hwnd: HWND) {
     let mut data = tray_data(hwnd, NIF_ICON | NIF_TIP | NIF_MESSAGE);
-    fill(&mut data.szTip, &tooltip(0));
+    fill(&mut data.szTip, &tooltip(0, false));
     // SAFETY: fully initialised structure.
     let _ = unsafe { Shell_NotifyIconW(NIM_ADD, &data) };
 }
 
-fn tray_update(hwnd: HWND, viewers: usize, balloon: bool) {
+fn tray_update(hwnd: HWND, viewers: usize, view_only: bool, balloon: bool) {
     let mut flags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
     if balloon {
         flags |= NIF_INFO;
     }
     let mut data = tray_data(hwnd, flags);
-    fill(&mut data.szTip, &tooltip(viewers));
+    fill(&mut data.szTip, &tooltip(viewers, view_only));
     if balloon {
         fill(&mut data.szInfoTitle, &t("tray.balloon_title"));
         fill(&mut data.szInfo, &t("tray.balloon_body"));
@@ -224,7 +235,7 @@ fn code_hwnd() -> HWND {
     HWND(*CODE_HWND.lock().unwrap_or_else(|p| p.into_inner()) as *mut _)
 }
 
-fn show_code_window() {
+pub(crate) fn show_code_window() {
     let hwnd = code_hwnd();
     if hwnd.0.is_null() {
         return;
@@ -246,7 +257,7 @@ fn show_code_window() {
     }
 }
 
-fn show_viewers_box(owner: HWND) {
+pub(crate) fn show_viewers_box(owner: HWND) {
     let viewers = shared().map(|s| s.snapshot().viewers).unwrap_or_default();
     let text = if viewers.is_empty() {
         t("tray.viewers_none")
@@ -265,41 +276,13 @@ fn show_viewers_box(owner: HWND) {
     }
 }
 
-fn show_menu(hwnd: HWND) {
-    // SAFETY: menu is created, used and destroyed on this thread.
-    unsafe {
-        let Ok(menu) = CreatePopupMenu() else { return };
-        let show = wide(&t("tray.show_code"));
-        let viewers = wide(&t("tray.viewers"));
-        let _ = AppendMenuW(menu, MF_STRING, MENU_SHOW_CODE, PCWSTR(show.as_ptr()));
-        let _ = AppendMenuW(menu, MF_STRING, MENU_VIEWERS, PCWSTR(viewers.as_ptr()));
-        let mut at = POINT::default();
-        let _ = GetCursorPos(&mut at);
-        let _ = SetForegroundWindow(hwnd);
-        let picked = TrackPopupMenu(
-            menu,
-            TPM_RETURNCMD | TPM_RIGHTBUTTON,
-            at.x,
-            at.y,
-            Some(0),
-            hwnd,
-            None,
-        );
-        let _ = DestroyMenu(menu);
-        match usize::try_from(picked.0).unwrap_or(0) {
-            MENU_SHOW_CODE => show_code_window(),
-            MENU_VIEWERS => show_viewers_box(hwnd),
-            _ => {}
-        }
-    }
-}
-
 unsafe extern "system" fn tray_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
         WM_TRAY => {
             match (lp.0 & 0xFFFF) as u32 {
                 WM_LBUTTONUP => show_code_window(),
-                WM_RBUTTONUP => show_menu(hwnd),
+                WM_RBUTTONDOWN => crate::menu::request_info(),
+                WM_RBUTTONUP => crate::menu::show(hwnd),
                 _ => {}
             }
             LRESULT(0)
@@ -308,7 +291,8 @@ unsafe extern "system" fn tray_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
             let ui = shared().map(|s| s.snapshot()).unwrap_or_default();
             let viewed = !ui.viewers.is_empty();
             let was = WAS_VIEWED.swap(viewed, Ordering::SeqCst);
-            tray_update(hwnd, ui.viewers.len(), viewed && !was);
+            let view_only = ui.info.as_ref().is_some_and(|i| i.view_only);
+            tray_update(hwnd, ui.viewers.len(), view_only, viewed && !was);
             let code = code_hwnd();
             if !code.0.is_null() {
                 // SAFETY: window owned by this thread.
@@ -342,7 +326,7 @@ fn taskbar_created() -> u32 {
     *MSG_ID.get_or_init(|| unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) })
 }
 
-fn font(height: i32, weight: i32, mono: bool) -> HFONT {
+pub(crate) fn font(height: i32, weight: i32, mono: bool) -> HFONT {
     let face = if mono { w!("Consolas") } else { w!("Segoe UI") };
     // SAFETY: plain GDI font creation.
     unsafe {
@@ -365,7 +349,7 @@ fn font(height: i32, weight: i32, mono: bool) -> HFONT {
     }
 }
 
-fn draw_text(
+pub(crate) fn draw_text(
     hdc: windows::Win32::Graphics::Gdi::HDC,
     text: &str,
     mut rect: RECT,
@@ -376,11 +360,16 @@ fn draw_text(
     unsafe { DrawTextW(hdc, &mut buf, &mut rect, flags) };
 }
 
-fn paint_code(hwnd: HWND) {
-    let theme = THEME
+/// The resolved theme (palette + mode) for every window of this process.
+pub(crate) fn current_theme() -> ResolvedTheme {
+    THEME
         .get()
         .and_then(|m| m.lock().ok().map(|g| g.clone()))
-        .unwrap_or_else(|| resolve("ink", ThemeMode::Light, false));
+        .unwrap_or_else(|| resolve("ink", ThemeMode::Light, false))
+}
+
+fn paint_code(hwnd: HWND) {
+    let theme = current_theme();
     let tokens = &theme.tokens;
     let ui = shared().map(|s| s.snapshot()).unwrap_or_default();
     let mut ps = PAINTSTRUCT::default();

@@ -58,6 +58,7 @@ impl ServiceHost {
             Listener::bind_any(port)?
         });
         let port = listener.local_port()?;
+        hub.control().configure(port, opts.loopback_only);
         tracing::info!(port, device = %hub.identity().device_id(), "desk service listening");
 
         let announcer = if svc.lan_announce && !opts.loopback_only {
@@ -78,6 +79,7 @@ impl ServiceHost {
                 port,
                 svc.take_over_official_tailscale,
                 opts.mode == LaunchMode::SystemService,
+                Arc::clone(hub.control()),
             )
         } else {
             None

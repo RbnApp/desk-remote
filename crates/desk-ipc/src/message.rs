@@ -1,5 +1,6 @@
 //! Typed messages exchanged over the service <-> helper pipe.
 
+use crate::info::AgentInfo;
 use desk_protocol::Message;
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +23,14 @@ pub enum IpcMessage {
     DesktopLocked { locked: bool },
     /// Helper -> service: no monitor is attached, nothing can be captured.
     NoDisplay,
+    /// Helper -> service: send a fresh [`AgentInfo`] (sent when the tray menu is about to open).
+    AgentInfoRequest,
+    /// Service -> helper: the agent snapshot for the tray menu (on attach, on change, on request).
+    AgentInfo(AgentInfo),
+    /// Helper -> service: the tray user asked to drop every viewer now.
+    DisconnectAllRequest,
+    /// Helper -> service: block (`true`) or allow remote input; resets when the service restarts.
+    SetViewOnly { enabled: bool },
     /// Service -> helper: exit cleanly.
     Shutdown,
 }
@@ -29,6 +38,7 @@ pub enum IpcMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::info::TailnetState;
     use desk_error::DeskResult;
     use desk_protocol::FrameCodec;
 
@@ -52,6 +62,21 @@ mod tests {
                 device_ids: vec!["a".to_string()],
             },
             IpcMessage::DesktopLocked { locked: true },
+            IpcMessage::AgentInfoRequest,
+            IpcMessage::AgentInfo(AgentInfo {
+                pc_name: "FARM-01".to_string(),
+                local_ip: Some("192.168.1.20".to_string()),
+                port: 47800,
+                tailnet: TailnetState::Connected,
+                tailnet_ips: vec!["100.64.0.7".to_string()],
+                device_id: "desk-0123456789abcdef".to_string(),
+                fingerprint: "0123-4567".to_string(),
+                viewers: 2,
+                unavailable: false,
+                view_only: true,
+            }),
+            IpcMessage::DisconnectAllRequest,
+            IpcMessage::SetViewOnly { enabled: true },
             IpcMessage::Shutdown,
         ];
         for original in messages {

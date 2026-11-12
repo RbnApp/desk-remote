@@ -180,6 +180,7 @@ impl Session {
                     expires: Instant::now() + Duration::from_secs(u64::from(ttl_secs)),
                 });
             }),
+            IpcMessage::AgentInfo(info) => shared.update(|ui| ui.info = Some(info)),
             IpcMessage::Shutdown => return false,
             other => tracing::debug!(?other, "ignored service message"),
         }
@@ -224,6 +225,7 @@ fn serve(conn: IpcConnection, cfg: &ServiceConfig, shared: &Shared) -> bool {
     shared.update(|ui| {
         ui.service_online = false;
         ui.viewers.clear();
+        ui.info = None;
     });
     conn.close();
     keep_running

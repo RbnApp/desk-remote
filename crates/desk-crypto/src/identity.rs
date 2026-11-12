@@ -74,6 +74,19 @@ impl DeviceIdentity {
         device_id_from_public(&self.public)
     }
 
+    /// Long form of the same SHA-256 digest the device ID is cut from: its first 16 bytes
+    /// as eight groups of four lower-case hex digits (`0123-4567-…`), for comparing two
+    /// devices by eye. The device ID is the first half of it.
+    #[must_use]
+    pub fn fingerprint(&self) -> String {
+        let digest = Sha256::digest(self.public);
+        digest[..16]
+            .chunks(2)
+            .map(to_hex)
+            .collect::<Vec<_>>()
+            .join("-")
+    }
+
     /// Static public key (safe to share).
     #[must_use]
     pub fn public_key(&self) -> &[u8; KEY_LEN] {
@@ -157,6 +170,13 @@ mod tests {
         assert!(id.device_id().starts_with("desk-"));
         assert_eq!(id.device_id().len(), 21);
         assert_eq!(id.device_id(), device_id_from_public(id.public_key()));
+        let fp = id.fingerprint();
+        assert_eq!(fp.len(), 8 * 4 + 7);
+        assert!(
+            fp.replace('-', "")
+                .starts_with(&id.device_id()["desk-".len()..]),
+            "the device ID is the first half of the fingerprint"
+        );
         assert_ne!(id.private_key(), &[0u8; 32]);
         let other = DeviceIdentity::generate()?;
         assert_ne!(id.device_id(), other.device_id());

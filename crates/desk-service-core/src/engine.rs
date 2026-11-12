@@ -5,6 +5,7 @@ use desk_error::DeskResult;
 use desk_protocol::Message;
 use desk_transport::{Listener, Session};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::TryRecvError;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -119,8 +120,13 @@ fn bridge(
 ) -> DeskResult<()> {
     let mut watching = false;
     while !stop.load(Ordering::SeqCst) {
-        while let Ok(out) = rx.try_recv() {
-            session.send(&out)?;
+        loop {
+            match rx.try_recv() {
+                Ok(out) => session.send(&out)?,
+                Err(TryRecvError::Empty) => break,
+                // The hub dropped this viewer ("disconnect all"): the queue is flushed.
+                Err(TryRecvError::Disconnected) => return Ok(()),
+            }
         }
         let slice = if watching { WATCH_SLICE } else { IDLE_SLICE };
         let Some(msg) = session.recv_timeout(slice)? else {

@@ -14,6 +14,7 @@
 
 #![cfg(windows)]
 
+mod control;
 mod engine;
 mod host;
 mod hub;
@@ -24,6 +25,7 @@ mod tailnet;
 pub mod takeover;
 mod tracker;
 
+pub use control::Control;
 pub use host::{wait_for_console_stop, HostOptions, ServiceHost};
 pub use hub::Hub;
 pub use launch::{active_console_session, LaunchMode};

@@ -1,6 +1,6 @@
 //! State shared between the IPC worker and the tray UI thread.
 
-use desk_ipc::IpcConnection;
+use desk_ipc::{AgentInfo, IpcConnection};
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -25,6 +25,8 @@ pub struct UiState {
     pub viewers: Vec<String>,
     pub code: Option<CodeInfo>,
     pub service_online: bool,
+    /// Latest snapshot pushed by the service (tray menu and About window).
+    pub info: Option<AgentInfo>,
 }
 
 /// Window message the worker posts to wake the UI thread.
