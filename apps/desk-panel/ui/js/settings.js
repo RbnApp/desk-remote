@@ -52,9 +52,9 @@ function tailscaleSection() {
     : "";
   let action;
   if (S.tsConnecting) {
-    action = `<div class="msg info" role="status">${ic("arc", "spin")}${t("set.tailscale.connecting")}</div>`;
+    action = `<div class="msg info" role="status">${ic("arc", "spin")}${t("set.tailscale.connecting")}</div><div class="inline"><button class="btn" data-act="ts-cancel">${ic("x")}${t("set.tailscale.cancel")}</button></div>`;
   } else if (running) {
-    action = `<div class="inline"><button class="btn" data-act="ts-disconnect">${ic("ring")}${t("set.tailscale.disconnect")}</button></div><p class="hint">${t("set.tailscale.disconnect_hint")}</p>`;
+    action = `<div class="inline"><button class="btn" data-act="ts-disconnect">${ic("power")}${t("set.tailscale.disconnect")}</button></div><p class="hint">${t("set.tailscale.disconnect_hint")}</p>`;
   } else {
     action = `<div class="inline"><button class="btn primary" data-act="ts-connect">${ic("link")}${t("set.tailscale.connect")}</button></div><p class="hint">${t("set.tailscale.connect_hint")}</p>`;
   }
@@ -175,6 +175,14 @@ export async function connectTailscale() {
       render();
     }
   }, POLL_MS);
+}
+
+/** Stops waiting for the browser sign-in (the node itself keeps its state). */
+export function cancelTailscaleConnect() {
+  clearInterval(pollTimer);
+  S.tsConnecting = false;
+  refreshTailscale();
+  render();
 }
 
 export function startSidebarPolling() {
