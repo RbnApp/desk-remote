@@ -106,11 +106,22 @@ fn serve_viewer(
         ));
     }
     tracing::info!(%peer, device = %device_id, "viewer authenticated");
+    let host_pc_name = std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "Desk-PC".to_string());
     session.send(&Message::Hello {
         device_id: hub.identity().device_id(),
         version: desk_version::CURRENT.to_string(),
+        peer_name: Some(host_pc_name),
     })?;
-    let (id, rx) = hub.register_viewer_with_peer(&device_id, &peer.to_string());
+    let peer_name = session.peer_name().map(str::to_string);
+    let peer_fingerprint = session.peer_fingerprint();
+    let (id, rx) = hub.register_viewer_full(
+        &device_id,
+        &peer.to_string(),
+        peer_name.as_deref(),
+        peer_fingerprint.as_deref(),
+    );
     if let Some(req) = hub.pending_request() {
         hub.spawn_consent_timeout(req.request_id, id);
     }
