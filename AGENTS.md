@@ -22,6 +22,7 @@ All AI agents and human contributors working on this repository MUST strictly fo
 6. **Platform Scope**: Target platform is Windows 10/11 64-bit only. Architecture documents are platform-agnostic in principle, but system implementations leverage native Windows subsystem capabilities (SYSTEM service, session helper, DXGI duplication, Named Pipes).
 7. **Public & MIT License Standard**: The repository is public. All code, comments, documentation, and commit messages MUST be written in English. User-facing text must be externalized via `desk-i18n` (English source + Turkish localization).
 8. **Version Control**: Version is strictly pinned to `0.1.0` (read from the root [VERSION](VERSION) file). Do not bump versions or publish releases without explicit owner direction.
+9. **Single-Source Theme**: Colors come only from `design/tokens/themes.json` via `desk-theme` (palettes `ink` default and `petrol`; modes system/light/dark, chosen in settings). Hardcoded color literals in UI code are rejected by the Hardcoded Color Gate. See [Theme System](docs/architecture/theme.md).
 
 ---
 
@@ -31,3 +32,4 @@ All AI agents and human contributors working on this repository MUST strictly fo
 - [Central Systems & Single-Point Contracts](docs/architecture/central-systems.md)
 - [Code Style & Engineering Conventions](docs/architecture/code-style.md)
 - [Automated Enforcement Gates](docs/architecture/gates.md)
+- [Theme System (palettes, modes, color tokens)](docs/architecture/theme.md)

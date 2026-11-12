@@ -18,6 +18,7 @@ Any pull request or commit that violates a gate will be rejected automatically.
 | 4 | **Transport Isolation Grep Gate** | Shell / Ripgrep script | Ensuring raw sockets & HTTP clients only exist in `desk-transport` | See Section 3 below |
 | 5 | **Dependency & Advisory Gate** | `cargo-deny` (v0.16.0+) | Verifying MIT-compatible licenses & security advisories | `cargo-deny check bans licenses advisories` |
 | 6 | **Version Consistency Gate** | Root script / PowerShell | Verifying all workspace crates match root `VERSION` (0.1.0) | See Section 4 below |
+| 7 | **Hardcoded Color Gate** | Shell / Ripgrep script | Ensuring UI sources take colors only from theme tokens | See Section 6 below |
 
 ---
 
@@ -112,3 +113,50 @@ Desk-Remote uses `jscpd` to mathematically enforce the owner's rule: *"Duplicate
 ```
 
 If duplicate token blocks exceeding 3% are discovered across `crates/` and `apps/`, the gate immediately breaks the build and identifies the duplicate code locations for refactoring into a shared crate.
+
+---
+
+## 6. Hardcoded Color Gate
+
+All UI colors come from `design/tokens/themes.json` through `desk-theme` (see [Theme System](theme.md)). Color literals in UI sources are rejected.
+
+### Rule
+- Hex color literals (`#rgb`, `#rrggbb`, `#rrggbbaa`) and `rgb(`/`rgba(`/`hsl(`/`hsla(` calls are forbidden in `apps/` and `crates/` sources, except inside `design/tokens/themes.json` (not scanned) and `crates/desk-theme` (the resolver and its tests).
+- A line may opt out only with a trailing `// color-gate:allow <reason>` comment; every opt-out is reviewed.
+
+### Bash Execution (CI / Linux Runner)
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+PATTERN='#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?)\('
+VIOLATIONS=$(grep -rnE "$PATTERN" apps/ crates/ \
+    --exclude-dir="desk-theme" \
+    --exclude-dir="spikes" \
+    --include="*.rs" --include="*.slint" --include="*.css" --include="*.html" --include="*.ts" --include="*.tsx" \
+    | grep -v "color-gate:allow" || true)
+
+if [ -n "$VIOLATIONS" ]; then
+    echo "ERROR: Hardcoded colors detected outside the theme system:"
+    echo "$VIOLATIONS"
+    exit 1
+fi
+
+echo "Hardcoded Color Gate Passed."
+```
+
+### PowerShell Execution (Windows Local)
+```powershell
+$Violations = Get-ChildItem -Path crates, apps -Recurse -Include *.rs,*.slint,*.css,*.html,*.ts,*.tsx |
+    Where-Object { $_.FullName -notmatch "crates[\/]desk-theme" -and $_.FullName -notmatch "spikes[\/]" } |
+    Select-String -Pattern '#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?)\(' |
+    Where-Object { $_.Line -notmatch "color-gate:allow" }
+
+if ($Violations) {
+    Write-Error "Architecture Violation: Hardcoded colors detected outside the theme system:"
+    $Violations | ForEach-Object { Write-Host "$($_.Filename):$($_.LineNumber): $($_.Line.Trim())" -ForegroundColor Red }
+    exit 1
+} else {
+    Write-Host "Hardcoded Color Gate Passed." -ForegroundColor Green
+}
+```

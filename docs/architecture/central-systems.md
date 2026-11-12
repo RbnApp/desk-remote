@@ -24,6 +24,7 @@ Any subsystem that touches OS resources, networking, configuration, or identity 
 | 9 | **Localization (i18n)** | `crates/desk-i18n` | Catalogs, key lookup, locale fallback (en -> tr) | Hardcoded user-facing strings in UI code |
 | 10 | **Version** | `crates/desk-version` | Root `VERSION` single-source integration, build hash | Hardcoded version numbers across crates |
 | 11 | **Service & Process Lifecycle** | `crates/desk-service-core`| Windows Service dispatcher, session helper spawning | Spawning unmanaged child processes, manual `taskkill` |
+| 12 | **Theme** | `crates/desk-theme` (tokens: `design/tokens/themes.json`) | Palette/mode token resolution, light/dark/system | Hardcoded colors (hex/rgb) in UI code, ad-hoc palettes, per-file theme logic |
 
 ---
 
@@ -161,3 +162,15 @@ Any subsystem that touches OS resources, networking, configuration, or identity 
 - **Strictly Forbidden Outside Owner**:
   - Invoking `std::process::Command::new("taskkill")` or raw shell commands to kill processes.
   - Spawning interactive helper processes directly from Session 0 without proper session token assignment.
+
+### 3.12. Theme System (`crates/desk-theme`, tokens in `design/tokens/themes.json`)
+- **Owner**: `crates/desk-theme` (resolver) and `design/tokens/themes.json` (the single data source). The selected palette and mode are stored by `desk-config`.
+- **Core Technology**: `serde_json`, the token file embedded at build time (`include_str!`).
+- **Public API Principle**:
+  - Exposes `desk_theme::resolve(palette: &str, mode: ThemeMode, system_is_dark: bool) -> Theme`, where `Theme` is a typed set of named color tokens (`background`, `surface`, `text`, `primary`, ...).
+  - Palettes are data, not code: adding a palette means adding one block to `themes.json`.
+  - UI code reads colors only from `Theme` tokens. See [Theme System](theme.md) for the token list, selection model and the hardcoded-color gate.
+- **Strictly Forbidden Outside Owner**:
+  - Hex, `rgb()` or named-color literals in UI sources (enforced by the Hardcoded Color Gate in [gates.md](gates.md)).
+  - Reading `themes.json` directly, or keeping a second copy of any token value.
+  - Storing the palette/mode selection anywhere except `desk-config`.
