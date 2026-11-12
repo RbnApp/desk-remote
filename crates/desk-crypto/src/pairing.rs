@@ -80,6 +80,17 @@ impl PairingManager {
         (challenge.created_at.elapsed() < PAIRING_CODE_TTL).then_some(challenge.code.as_str())
     }
 
+    /// Remaining seconds before the active code expires.
+    #[must_use]
+    pub fn active_code_ttl_secs(&self) -> u64 {
+        let Some(challenge) = self.active_challenge.as_ref() else {
+            return 0;
+        };
+        PAIRING_CODE_TTL
+            .saturating_sub(challenge.created_at.elapsed())
+            .as_secs()
+    }
+
     /// Records a failed pairing attempt; revokes the code after [`MAX_FAILED_ATTEMPTS`].
     pub fn record_failure(&mut self) {
         let revoke = match &mut self.active_challenge {

@@ -19,6 +19,7 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub config: Mutex<PanelConfig>,
     pub session: Mutex<Option<Box<dyn ViewerSession>>>,
+    pub incoming: Arc<crate::incoming::IncomingManager>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -271,6 +272,55 @@ pub async fn tailscale_connect() -> Result<(), String> {
 #[tauri::command]
 pub fn demo_drop(state: State<'_, AppState>) {
     state.backend.simulate_drop();
+}
+
+// ----------------- Incoming Connections (AnyDesk style) -----------------
+
+#[tauri::command]
+pub fn incoming_get_state(state: State<'_, AppState>) -> crate::incoming::IncomingState {
+    state.incoming.get_state()
+}
+
+#[tauri::command]
+pub fn incoming_set_enabled(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<crate::incoming::IncomingState, String> {
+    state.incoming.set_enabled(app, enabled)
+}
+
+#[tauri::command]
+pub fn incoming_new_code(
+    state: State<'_, AppState>,
+) -> Result<crate::incoming::IncomingState, String> {
+    state.incoming.new_code()
+}
+
+#[tauri::command]
+pub fn incoming_answer(
+    state: State<'_, AppState>,
+    request_id: Option<String>,
+    #[allow(non_snake_case)] requestId: Option<String>,
+    decision: String,
+    always_allow: Option<bool>,
+    #[allow(non_snake_case)] alwaysAllow: Option<bool>,
+) -> Result<(), String> {
+    let req_id = request_id
+        .or(requestId)
+        .ok_or_else(|| "missing request_id".to_string())?;
+    let allow = always_allow.or(alwaysAllow).unwrap_or(false);
+    state.incoming.answer(&req_id, &decision, allow)
+}
+
+#[tauri::command]
+pub fn incoming_disconnect(state: State<'_, AppState>) -> Result<(), String> {
+    state.incoming.disconnect()
+}
+
+#[tauri::command]
+pub fn incoming_set_mode(state: State<'_, AppState>, mode: String) -> Result<(), String> {
+    state.incoming.set_mode(&mode)
 }
 
 #[cfg(test)]

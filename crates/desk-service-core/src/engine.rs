@@ -100,12 +100,20 @@ fn serve_viewer(
     session.authenticate_as_host(hub.pairing(), hub.identity())?;
     drop(slot);
     let device_id = session.peer_device_id().unwrap_or_default();
+    if device_id == hub.identity().device_id() {
+        return Err(desk_error::DeskError::Transport(
+            "cannot connect to self".to_string(),
+        ));
+    }
     tracing::info!(%peer, device = %device_id, "viewer authenticated");
     session.send(&Message::Hello {
         device_id: hub.identity().device_id(),
         version: desk_version::CURRENT.to_string(),
     })?;
-    let (id, rx) = hub.register_viewer(&device_id);
+    let (id, rx) = hub.register_viewer_with_peer(&device_id, &peer.to_string());
+    if let Some(req) = hub.pending_request() {
+        hub.spawn_consent_timeout(req.request_id, id);
+    }
     let result = bridge(&mut session, hub, stop, id, &rx);
     hub.remove_viewer(id);
     result
@@ -152,6 +160,7 @@ fn bridge(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use desk_crypto::{DeviceIdentity, PairingManager, TrustStore};
@@ -241,6 +250,25 @@ mod tests {
             rig.pair_with(&code).is_ok(),
             "a freed slot must accept a new viewer"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn self_connection_is_rejected() -> DeskResult<()> {
+        let rig = Rig::start(MAX_PENDING_HANDSHAKES)?;
+        let code = rig.hub.with_pairing(PairingManager::create_pairing_code)?;
+        let mut session = rig.stalled_client()?;
+        let dir = tempfile::tempdir().map_err(desk_error::DeskError::Io)?;
+        let mut trust = TrustStore::open(&dir.path().join("trust.json"))?;
+        // Client uses the SAME identity as the host!
+        let host_identity = rig.hub.identity().clone();
+        let auth_res = session.authenticate_as_client(&host_identity, &mut trust, Some(&code));
+        // Should either fail authentication or host immediately closes connection
+        if auth_res.is_ok() {
+            // If handshake finished, receiving next message should be Err because host rejected
+            let msg = session.recv_timeout(Duration::from_millis(500));
+            assert!(msg.is_err() || msg.unwrap().is_none());
+        }
         Ok(())
     }
 }

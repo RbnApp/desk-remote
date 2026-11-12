@@ -16,7 +16,9 @@ pub mod rand;
 pub mod trust;
 
 pub use dpapi::{protect, unprotect};
-pub use identity::{device_id_from_public, DeviceIdentity, KEY_LEN, NOISE_PARAMS};
+pub use identity::{
+    device_id_from_public, fingerprint_from_public, DeviceIdentity, KEY_LEN, NOISE_PARAMS,
+};
 pub use noise::{
     NoiseHandshake, NoiseTransport, NOISE_MAX_MESSAGE, NOISE_MAX_PLAINTEXT, NOISE_TAG_LEN,
 };

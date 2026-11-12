@@ -99,6 +99,10 @@ fn run(args: &Args) -> DeskResult<()> {
                 data_dir: args.data_dir.clone(),
                 loopback_only: args.loopback,
                 allow_on_panel_pc: args.allow_on_panel_pc,
+                role: desk_service_core::role::HostRole::AgentService,
+                consent_gate: false,
+                custom_identity: None,
+                custom_trust: None,
             })?;
             tracing::info!(port = host.port()?, "console mode: Ctrl+C stops");
             desk_service_core::wait_for_console_stop(args.run_for);

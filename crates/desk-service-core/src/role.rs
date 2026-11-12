@@ -10,10 +10,32 @@ use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
 const REFUSED_KEY: &str = "role.panel_pc_no_agent";
 
+/// Distinguishes the unattended background agent service from the panel's in-app
+/// incoming connection host (attended session while panel is open).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HostRole {
+    /// Farm/remote PC agent (service or dev console). Unattended, forbidden on a panel PC.
+    #[default]
+    AgentService,
+    /// In-app host running inside the panel UI process. Attended, user-consented, only while panel is open.
+    PanelInApp,
+}
+
 /// True when the agent host may run: not a panel PC, or the developer override is set.
 #[must_use]
 pub fn host_allowed(paths: &DeskPaths, allow_on_panel_pc: bool) -> bool {
     allow_on_panel_pc || !paths.is_panel_pc()
+}
+
+/// True when the host may run for the specified role.
+/// - [`HostRole::PanelInApp`]: always allowed on a panel PC (it is the panel's own attended host).
+/// - [`HostRole::AgentService`]: not a panel PC, or the developer override is set.
+#[must_use]
+pub fn host_allowed_for_role(paths: &DeskPaths, role: HostRole, allow_on_panel_pc: bool) -> bool {
+    match role {
+        HostRole::PanelInApp => true,
+        HostRole::AgentService => host_allowed(paths, allow_on_panel_pc),
+    }
 }
 
 /// Refuses to install the agent on a panel PC. Needs no administrator rights, so it runs
@@ -77,6 +99,20 @@ mod tests {
         paths.mark_panel_pc()?;
         assert!(!host_allowed(&paths, false));
         assert!(host_allowed(&paths, true));
+        let _ = std::fs::remove_dir_all(dir);
+        Ok(())
+    }
+
+    #[test]
+    fn panel_pc_allows_in_app_host_without_developer_flag() -> DeskResult<()> {
+        let (paths, dir) = panel_paths("in_app");
+        paths.mark_panel_pc()?;
+        assert!(host_allowed_for_role(&paths, HostRole::PanelInApp, false));
+        assert!(!host_allowed_for_role(
+            &paths,
+            HostRole::AgentService,
+            false
+        ));
         let _ = std::fs::remove_dir_all(dir);
         Ok(())
     }
