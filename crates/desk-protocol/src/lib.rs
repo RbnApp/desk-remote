@@ -15,6 +15,10 @@ pub const FRAME_MAGIC: [u8; 4] = *b"DESK";
 /// Maximum supported frame payload size (64 MiB).
 pub const MAX_FRAME_PAYLOAD_SIZE: usize = 64 * 1024 * 1024;
 
+/// Largest frame accepted from the network (8 MiB). Streamed video frames and file chunks are
+/// far smaller; the 64 MiB ceiling stays for the local IPC pipe only (DAPP-103 M-02).
+pub const MAX_NETWORK_FRAME_PAYLOAD_SIZE: usize = 8 * 1024 * 1024;
+
 /// IEEE 802.3 CRC-32 checksum calculation.
 #[must_use]
 pub fn crc32(data: &[u8]) -> u32 {
@@ -53,13 +57,6 @@ pub enum Message {
         device_id: String,
         version: String,
         peer_name: Option<String>,
-    },
-    /// Pairing request with one-time verification code.
-    PairRequest { code: String },
-    /// Result of a pairing code attempt.
-    PairResult {
-        success: bool,
-        error: Option<String>,
     },
     /// Viewer joined session: agent starts capture pipeline.
     ViewerJoin,
@@ -252,6 +249,19 @@ impl FrameCodec {
 
     /// Decodes one serde value of type `T` from a continuous byte buffer (see [`Self::decode`]).
     pub fn decode_value<T: DeserializeOwned>(buf: &[u8]) -> DeskResult<Option<(T, usize)>> {
+        Self::decode_value_limited(buf, MAX_FRAME_PAYLOAD_SIZE)
+    }
+
+    /// Like [`Self::decode`] but rejects a frame whose announced payload exceeds `max_payload`
+    /// as soon as the header is readable, so the caller never buffers an oversized frame.
+    pub fn decode_limited(buf: &[u8], max_payload: usize) -> DeskResult<Option<(Message, usize)>> {
+        Self::decode_value_limited(buf, max_payload)
+    }
+
+    fn decode_value_limited<T: DeserializeOwned>(
+        buf: &[u8],
+        max_payload: usize,
+    ) -> DeskResult<Option<(T, usize)>> {
         if buf.len() < 12 {
             return Ok(None);
         }
@@ -270,9 +280,9 @@ impl FrameCodec {
         let len = usize::try_from(u32::from_be_bytes(len_bytes))
             .map_err(|_| DeskError::Protocol("Length conversion failed".to_string()))?;
 
-        if len > MAX_FRAME_PAYLOAD_SIZE {
+        if len > max_payload {
             return Err(DeskError::Protocol(format!(
-                "Incoming frame size {len} exceeds maximum allowed {MAX_FRAME_PAYLOAD_SIZE}"
+                "Incoming frame size {len} exceeds maximum allowed {max_payload}"
             )));
         }
 
@@ -336,15 +346,21 @@ mod tests {
     }
 
     #[test]
+    fn decode_limited_refuses_an_oversized_header_before_the_payload_arrives() -> DeskResult<()> {
+        let frame = FrameCodec::encode(&Message::VideoFrame {
+            ts_us: 1,
+            keyframe: false,
+            data: vec![1; 2048],
+        })?;
+        // Header only: the announced size alone is enough to refuse.
+        assert!(FrameCodec::decode_limited(&frame[..12], 1024).is_err());
+        assert!(FrameCodec::decode_limited(&frame, 4096)?.is_some());
+        Ok(())
+    }
+
+    #[test]
     fn test_message_roundtrip_all_variants() -> DeskResult<()> {
         let messages = vec![
-            Message::PairRequest {
-                code: "ABCD-2345".to_string(),
-            },
-            Message::PairResult {
-                success: true,
-                error: None,
-            },
             Message::ViewerJoin,
             Message::ViewerLeave,
             Message::VideoConfig {

@@ -13,7 +13,7 @@ pub mod split;
 pub mod tailscale;
 
 pub use discovery::{DiscoveredPeer, LanAnnouncer, LanBrowser, SERVICE_TYPE};
-pub use listener::Listener;
+pub use listener::{Listener, MAX_LIVE_CONNECTIONS};
 pub use local_addr::primary_local_ip;
 pub use panel_tailnet::{
     PanelTailnet, PanelTailnetConfig, PanelTailnetSnapshot, PanelTailnetState,

@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
@@ -14,6 +15,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"tailscale.com/ipn"
@@ -64,6 +66,7 @@ func main() {
 	hostname := fs.String("hostname", "deskremote-node", "Tailnet hostname")
 	bridgeAddr := fs.String("bridge-addr", "127.0.0.1:7777", "Local loopback target or bind address")
 	tailnetPort := fs.Int("tailnet-port", 7777, "Tailnet listening port")
+	keyFromStdin := fs.Bool("auth-key-stdin", false, "Read the one-time auth key from the first line of stdin (keeps it out of the environment)")
 	targetAddr := fs.String("target-addr", "", "Remote tailnet peer address (e.g. 100.x.y.z:7777)")
 
 	if err := fs.Parse(os.Args[2:]); err != nil {
@@ -72,6 +75,10 @@ func main() {
 	}
 
 	authKey := os.Getenv("TS_AUTHKEY")
+	if *keyFromStdin {
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		authKey = strings.TrimSpace(line)
+	}
 
 	s := &tsnet.Server{
 		Dir:        *stateDir,

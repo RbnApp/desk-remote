@@ -972,6 +972,7 @@ name = "desk-paths"
 version = "0.1.0"
 dependencies = [
  "desk-error",
+ "tempfile",
 ]
 
 [[package]]

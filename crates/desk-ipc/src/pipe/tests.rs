@@ -145,3 +145,61 @@ fn accept_times_out_when_nobody_connects() -> DeskResult<()> {
     assert!(server.accept(Duration::from_secs(2))?.is_some());
     Ok(())
 }
+
+/// Connects one client to a fresh server and returns the server side of the connection.
+fn connected(tag: &str) -> DeskResult<(IpcConnection, IpcConnection)> {
+    let name = unique_pipe(tag);
+    let server = IpcServer::bind(&name, &allow_current_user()?)?;
+    let client = IpcClient::connect(&name, Duration::from_secs(5))?;
+    let conn = server
+        .accept(Duration::from_secs(5))?
+        .ok_or_else(no_client)?;
+    Ok((conn, client))
+}
+
+#[test]
+fn verify_client_accepts_the_expected_process() -> DeskResult<()> {
+    let (conn, _client) = connected("verify-ok")?;
+    let me = std::env::current_exe()?;
+    conn.verify_client(&ExpectedClient {
+        pid: std::process::id(),
+        image: &me,
+        user_sid: &current_user_sid()?,
+    })
+}
+
+#[test]
+fn verify_client_rejects_a_wrong_executable() -> DeskResult<()> {
+    let (conn, _client) = connected("verify-exe")?;
+    let other = desk_paths::DeskPaths::system_tool("cmd.exe");
+    let err = conn.verify_client(&ExpectedClient {
+        pid: std::process::id(),
+        image: &other,
+        user_sid: &current_user_sid()?,
+    });
+    assert!(format!("{err:?}").contains("instead of"), "{err:?}");
+    Ok(())
+}
+
+#[test]
+fn verify_client_rejects_a_wrong_pid_and_a_wrong_user() -> DeskResult<()> {
+    let (conn, _client) = connected("verify-pid")?;
+    let me = std::env::current_exe()?;
+    let sid = current_user_sid()?;
+    let wrong_pid = conn.verify_client(&ExpectedClient {
+        pid: std::process::id() + 4,
+        image: &me,
+        user_sid: &sid,
+    });
+    assert!(wrong_pid.is_err());
+    let wrong_user = conn.verify_client(&ExpectedClient {
+        pid: std::process::id(),
+        image: &me,
+        user_sid: "S-1-5-18",
+    });
+    assert!(
+        format!("{wrong_user:?}").contains("another user"),
+        "{wrong_user:?}"
+    );
+    Ok(())
+}

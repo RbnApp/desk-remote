@@ -19,7 +19,7 @@ use desk_crypto::{
     PairingManager, TrustStore, KEY_LEN, NOISE_MAX_MESSAGE, NOISE_MAX_PLAINTEXT,
 };
 use desk_error::{DeskError, DeskResult};
-use desk_protocol::{FrameCodec, Message, PROTOCOL_VERSION};
+use desk_protocol::{FrameCodec, Message, MAX_NETWORK_FRAME_PAYLOAD_SIZE, PROTOCOL_VERSION};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::sync::{Mutex, MutexGuard};
@@ -61,6 +61,8 @@ pub struct Session {
     pub(crate) plain_buf: Vec<u8>,
     pub(crate) peer_key: Option<[u8; KEY_LEN]>,
     pub(crate) peer_name: Option<String>,
+    /// Slot of the accepting listener's connection limit (server side only).
+    pub(crate) live_slot: Option<crate::listener::LiveSlot>,
 }
 
 impl Session {
@@ -82,6 +84,7 @@ impl Session {
             plain_buf: Vec::with_capacity(64 * 1024),
             peer_key: None,
             peer_name: None,
+            live_slot: None,
         })
     }
 
@@ -141,6 +144,12 @@ impl Session {
         self.stream.flush().map_err(DeskError::Io)
     }
 
+    /// Next complete message already buffered, if any. A frame announcing more than
+    /// [`MAX_NETWORK_FRAME_PAYLOAD_SIZE`] is refused at its header, so `plain_buf` stays bounded.
+    pub(crate) fn decode_buffered(&mut self) -> DeskResult<Option<(Message, usize)>> {
+        FrameCodec::decode_limited(&self.plain_buf, MAX_NETWORK_FRAME_PAYLOAD_SIZE)
+    }
+
     pub(crate) fn read_raw(&mut self) -> DeskResult<Vec<u8>> {
         let mut len_bytes = [0u8; 4];
         self.read_exact_mapped(&mut len_bytes)?;
@@ -185,7 +194,7 @@ impl Session {
     /// drop the session afterwards.
     pub fn recv(&mut self) -> DeskResult<Message> {
         loop {
-            if let Some((msg, used)) = FrameCodec::decode(&self.plain_buf)? {
+            if let Some((msg, used)) = self.decode_buffered()? {
                 self.plain_buf.drain(..used);
                 return Ok(msg);
             }
@@ -205,7 +214,7 @@ impl Session {
     /// behind: once the first byte is available the whole chunk is read with the normal
     /// read timeout. This lets one thread multiplex sending and receiving on a session.
     pub fn recv_timeout(&mut self, wait: Duration) -> DeskResult<Option<Message>> {
-        if let Some((msg, used)) = FrameCodec::decode(&self.plain_buf)? {
+        if let Some((msg, used)) = self.decode_buffered()? {
             self.plain_buf.drain(..used);
             return Ok(Some(msg));
         }

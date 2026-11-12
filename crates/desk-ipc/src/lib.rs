@@ -22,5 +22,6 @@ pub use info::{AgentInfo, TailnetState};
 pub use message::IpcMessage;
 #[cfg(windows)]
 pub use pipe::{
-    current_user_sid, pipe_access_sddl, user_sid_of_token, IpcClient, IpcConnection, IpcServer,
+    current_user_sid, pipe_access_sddl, user_sid_of_token, ExpectedClient, IpcClient,
+    IpcConnection, IpcServer,
 };
