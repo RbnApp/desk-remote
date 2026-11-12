@@ -90,6 +90,85 @@ pub enum Message {
     Status { online: bool, latency_ms: u32 },
     /// The PC user changed what a viewer may do (agent -> viewer, informational).
     Notice { kind: NoticeKind },
+    /// Sender -> receiver: proposes a file transfer (`sha256` is the digest of the whole file).
+    FileOffer {
+        transfer_id: String,
+        name: String,
+        size: u64,
+        sha256: [u8; 32],
+    },
+    /// Receiver -> sender: the offer was accepted, chunks may follow.
+    FileAccept { transfer_id: String },
+    /// Receiver -> sender: the offer was refused, no byte is written.
+    FileReject {
+        transfer_id: String,
+        reason: FileRejectReason,
+    },
+    /// Sender -> receiver: `data` (at most [`FILE_CHUNK_MAX`] bytes) at byte `offset`.
+    FileChunk {
+        transfer_id: String,
+        offset: u64,
+        data: Vec<u8>,
+    },
+    /// Sender -> receiver: every byte was sent.
+    FileDone { transfer_id: String },
+    /// Receiver -> sender: final verdict after the digest check (`error` is a stable code).
+    FileResult {
+        transfer_id: String,
+        ok: bool,
+        error: Option<String>,
+    },
+    /// Either side: abandons the transfer; the receiver deletes the partial file.
+    FileCancel { transfer_id: String },
+}
+
+/// Largest payload of one [`Message::FileChunk`] (256 KiB).
+pub const FILE_CHUNK_MAX: usize = 256 * 1024;
+
+/// Why a receiver refused a [`Message::FileOffer`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FileRejectReason {
+    /// The file is larger than the receiver's upload limit.
+    TooLarge,
+    /// The PC user declined (or the name is not acceptable).
+    Denied,
+    /// Another transfer is running on this PC.
+    Busy,
+    /// Not enough free disk space.
+    DiskFull,
+    /// Nobody answered in time (or nobody is signed in to receive).
+    NoAnswer,
+}
+
+impl FileRejectReason {
+    /// Stable snake_case code shown to the UI.
+    #[must_use]
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::TooLarge => "too_large",
+            Self::Denied => "denied",
+            Self::Busy => "busy",
+            Self::DiskFull => "disk_full",
+            Self::NoAnswer => "no_answer",
+        }
+    }
+}
+
+impl Message {
+    /// The transfer a file message belongs to; `None` for every other message.
+    #[must_use]
+    pub fn transfer_id(&self) -> Option<&str> {
+        match self {
+            Self::FileOffer { transfer_id, .. }
+            | Self::FileAccept { transfer_id }
+            | Self::FileReject { transfer_id, .. }
+            | Self::FileChunk { transfer_id, .. }
+            | Self::FileDone { transfer_id }
+            | Self::FileResult { transfer_id, .. }
+            | Self::FileCancel { transfer_id } => Some(transfer_id),
+            _ => None,
+        }
+    }
 }
 
 /// What a [`Message::Notice`] tells the viewer.
@@ -284,6 +363,35 @@ mod tests {
             Message::Notice {
                 kind: NoticeKind::ViewOnlyOn,
             },
+            Message::FileOffer {
+                transfer_id: "t1".to_string(),
+                name: "a.txt".to_string(),
+                size: 1024,
+                sha256: [7; 32],
+            },
+            Message::FileAccept {
+                transfer_id: "t1".to_string(),
+            },
+            Message::FileReject {
+                transfer_id: "t1".to_string(),
+                reason: FileRejectReason::TooLarge,
+            },
+            Message::FileChunk {
+                transfer_id: "t1".to_string(),
+                offset: 262_144,
+                data: vec![1, 2, 3],
+            },
+            Message::FileDone {
+                transfer_id: "t1".to_string(),
+            },
+            Message::FileResult {
+                transfer_id: "t1".to_string(),
+                ok: false,
+                error: Some("hash_mismatch".to_string()),
+            },
+            Message::FileCancel {
+                transfer_id: "t1".to_string(),
+            },
         ];
 
         for original in messages {
@@ -296,6 +404,30 @@ mod tests {
             assert_eq!(consumed, encoded.len());
         }
         Ok(())
+    }
+
+    #[test]
+    fn full_size_file_chunk_stays_raw_and_fits_one_frame() -> DeskResult<()> {
+        let msg = Message::FileChunk {
+            transfer_id: "t-0123456789abcdef".to_string(),
+            offset: u64::from(u32::MAX) + 5,
+            data: vec![0xAB; FILE_CHUNK_MAX],
+        };
+        let encoded = FrameCodec::encode(&msg)?;
+        assert!(encoded.len() < FILE_CHUNK_MAX + 64, "{}", encoded.len());
+        assert_eq!(FrameCodec::decode(&encoded)?, Some((msg, encoded.len())));
+        Ok(())
+    }
+
+    #[test]
+    fn reject_codes_and_transfer_ids() {
+        assert_eq!(FileRejectReason::TooLarge.code(), "too_large");
+        assert_eq!(FileRejectReason::DiskFull.code(), "disk_full");
+        let done = Message::FileDone {
+            transfer_id: "x".to_string(),
+        };
+        assert_eq!(done.transfer_id(), Some("x"));
+        assert_eq!(Message::ViewerJoin.transfer_id(), None);
     }
 
     #[test]

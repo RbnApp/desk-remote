@@ -5,6 +5,7 @@
 //! routing rules unit-testable.
 
 use crate::control::Control;
+use crate::transfer::TransferState;
 use desk_crypto::{DeviceIdentity, PairingManager, PAIRING_CODE_TTL};
 use desk_ipc::{IpcConnection, IpcMessage};
 use desk_protocol::{Message, NoticeKind};
@@ -129,6 +130,7 @@ pub struct Hub {
     next_id: AtomicU64,
     consent_gate_enabled: bool,
     consent_listener: Mutex<Option<ConsentListener>>,
+    transfers: TransferState,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -155,6 +157,7 @@ impl Hub {
             next_id: AtomicU64::new(1),
             consent_gate_enabled: consent_gate,
             consent_listener: Mutex::new(None),
+            transfers: TransferState::default(),
         }
     }
 
@@ -174,6 +177,12 @@ impl Hub {
         if let Some(cb) = cb {
             cb(event);
         }
+    }
+
+    /// File transfer bookkeeping (limit, received folder, offer listener, answers).
+    #[must_use]
+    pub fn transfers(&self) -> &TransferState {
+        &self.transfers
     }
 
     #[must_use]
@@ -742,6 +751,12 @@ impl Hub {
         lock(&self.state).helper.is_some()
     }
 
+    /// Sends `msg` to the helper; `false` when none is connected or the pipe is broken.
+    pub(crate) fn send_to_helper(&self, msg: &IpcMessage) -> bool {
+        let helper = lock(&self.state).helper.as_ref().map(|(_, c)| c.clone());
+        helper.is_some_and(|conn| conn.send(msg).is_ok())
+    }
+
     /// Handles one message coming from the helper.
     pub fn on_helper_message(&self, msg: IpcMessage) {
         match msg {
@@ -764,6 +779,9 @@ impl Hub {
                         let _ = conn.send(&IpcMessage::Wire(Message::RequestKeyframe));
                     }
                 }
+            }
+            IpcMessage::Wire(wire) if wire.transfer_id().is_some() => {
+                self.transfers.route_from_helper(wire);
             }
             IpcMessage::DesktopLocked { locked } => {
                 self.update_availability(|st| st.helper_locked = locked);

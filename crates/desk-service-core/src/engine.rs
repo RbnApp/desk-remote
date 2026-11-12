@@ -9,6 +9,8 @@ use std::sync::mpsc::TryRecvError;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// How long a fresh connection may stay silent before it is treated as a viewer.
+const FIRST_MESSAGE_WAIT: Duration = Duration::from_millis(500);
 /// Read slice while a viewer is watching (keeps input latency low).
 const WATCH_SLICE: Duration = Duration::from_millis(5);
 /// Read slice while a viewer is connected but not watching.
@@ -115,6 +117,16 @@ fn serve_viewer(
         peer_name: Some(host_pc_name),
     })?;
     let peer_name = session.peer_name().map(str::to_string);
+    // A file sender announces itself with its first message; everyone else is a viewer.
+    // Deciding before registration keeps a transfer from raising a viewer consent prompt.
+    let first = session.recv_timeout(FIRST_MESSAGE_WAIT)?;
+    if first.as_ref().is_some_and(|m| m.transfer_id().is_some()) {
+        let sender = peer_name.as_deref().unwrap_or("?");
+        return match first {
+            Some(offer) => crate::transfer::serve(&mut session, hub, stop, offer, sender),
+            None => Ok(()),
+        };
+    }
     let peer_fingerprint = session.peer_fingerprint();
     let (id, rx) = hub.register_viewer_full(
         &device_id,
@@ -125,7 +137,7 @@ fn serve_viewer(
     if let Some(req) = hub.pending_request() {
         hub.spawn_consent_timeout(req.request_id, id);
     }
-    let result = bridge(&mut session, hub, stop, id, &rx);
+    let result = bridge(&mut session, hub, stop, id, &rx, first);
     hub.remove_viewer(id);
     result
 }
@@ -136,8 +148,10 @@ fn bridge(
     stop: &Arc<AtomicBool>,
     id: u64,
     rx: &std::sync::mpsc::Receiver<Message>,
+    first: Option<Message>,
 ) -> DeskResult<()> {
     let mut watching = false;
+    let mut next = first;
     while !stop.load(Ordering::SeqCst) {
         loop {
             match rx.try_recv() {
@@ -148,8 +162,12 @@ fn bridge(
             }
         }
         let slice = if watching { WATCH_SLICE } else { IDLE_SLICE };
-        let Some(msg) = session.recv_timeout(slice)? else {
-            continue;
+        let msg = match next.take() {
+            Some(m) => m,
+            None => match session.recv_timeout(slice)? {
+                Some(m) => m,
+                None => continue,
+            },
         };
         match msg {
             Message::ViewerJoin => {

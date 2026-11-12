@@ -22,6 +22,8 @@ pub struct AppState {
     #[cfg_attr(feature = "demo", allow(dead_code))]
     pub incoming: Arc<crate::incoming::IncomingManager>,
     pub picks: Arc<crate::shell_menu::PickCollector>,
+    #[cfg(not(feature = "demo"))]
+    pub transfers: Arc<crate::transfer::TransferManager>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -362,6 +364,112 @@ pub fn incoming_disconnect(state: State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 pub fn incoming_set_mode(state: State<'_, AppState>, mode: String) -> Result<(), String> {
     state.incoming.set_mode(&mode)
+}
+
+// ----------------- File transfer -----------------
+
+/// Emits transfer events to the UI.
+#[cfg(not(feature = "demo"))]
+fn emitter(app: tauri::AppHandle) -> crate::transfer::Emit {
+    use tauri::Emitter;
+    Arc::new(move |event, payload| {
+        let _ = app.emit(event, payload);
+    })
+}
+
+/// Sends each path to a paired PC; returns the transfer ids at once, results arrive as
+/// `transfer://progress` and `transfer://done` events.
+#[cfg(not(feature = "demo"))]
+#[tauri::command]
+pub fn transfer_send(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    device_id: String,
+    paths: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let (pc, limit) = {
+        let cfg = lock(&state.config);
+        let pc = cfg.paired_pcs.iter().find(|p| p.id == device_id).cloned();
+        (pc, cfg.max_upload_mb)
+    };
+    let pc = pc.ok_or_else(|| "unpaired".to_string())?;
+    Ok(state
+        .transfers
+        .send(&state.backend, &pc, paths, limit, &emitter(app)))
+}
+
+/// Cancels a queued or running transfer.
+#[cfg(not(feature = "demo"))]
+#[tauri::command]
+pub fn transfer_cancel(state: State<'_, AppState>, transfer_id: String) {
+    state.transfers.cancel(&transfer_id);
+}
+
+/// Upload limit shown in settings.
+#[cfg(not(feature = "demo"))]
+#[derive(Serialize)]
+pub struct TransferLimits {
+    max_upload_mb: u32,
+}
+
+#[cfg(not(feature = "demo"))]
+#[tauri::command]
+pub fn transfer_limits(state: State<'_, AppState>) -> TransferLimits {
+    TransferLimits {
+        max_upload_mb: lock(&state.config).max_upload_mb,
+    }
+}
+
+/// Saves the limit (1..=1024 MB) and applies it to sending and receiving at once.
+#[cfg(not(feature = "demo"))]
+#[tauri::command]
+pub fn transfer_set_limit(
+    state: State<'_, AppState>,
+    max_upload_mb: u32,
+) -> Result<TransferLimits, String> {
+    if !(1..=desk_config::MAX_UPLOAD_MB_CEILING).contains(&max_upload_mb) {
+        return Err("invalid_limit".to_string());
+    }
+    let mut cfg = lock(&state.config);
+    cfg.max_upload_mb = max_upload_mb;
+    ConfigManager::save(&state.config_path, &*cfg).map_err(|e| e.to_string())?;
+    state.incoming.set_max_upload_mb(max_upload_mb);
+    Ok(TransferLimits { max_upload_mb })
+}
+
+/// Name, size and kind of the chosen paths.
+#[cfg(not(feature = "demo"))]
+#[tauri::command]
+pub fn transfer_inspect(paths: Vec<String>) -> Vec<crate::transfer::FileInfo> {
+    crate::transfer::inspect(&paths)
+}
+
+/// Opens the native file picker; empty when the user cancels.
+#[cfg(not(feature = "demo"))]
+#[tauri::command]
+pub async fn transfer_pick_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked =
+        tauri::async_runtime::spawn_blocking(move || app.dialog().file().blocking_pick_files())
+            .await
+            .map_err(|e| e.to_string())?;
+    Ok(picked
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| p.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect())
+}
+
+/// Accepts or declines an incoming file offer.
+#[cfg(not(feature = "demo"))]
+#[tauri::command]
+pub fn transfer_answer(
+    state: State<'_, AppState>,
+    transfer_id: String,
+    accept: bool,
+) -> Result<(), String> {
+    state.incoming.transfer_answer(&transfer_id, accept)
 }
 
 /// Test hook of the demo backend; a no-op elsewhere.

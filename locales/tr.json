@@ -306,6 +306,8 @@
     "viewers_some": "Şu an bu PC'yi izleyenler:",
     "balloon_title": "Ekranın izleniyor",
     "balloon_body": "Eşleşmiş bir cihaz bu PC'yi izliyor.",
+    "file_title": "Dosya geldi",
+    "file_body": "{peer} cihazından dosya geldi: {name}",
     "code_title": "Eşleştirme kodu",
     "code_hint": "Bu kodu Desk-Remote panelinde yaz.",
     "code_expires": "Geçerlilik: {m}:{s}",

@@ -160,6 +160,11 @@ pub trait Backend: Send + Sync {
     fn pair(&self, target: &str, code: &str, name: Option<&str>) -> Result<PairedPc, PairError>;
     /// Joins a paired PC as viewer (`ViewerJoin`) and starts streaming into `sink`.
     fn connect(&self, pc: &PairedPc, sink: EventSink) -> Result<Box<dyn ViewerSession>, PairError>;
+    #[cfg_attr(feature = "demo", allow(dead_code))]
+    /// Opens an authenticated session to a paired PC for file transfer (no viewer join).
+    fn open_session(&self, _pc: &PairedPc) -> Result<desk_transport::Session, PairError> {
+        Err(PairError::Network)
+    }
     /// True for the synthetic test backend.
     fn is_demo(&self) -> bool {
         false

@@ -1,5 +1,6 @@
 //! IPC worker: talks to the service, runs capture/encode and injects input.
 
+use crate::inbox::FileInbox;
 use crate::state::{CodeInfo, Shared};
 use desk_capture::{list_monitors, MonitorSelector, ScreenRect};
 use desk_codec::{EncodedSink, MediaPipeline, PipelineConfig};
@@ -9,6 +10,7 @@ use desk_input::{system_injector, SystemInjector};
 use desk_ipc::{IpcClient, IpcConnection, IpcMessage};
 use desk_paths::DeskPaths;
 use desk_protocol::{InputPayload, Message};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -83,10 +85,11 @@ struct Session {
     injector: Option<SystemInjector>,
     locked: bool,
     last_lock_poll: Instant,
+    inbox: FileInbox,
 }
 
 impl Session {
-    fn new(conn: IpcConnection, cfg: &ServiceConfig) -> Self {
+    fn new(conn: IpcConnection, cfg: &ServiceConfig, inbox_dir: PathBuf) -> Self {
         let pipeline = MediaPipeline::new(
             PipelineConfig {
                 monitor: MonitorSelector::Primary,
@@ -99,6 +102,7 @@ impl Session {
             Arc::new(IpcSink { conn: conn.clone() }),
         );
         Self {
+            inbox: FileInbox::new(inbox_dir, cfg.max_upload_mb, conn.clone()),
             conn,
             pipeline,
             injector: None,
@@ -173,6 +177,13 @@ impl Session {
             IpcMessage::Wire(Message::ViewerLeave) => self.leave(),
             IpcMessage::Wire(Message::RequestKeyframe) => self.pipeline.request_keyframe(),
             IpcMessage::Wire(Message::InputEvent(payload)) => self.input(payload),
+            IpcMessage::FileIncoming {
+                transfer_id,
+                peer_name,
+            } => self.inbox.announce(transfer_id, peer_name),
+            IpcMessage::Wire(wire) if wire.transfer_id().is_some() => {
+                self.inbox.handle(&wire, shared);
+            }
             IpcMessage::Viewers { device_ids } => shared.update(|ui| ui.viewers = device_ids),
             IpcMessage::PairingCode { code, ttl_secs } => shared.update(|ui| {
                 ui.code = (!code.is_empty()).then(|| CodeInfo {
@@ -188,6 +199,7 @@ impl Session {
     }
 
     fn shutdown(&mut self) {
+        self.inbox.abort();
         while self.pipeline.viewer_count() > 0 {
             self.pipeline.viewer_leave();
         }
@@ -197,8 +209,8 @@ impl Session {
     }
 }
 
-fn serve(conn: IpcConnection, cfg: &ServiceConfig, shared: &Shared) -> bool {
-    let mut session = Session::new(conn.clone(), cfg);
+fn serve(conn: IpcConnection, cfg: &ServiceConfig, inbox_dir: &Path, shared: &Shared) -> bool {
+    let mut session = Session::new(conn.clone(), cfg, inbox_dir.to_path_buf());
     shared.set_conn(Some(conn.clone()));
     shared.update(|ui| ui.service_online = true);
     let _ = conn.send(&IpcMessage::HelperHello {
@@ -235,13 +247,14 @@ fn serve(conn: IpcConnection, cfg: &ServiceConfig, shared: &Shared) -> bool {
 pub fn run(shared: &Arc<Shared>, paths: &DeskPaths, done: &Arc<AtomicBool>) -> DeskResult<()> {
     let cfg: ServiceConfig =
         ConfigManager::load_or_default(&paths.service_config_path()).unwrap_or_default();
+    let inbox_dir = paths.received_files_dir();
     let pipe = DeskPaths::pipe_session_helper(own_session_id());
     let mut last_connected = Instant::now();
     while !done.load(Ordering::SeqCst) {
         match IpcClient::connect(&pipe, Duration::from_secs(2)) {
             Ok(conn) => {
                 tracing::info!(%pipe, "connected to service");
-                let keep_running = serve(conn, &cfg, shared);
+                let keep_running = serve(conn, &cfg, &inbox_dir, shared);
                 last_connected = Instant::now();
                 if !keep_running {
                     break;

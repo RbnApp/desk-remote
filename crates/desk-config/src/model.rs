@@ -2,6 +2,21 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Default file transfer limit in MB (owner decision: 100 MB).
+pub const DEFAULT_MAX_UPLOAD_MB: u32 = 100;
+
+/// Highest limit the settings accept, in MB.
+pub const MAX_UPLOAD_MB_CEILING: u32 = 1024;
+
+/// Keeps a transfer limit inside `1..=`[`MAX_UPLOAD_MB_CEILING`]; `0` (unset) means the default.
+#[must_use]
+pub fn clamp_upload_mb(mb: u32) -> u32 {
+    match mb {
+        0 => DEFAULT_MAX_UPLOAD_MB,
+        n => n.min(MAX_UPLOAD_MB_CEILING),
+    }
+}
+
 /// A remote PC that completed pairing with this panel.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PairedPc {
@@ -34,6 +49,8 @@ pub struct PanelConfig {
     pub list_view: String,
     /// Explorer right-click entry "Send with Desk-Remote" (current user only).
     pub shell_menu: bool,
+    /// Largest file this PC sends or accepts, in MB (see [`clamp_upload_mb`]).
+    pub max_upload_mb: u32,
     /// PCs paired with this panel.
     pub paired_pcs: Vec<PairedPc>,
 }
@@ -49,6 +66,7 @@ impl Default for PanelConfig {
             language: "auto".to_string(),
             list_view: "cards".to_string(),
             shell_menu: true,
+            max_upload_mb: DEFAULT_MAX_UPLOAD_MB,
             paired_pcs: Vec::new(),
         }
     }
@@ -69,6 +87,7 @@ impl PanelConfig {
         if self.list_view != "cards" && self.list_view != "rows" {
             self.list_view = "cards".to_string();
         }
+        self.max_upload_mb = clamp_upload_mb(self.max_upload_mb);
     }
 }
 
@@ -92,6 +111,8 @@ pub struct ServiceConfig {
     /// Largest streamed frame (the capture is downscaled to fit).
     pub capture_max_width: u32,
     pub capture_max_height: u32,
+    /// Largest file this PC accepts from a panel, in MB (same key and rules as the panel's).
+    pub max_upload_mb: u32,
 }
 
 impl Default for ServiceConfig {
@@ -107,6 +128,7 @@ impl Default for ServiceConfig {
             capture_fps: 30,
             capture_max_width: 1920,
             capture_max_height: 1080,
+            max_upload_mb: DEFAULT_MAX_UPLOAD_MB,
         }
     }
 }

@@ -16,6 +16,7 @@ desk-config = { workspace = true }
 desk-crypto = { workspace = true }
 desk-ipc = { workspace = true }
 desk-protocol = { workspace = true }
+desk-transfer = { workspace = true }
 desk-transport = { workspace = true }
 desk-version = { workspace = true }
 tracing = { workspace = true }
@@ -37,3 +38,4 @@ windows = { version = "0.62", features = [
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 desk-logger = { workspace = true }
 tempfile = { workspace = true }
+sha2 = "0.10"

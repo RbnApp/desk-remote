@@ -19,6 +19,13 @@ impl CodeInfo {
     }
 }
 
+/// A tray balloon waiting to be shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Notice {
+    pub title: String,
+    pub body: String,
+}
+
 /// What the UI needs to draw.
 #[derive(Debug, Default, Clone)]
 pub struct UiState {
@@ -27,6 +34,8 @@ pub struct UiState {
     pub service_online: bool,
     /// Latest snapshot pushed by the service (tray menu and About window).
     pub info: Option<AgentInfo>,
+    /// Balloon to show on the next UI wake-up (taken by [`Shared::take_notice`]).
+    pub pending_notice: Option<Notice>,
 }
 
 /// Window message the worker posts to wake the UI thread.
@@ -55,6 +64,11 @@ impl Shared {
     pub fn update(&self, f: impl FnOnce(&mut UiState)) {
         f(&mut lock(&self.ui));
         crate::ui::notify(self);
+    }
+
+    /// Takes the pending balloon so it is shown exactly once.
+    pub fn take_notice(&self) -> Option<Notice> {
+        lock(&self.ui).pending_notice.take()
     }
 
     pub fn set_hwnd(&self, hwnd: isize) {

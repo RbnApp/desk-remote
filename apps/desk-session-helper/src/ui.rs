@@ -3,7 +3,7 @@
 //! There is deliberately no "Exit" entry and the code window only hides when closed:
 //! the agent is not user-closable, and a watched PC always shows its tray indicator.
 
-use crate::state::{Shared, WM_STATE_CHANGED};
+use crate::state::{Notice, Shared, WM_STATE_CHANGED};
 use desk_config::{ConfigManager, PanelConfig};
 use desk_i18n::{set_locale, t, Locale};
 use desk_paths::{DeskPaths, APP_ICON_RESOURCE_ID};
@@ -210,16 +210,16 @@ fn tray_add(hwnd: HWND) {
     let _ = unsafe { Shell_NotifyIconW(NIM_ADD, &data) };
 }
 
-fn tray_update(hwnd: HWND, viewers: usize, view_only: bool, balloon: bool) {
+fn tray_update(hwnd: HWND, viewers: usize, view_only: bool, balloon: Option<&Notice>) {
     let mut flags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
-    if balloon {
+    if balloon.is_some() {
         flags |= NIF_INFO;
     }
     let mut data = tray_data(hwnd, flags);
     fill(&mut data.szTip, &tooltip(viewers, view_only));
-    if balloon {
-        fill(&mut data.szInfoTitle, &t("tray.balloon_title"));
-        fill(&mut data.szInfo, &t("tray.balloon_body"));
+    if let Some(notice) = balloon {
+        fill(&mut data.szInfoTitle, &notice.title);
+        fill(&mut data.szInfo, &notice.body);
         data.dwInfoFlags = NIIF_INFO;
     }
     // SAFETY: fully initialised structure.
@@ -296,7 +296,12 @@ unsafe extern "system" fn tray_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
             let viewed = !ui.viewers.is_empty();
             let was = WAS_VIEWED.swap(viewed, Ordering::SeqCst);
             let view_only = ui.info.as_ref().is_some_and(|i| i.view_only);
-            tray_update(hwnd, ui.viewers.len(), view_only, viewed && !was);
+            let viewed_now = (viewed && !was).then(|| Notice {
+                title: t("tray.balloon_title"),
+                body: t("tray.balloon_body"),
+            });
+            let balloon = shared().and_then(|s| s.take_notice()).or(viewed_now);
+            tray_update(hwnd, ui.viewers.len(), view_only, balloon.as_ref());
             let code = code_hwnd();
             if !code.0.is_null() {
                 // SAFETY: window owned by this thread.

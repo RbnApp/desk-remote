@@ -391,6 +391,10 @@ impl Backend for TransportBackend {
         })
     }
 
+    fn open_session(&self, pc: &PairedPc) -> Result<Session, PairError> {
+        self.inner.open(pc, SESSION_CONNECT)
+    }
+
     fn connect(&self, pc: &PairedPc, sink: EventSink) -> Result<Box<dyn ViewerSession>, PairError> {
         let mut session = self.inner.open(pc, SESSION_CONNECT)?;
         session

@@ -35,6 +35,7 @@ Desk-Remote/
 │   ├── desk-ipc/                 # Named Pipes IPC (service <-> helper <-> panel) (CENTRAL)
 │   ├── desk-i18n/                # Localization engine & translation catalogs (CENTRAL)
 │   ├── desk-version/             # Build-time and runtime version contract (CENTRAL)
+│   ├── desk-transfer/            # File transfer: receiver (name rules, .partial, SHA) and sender (CENTRAL)
 │   ├── desk-service-core/        # Windows service dispatcher & process lifecycle (CENTRAL)
 │   ├── desk-capture/             # Screen capture engine (DXGI / WGC) (Phase 1 Wave 2)
 │   ├── desk-codec/               # Hardware & software video encoder/decoder (Phase 1 Wave 2)
