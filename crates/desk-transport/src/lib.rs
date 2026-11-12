@@ -7,6 +7,7 @@
 pub mod discovery;
 pub mod listener;
 pub mod local_addr;
+pub mod panel_tailnet;
 pub mod session;
 pub mod split;
 pub mod tailscale;
@@ -14,12 +15,12 @@ pub mod tailscale;
 pub use discovery::{DiscoveredPeer, LanAnnouncer, LanBrowser, SERVICE_TYPE};
 pub use listener::Listener;
 pub use local_addr::primary_local_ip;
+pub use panel_tailnet::{
+    PanelTailnet, PanelTailnetConfig, PanelTailnetSnapshot, PanelTailnetState,
+};
 pub use session::{sanitize_peer_name, Session};
 pub use split::{SessionReader, SessionWriter};
-pub use tailscale::{
-    extract_login_url, helper_online, TailnetHelperController, TailscaleDetector, TailscalePeer,
-    TailscaleSnapshot, TailscaleStatus,
-};
+pub use tailscale::{helper_online, TailscalePeer};
 
 use desk_error::{DeskError, DeskResult};
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
@@ -125,6 +126,8 @@ pub fn listen(bind_addr: SocketAddr) -> DeskResult<Listener> {
     Listener::bind(bind_addr)
 }
 
+#[cfg(test)]
+mod panel_tailnet_tests;
 #[cfg(test)]
 mod tests;
 

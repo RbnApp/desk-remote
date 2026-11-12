@@ -6,7 +6,6 @@ import { transferSettings } from "./transfer.js";
 import { applyTheme, loadCatalog } from "./theme.js";
 
 const KEYS_URL = "https://login.tailscale.com/admin/settings/keys";
-const INSTALL_URL = "https://tailscale.com/download/windows";
 const POLL_MS = 2000;
 const POLL_LIMIT_MS = 300000;
 const SIDEBAR_POLL_MS = 20000;
@@ -41,24 +40,21 @@ function paletteCard(preview) {
 
 function tailscaleSection() {
   const ts = S.tailscale;
-  let state = t("set.tailscale.off");
-  if (!ts.installed) state = t("set.tailscale.missing");
-  else if (ts.connected) state = t("set.tailscale.on");
-  const badge = ts.connected
+  const running = ts.state === "running";
+  const state = t(`set.tailscale.state.${ts.state}`);
+  const badge = running
     ? `<span class="badge online">${ic("dot")}${state}</span>`
     : `<span class="badge offline">${ic("ring")}${state}</span>`;
-  const details = ts.connected
-    ? `<dl class="kv"><dt>${t("set.tailscale.address")}</dt><dd>${esc(ts.address ?? "—")}</dd></dl>`
+  const details = running
+    ? `<dl class="kv"><dt>${t("set.tailscale.address")}</dt><dd>${esc(ts.address ?? "—")}</dd><dt>${t("set.tailscale.peers")}</dt><dd>${ts.peers}</dd></dl>`
     : "";
   let action;
-  if (!ts.installed) {
-    action = `<button class="btn primary" data-act="ts-install">${ic("link")}${t("set.tailscale.install")}</button>`;
-  } else if (S.tsConnecting) {
+  if (S.tsConnecting) {
     action = `<div class="msg info" role="status">${ic("arc", "spin")}${t("set.tailscale.connecting")}</div>`;
-  } else if (!ts.connected) {
-    action = `<div class="inline"><button class="btn primary" data-act="ts-connect">${ic("link")}${t("set.tailscale.connect")}</button></div><p class="hint">${t("set.tailscale.connect_hint")}</p>`;
+  } else if (running) {
+    action = `<div class="inline"><button class="btn" data-act="ts-disconnect">${ic("ring")}${t("set.tailscale.disconnect")}</button></div><p class="hint">${t("set.tailscale.disconnect_hint")}</p>`;
   } else {
-    action = "";
+    action = `<div class="inline"><button class="btn primary" data-act="ts-connect">${ic("link")}${t("set.tailscale.connect")}</button></div><p class="hint">${t("set.tailscale.connect_hint")}</p>`;
   }
   const failed = S.tsFailed ? `<div class="msg err" role="alert">${ic("alert")}${t("set.tailscale.failed")}</div>` : "";
   return `<section class="sec" id="tsSection"><div><h2>${t("set.tailscale.title")}</h2><p class="hint">${t("set.tailscale.hint")}</p></div>
@@ -123,20 +119,31 @@ export async function copyKeyCommand() {
 }
 
 export const openKeysPage = () => openUrl(KEYS_URL);
-export const openInstallPage = () => openUrl(INSTALL_URL);
 
 export async function refreshTailscale() {
   try {
     const status = await invoke("tailscale_status");
     S.tailscale = { ...status, checked: true };
   } catch {
-    S.tailscale = { ...S.tailscale, checked: true, connected: false };
+    S.tailscale = { ...S.tailscale, checked: true, state: "failed" };
   }
   if (S.screen === "settings" && !$("#farmKey:focus")) render();
   else if (S.screen === "list" || S.screen === "pair") render();
 }
 
-/** Starts the browser sign-in and polls until Tailscale reports Running. */
+/** Signs the panel node out of the tailnet (an official Tailscale client is never touched). */
+export async function disconnectTailscale() {
+  S.tsFailed = false;
+  try {
+    await invoke("tailscale_disconnect");
+  } catch {
+    S.tsFailed = true;
+  }
+  await refreshTailscale();
+  render();
+}
+
+/** Starts the panel node's browser sign-in and polls until it reports running. */
 export async function connectTailscale() {
   S.tsConnecting = true;
   S.tsFailed = false;
@@ -153,7 +160,7 @@ export async function connectTailscale() {
   clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
     await refreshTailscale();
-    if (S.tailscale.connected || Date.now() - started > POLL_LIMIT_MS) {
+    if (S.tailscale.state === "running" || Date.now() - started > POLL_LIMIT_MS) {
       clearInterval(pollTimer);
       S.tsConnecting = false;
       render();

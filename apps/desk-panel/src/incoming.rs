@@ -6,7 +6,7 @@
 use desk_crypto::{DeviceIdentity, TrustStore};
 use desk_paths::DeskPaths;
 use desk_service_core::{ConsentEvent, HostOptions, HostRole, ServiceHost, TransferEvent};
-use desk_transport::{primary_local_ip, TailscaleDetector};
+use desk_transport::primary_local_ip;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -116,15 +116,6 @@ impl IncomingManager {
             } else {
                 if let Some(ip) = primary_local_ip() {
                     addresses.push(format!("{ip}:{port}"));
-                }
-                let ts = TailscaleDetector::detect();
-                if ts.running {
-                    for ip in ts.ips {
-                        let addr = format!("{ip}:{port}");
-                        if !addresses.contains(&addr) {
-                            addresses.push(addr);
-                        }
-                    }
                 }
             }
         }

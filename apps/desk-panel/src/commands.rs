@@ -4,7 +4,6 @@ use crate::backend::{Backend, Candidate, InputEvent, PcInfo, SessionEvent};
 use crate::sessions::{SessionInfo, Sessions};
 use desk_config::{ConfigManager, PairedPc, PanelConfig};
 use desk_theme::{ResolvedTheme, ThemeMode};
-use desk_transport::TailscaleDetector;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -43,11 +42,11 @@ pub struct AppInfo {
 /// Tailscale state shown in the sidebar and the settings screen.
 #[derive(Serialize)]
 pub struct TailscaleInfo {
-    installed: bool,
-    connected: bool,
-    state: String,
+    /// `off`, `starting`, `needs_login`, `running` or `failed`.
+    state: desk_transport::PanelTailnetState,
     host: Option<String>,
     address: Option<String>,
+    peers: usize,
 }
 
 /// Light and dark tokens of one palette, for the palette picker previews.
@@ -319,23 +318,22 @@ pub fn viewer_sessions(state: State<'_, AppState>) -> Vec<SessionInfo> {
 #[tauri::command]
 pub async fn tailscale_status() -> Result<TailscaleInfo, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let snapshot = TailscaleDetector::snapshot();
+        let snapshot = crate::tailnet::snapshot();
         TailscaleInfo {
-            installed: snapshot.status.installed,
-            connected: snapshot.status.running,
-            state: snapshot.status.backend_state,
+            state: snapshot.state,
             host: snapshot.host_name,
-            address: snapshot.status.ips.into_iter().next(),
+            address: snapshot.ips.into_iter().next(),
+            peers: snapshot.peers.len(),
         }
     })
     .await
     .map_err(|e| e.to_string())
 }
 
-/// Starts the Tailscale sign-in and opens the login page in the default browser.
+/// Starts the panel node's sign-in and opens the login page in the default browser.
 #[tauri::command]
 pub async fn tailscale_connect() -> Result<(), String> {
-    let url = tauri::async_runtime::spawn_blocking(TailscaleDetector::begin_sign_in)
+    let url = tauri::async_runtime::spawn_blocking(crate::tailnet::begin_sign_in)
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
@@ -343,6 +341,15 @@ pub async fn tailscale_connect() -> Result<(), String> {
         tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Signs the panel node out of the tailnet (the official client is never touched).
+#[tauri::command]
+pub async fn tailscale_disconnect() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(crate::tailnet::sign_out)
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 /// Test hook of the demo backend; a no-op elsewhere.

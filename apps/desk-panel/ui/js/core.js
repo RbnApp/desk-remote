@@ -25,7 +25,7 @@ export const S = {
   listState: "loading",
   filter: "all",
   query: "",
-  tailscale: { installed: true, connected: false, state: "Unknown", host: null, address: null, checked: false },
+  tailscale: { state: "off", host: null, address: null, peers: 0, checked: false },
   tsConnecting: false,
   tsFailed: false,
 };

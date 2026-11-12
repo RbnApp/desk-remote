@@ -86,12 +86,12 @@ export function NetStatus() {
   let label = t("net.off");
   if (!ts.checked) {
     label = t("net.checking");
-  } else if (!ts.installed) {
-    label = t("net.missing");
-  } else if (ts.connected) {
+  } else if (ts.state === "running") {
     shape = "dot";
     cls = "online";
     label = t("net.on");
+  } else if (ts.state === "starting" || ts.state === "needs_login") {
+    label = t("net.starting");
   }
   return `<div class="side-foot" aria-label="${t("net.label")}"><span>${t("net.label")}</span>
     <div class="net-row"><span>${t("net.lan")}</span><span class="badge online">${ic("dot")}${t("net.lan_ok")}</span></div>
