@@ -3,12 +3,28 @@
     "name": "Desk-Remote",
     "description": "Low-overhead self-hosted remote desktop"
   },
+  "nav": {
+    "pcs": "PCs",
+    "settings": "Settings",
+    "main": "Main navigation"
+  },
+  "net": {
+    "label": "Connection",
+    "lan": "Local network",
+    "lan_ok": "Available",
+    "tailscale": "Tailscale",
+    "on": "Connected",
+    "off": "Not connected",
+    "missing": "Not installed",
+    "checking": "Checking…"
+  },
   "status": {
     "online": "Online",
     "offline": "Offline",
     "connecting": "Connecting",
     "connected": "Connected",
-    "disconnected": "Disconnected"
+    "disconnected": "Disconnected",
+    "warning": "Warning"
   },
   "theme": {
     "system": "System",
@@ -21,5 +37,220 @@
     "unknown": "An unknown error occurred",
     "connection_failed": "Failed to connect to remote machine",
     "timeout": "Operation timed out"
+  },
+  "last": {
+    "now": "Active now",
+    "min": "{n} min ago",
+    "hour": "{n} h ago",
+    "day": "{n} d ago",
+    "label": "Last seen"
+  },
+  "warn": {
+    "latency": "High latency",
+    "agent": "Agent out of date"
+  },
+  "list": {
+    "title": "PCs",
+    "sub": "{n} PCs · {on} online",
+    "add": "Add PC",
+    "search": "Search PCs",
+    "search_ph": "Search by PC name…",
+    "filter": {
+      "all": "All",
+      "label": "Filter by status"
+    },
+    "view": {
+      "cards": "Card view",
+      "rows": "Row view",
+      "label": "View"
+    },
+    "col": {
+      "name": "PC",
+      "status": "Status",
+      "last": "Last seen",
+      "action": "Action"
+    },
+    "connect": "Connect",
+    "connecting": "Connecting…",
+    "unavailable": "Offline",
+    "unavailable_hint": "Can't connect to an offline PC",
+    "offline_thumb": "No preview",
+    "empty": {
+      "title": "No PCs added yet",
+      "body": "On the PC you want to watch, open the Desk-Remote Agent and enter the code it shows here.",
+      "cta": "Add your first PC"
+    },
+    "none": {
+      "title": "No matching PCs",
+      "body": "Try changing the search or the filter.",
+      "clear": "Clear filter"
+    },
+    "err": {
+      "title": "Couldn't load the list",
+      "body": "The PC list couldn't be loaded. Check your connection and try again.",
+      "retry": "Try again",
+      "settings": "Connection settings"
+    },
+    "loading": "Loading PCs"
+  },
+  "pair": {
+    "title": "Add PC",
+    "sub": "Pair with a one-time code",
+    "back": "Back to list",
+    "form": {
+      "title": "Pairing code"
+    },
+    "code": {
+      "label": "Code shown on the PC",
+      "hint": "8 characters. The code is valid for 10 minutes and works once."
+    },
+    "name": {
+      "label": "PC name (optional)",
+      "ph": "e.g. Office-Accounting-02",
+      "hint": "If left empty, the PC's own name is used."
+    },
+    "submit": "Pair",
+    "verifying": "Verifying code…",
+    "how": {
+      "title": "How to pair",
+      "step1": {
+        "title": "Open the agent on the PC",
+        "body": "Start the Desk-Remote Agent on the remote PC."
+      },
+      "step2": {
+        "title": "Show the code",
+        "body": "Click “Show pairing code” in the agent; an 8-character code appears."
+      },
+      "step3": {
+        "title": "Enter it here",
+        "body": "Type or paste the code in the field on the left."
+      }
+    },
+    "err": {
+      "invalid": {
+        "title": "Invalid code",
+        "detail": "Check the code. Enter letters and digits exactly as shown on the PC."
+      },
+      "expired": {
+        "title": "The code has expired",
+        "detail": "Click “Show new code” on the PC and enter the new one."
+      },
+      "used": {
+        "title": "This code was already used",
+        "detail": "Each code works once. Generate a new one on the PC."
+      },
+      "network": {
+        "title": "Couldn't reach the PC",
+        "detail": "Check your connection (local network or Tailscale) and try again."
+      }
+    },
+    "ok": {
+      "title": "PC paired",
+      "body": "{name} is now in your list. You can connect right away.",
+      "connect": "Connect now",
+      "another": "Add another PC"
+    },
+    "demo": "Demo backend: ABCD-2345 succeeds · EXPR-0000 expired · USED-1111 already used · NETW-0000 network error · anything else is invalid"
+  },
+  "view": {
+    "disconnect": "Disconnect",
+    "back": "Back to list",
+    "fullscreen": "Full screen",
+    "exit_fullscreen": "Exit full screen",
+    "quality": "Quality",
+    "q": {
+      "auto": "Auto",
+      "high": "High",
+      "balanced": "Balanced",
+      "low": "Low bandwidth"
+    },
+    "fps": "{n} fps",
+    "latency": "Latency",
+    "lat": {
+      "good": "good",
+      "mid": "fair",
+      "bad": "slow"
+    },
+    "decoder": {
+      "hw": "Hardware decoder",
+      "sw": "Software decoder"
+    },
+    "mode": {
+      "view": "View only",
+      "control": "Control on",
+      "view_hint": "No input is sent",
+      "control_hint": "Mouse and keyboard go to the remote PC"
+    },
+    "control": {
+      "toggle": "Enable control"
+    },
+    "toast": {
+      "control": "Control on — mouse and keyboard now go to the remote PC",
+      "viewonly": "Back to view-only mode"
+    },
+    "connecting": {
+      "title": "Connecting to {name}…",
+      "body": "Setting up a secure session."
+    },
+    "lost": {
+      "title": "Connection lost",
+      "body": "{name} isn't responding. Reconnecting ({n}/{max})…",
+      "retry": "Retry now",
+      "fail_title": "Couldn't connect",
+      "fail_body": "{name} didn't respond after {max} attempts. The PC may be off or disconnected from the network."
+    },
+    "unsupported": {
+      "title": "This system can't decode H.264",
+      "body": "The WebView does not provide hardware or software H.264 decoding."
+    },
+    "demo": {
+      "title": "Demo controls",
+      "drop": "Drop connection"
+    }
+  },
+  "set": {
+    "title": "Settings",
+    "sub": "Appearance, language and connection",
+    "palette": {
+      "title": "Palette",
+      "hint": "Pick a color family. It applies immediately."
+    },
+    "mode": {
+      "title": "Appearance",
+      "hint": "“System” follows the Windows light/dark setting."
+    },
+    "lang": {
+      "title": "Language",
+      "hint": "Interface language.",
+      "auto": "Automatic"
+    },
+    "tailscale": {
+      "title": "Connection",
+      "hint": "The panel reaches PCs on your local network, or anywhere through Tailscale. No server of your own is needed.",
+      "status": "Tailscale status",
+      "on": "Connected",
+      "off": "Not connected",
+      "missing": "Tailscale isn't installed on this PC.",
+      "install": "Download Tailscale",
+      "connect": "Connect with Tailscale",
+      "connecting": "Waiting for sign-in in your browser…",
+      "connect_hint": "A sign-in page opens in your browser. Once you finish, this status turns to connected.",
+      "failed": "Couldn't start the sign-in. Try again.",
+      "address": "Tailscale address",
+      "key": {
+        "title": "Key for farm PCs",
+        "hint": "Farm PCs without a screen can join your network with a one-time key. Create it in the Tailscale admin page (enable “One-off”), paste it below, and run the command on the farm PC.",
+        "open": "Create a key",
+        "label": "One-time key",
+        "ph": "tskey-auth-…",
+        "command": "Command for the farm PC",
+        "copy": "Copy command",
+        "copied": "Command copied"
+      }
+    },
+    "saved": "Settings saved"
+  },
+  "common": {
+    "close": "Close"
   }
 }
