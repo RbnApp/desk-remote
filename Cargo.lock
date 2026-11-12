@@ -997,6 +997,7 @@ dependencies = [
  "desk-logger",
  "desk-paths",
  "desk-service-core",
+ "embed-resource",
  "tracing",
 ]
 
@@ -1036,6 +1037,7 @@ dependencies = [
  "desk-paths",
  "desk-protocol",
  "desk-theme",
+ "embed-resource",
  "tracing",
  "windows",
 ]
