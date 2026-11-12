@@ -780,6 +780,11 @@ impl Hub {
                     }
                 }
             }
+            IpcMessage::Wire(wire @ (Message::CursorShape { .. } | Message::CursorPos { .. })) => {
+                // Lossy on purpose: a slow viewer skips cursor updates instead of asking for a
+                // keyframe; the panel falls back to an arrow for a shape it never received.
+                lock(&self.state).broadcast(&wire);
+            }
             IpcMessage::Wire(wire) if wire.transfer_id().is_some() => {
                 self.transfers.route_from_helper(wire);
             }

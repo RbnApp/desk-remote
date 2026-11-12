@@ -329,7 +329,7 @@
     "disconnect_all": "Disconnect all viewers now",
     "view_only": "Block remote control (watch only)",
     "about": "About…",
-    "quit": "Quit"
+    "quit": "Close Desk-Remote"
   },
   "about": {
     "title": "About Desk-Remote",
@@ -435,7 +435,7 @@
       "cancel": "Cancel",
       "cancel_named": "Cancel sending {name}",
       "dismiss": "Dismiss",
-      "sent": "Sent: {name} → {pc}",
+      "sent": "Sent: {name} — {pc} → Downloads\\Desk-Remote",
       "received": "Received: {name}",
       "failed": "{name}: {reason}",
       "speed": "{v}/s",

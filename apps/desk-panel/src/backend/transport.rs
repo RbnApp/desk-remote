@@ -606,6 +606,32 @@ impl StreamState {
                     });
                 }
             }
+            Message::CursorShape {
+                id,
+                hot_x,
+                hot_y,
+                width,
+                height,
+                rgba,
+            } => sink(SessionEvent::CursorShape {
+                id,
+                hot_x,
+                hot_y,
+                width,
+                height,
+                rgba,
+            }),
+            Message::CursorPos {
+                x,
+                y,
+                shape_id,
+                visible,
+            } => sink(SessionEvent::CursorPos {
+                x,
+                y,
+                shape_id,
+                visible,
+            }),
             other => tracing::debug!(?other, "ignored message"),
         }
     }

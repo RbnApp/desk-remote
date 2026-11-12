@@ -208,9 +208,8 @@ pub fn show(hwnd: HWND) {
         );
         separator(menu);
         append(menu, ID_ABOUT, &t("tray.about"), true, false);
-        if crate::ui::is_portable() {
-            append(menu, ID_QUIT, &t("tray.quit"), true, false);
-        }
+        // Portable and installed-service mode share this one entry (and one code path).
+        append(menu, ID_QUIT, &t("tray.quit"), true, false);
 
         let mut at = POINT::default();
         let _ = GetCursorPos(&mut at);
@@ -261,9 +260,9 @@ fn run(hwnd: HWND, picked: usize, info: Option<&AgentInfo>) {
             enabled: !info.is_some_and(|i| i.view_only),
         }),
         ID_ABOUT => crate::about::show(),
-        // Same path as the `stop` subcommand: the console-mode agent stops the helper too.
-        ID_QUIT if crate::ui::is_portable() => {
-            let _ = desk_service_core::request_console_stop();
+        // Console agent: stopped directly. Installed service: UAC prompt, then `stop`.
+        ID_QUIT => {
+            let _ = desk_service_core::quit_agent();
         }
         _ => {}
     }

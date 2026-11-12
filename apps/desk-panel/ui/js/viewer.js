@@ -5,6 +5,7 @@
 import { S, $, appWindow, esc, go, ic, invoke, mountApp, newChannel, screens, t, toast } from "./core.js";
 import { Badge } from "./components.js";
 import { VideoPipeline, parseFrame } from "./decoder.js";
+import { RemoteCursor } from "./cursor.js";
 import { attachInput } from "./input.js";
 import { loadPcs } from "./list.js";
 
@@ -58,6 +59,10 @@ class Viewer {
     this.chain = Promise.resolve();
     this.el = this.buildPane();
     this.canvas = this.el.querySelector("canvas");
+    this.cursor = new RemoteCursor(this.el.querySelector(".screen"), this.canvas);
+    // Panes resize with tabs, two-up and fullscreen, not only with the window.
+    this.resizeObserver = new ResizeObserver(() => this.cursor.place());
+    this.resizeObserver.observe(this.canvas);
     this.releaseKeys = attachInput(
       this.canvas,
       (event) => invoke("viewer_input", { pcId: this.pc.id, event }).catch(() => {}),
@@ -208,6 +213,12 @@ class Viewer {
         await this.pipeline?.configure(message.codec);
         this.hardware = this.pipeline?.hardware ?? null;
         break;
+      case "cursor_shape":
+        this.cursor.setShape(message);
+        break;
+      case "cursor_pos":
+        this.cursor.setPos(message);
+        break;
       case "rtt":
         this.rtt = message.ms;
         break;
@@ -321,6 +332,8 @@ class Viewer {
     clearTimeout(this.retryTimer);
     clearTimeout(this.hideTimer);
     this.releaseKeys();
+    this.resizeObserver.disconnect();
+    this.cursor.close();
     this.pipeline?.close();
     this.pipeline = null;
     this.el.remove();

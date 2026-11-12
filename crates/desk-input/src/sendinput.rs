@@ -15,9 +15,6 @@ use crate::injector::{InputBackend, InputInjector, RawInput};
 use crate::mapping::MouseButton;
 use desk_capture::ScreenRect;
 use desk_error::{DeskError, DeskResult};
-use windows::Win32::UI::HiDpi::{
-    SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
     KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
@@ -41,10 +38,7 @@ pub struct SendInputBackend;
 impl SendInputBackend {
     /// Creates the backend and makes the process per-monitor DPI aware (idempotent).
     pub fn new() -> Self {
-        // SAFETY: process-wide DPI mode; failure only means it was already set.
-        unsafe {
-            let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-        }
+        desk_capture::ensure_per_monitor_dpi_aware();
         Self
     }
 }

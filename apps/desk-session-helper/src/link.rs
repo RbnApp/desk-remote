@@ -2,7 +2,7 @@
 
 use crate::inbox::FileInbox;
 use crate::state::{CodeInfo, Shared};
-use desk_capture::{list_monitors, MonitorSelector, ScreenRect};
+use desk_capture::{list_monitors, CursorPos, CursorTracker, MonitorSelector, ScreenRect};
 use desk_codec::{EncodedSink, MediaPipeline, PipelineConfig};
 use desk_config::{ConfigManager, ServiceConfig};
 use desk_error::DeskResult;
@@ -24,6 +24,9 @@ use windows::Win32::System::Threading::GetCurrentProcessId;
 /// helper (started by a restarted service) owns the session by then.
 const ORPHAN_AFTER: Duration = Duration::from_secs(20);
 const LOCK_POLL: Duration = Duration::from_secs(1);
+/// Cursor sampling period while a viewer watches (about 60 Hz), and the idle receive timeout.
+const CURSOR_POLL: Duration = Duration::from_millis(16);
+const IDLE_POLL: Duration = Duration::from_millis(100);
 
 /// Own session id (the pipe name embeds it).
 #[must_use]
@@ -86,6 +89,10 @@ struct Session {
     locked: bool,
     last_lock_poll: Instant,
     inbox: FileInbox,
+    cursor: CursorTracker,
+    /// Monitor the viewers see; the cursor is reported relative to it.
+    rect: Option<ScreenRect>,
+    last_cursor: Option<CursorPos>,
 }
 
 impl Session {
@@ -108,6 +115,9 @@ impl Session {
             injector: None,
             locked: false,
             last_lock_poll: Instant::now(),
+            cursor: CursorTracker::new(),
+            rect: None,
+            last_cursor: None,
         }
     }
 
@@ -118,6 +128,10 @@ impl Session {
                 let _ = self.conn.send(&IpcMessage::NoDisplay);
             }
             Some(rect) => {
+                self.rect = Some(rect);
+                // A joining viewer has none of the shapes yet.
+                self.cursor.reset();
+                self.last_cursor = None;
                 if self.injector.is_none() {
                     self.injector = Some(system_injector(rect));
                 }
@@ -155,6 +169,35 @@ impl Session {
         };
         if let Err(e) = result {
             tracing::debug!(error = %e, "input injection failed");
+        }
+    }
+
+    /// Sends the cursor shape (once) and position (on change) to the viewers.
+    fn poll_cursor(&mut self) {
+        let Some(rect) = self.rect.filter(|_| self.pipeline.viewer_count() > 0) else {
+            return;
+        };
+        let Some(update) = self.cursor.poll(rect) else {
+            return;
+        };
+        if let Some(shape) = update.new_shape {
+            let _ = self.conn.send(&IpcMessage::Wire(Message::CursorShape {
+                id: shape.id,
+                hot_x: shape.hot_x,
+                hot_y: shape.hot_y,
+                width: shape.width,
+                height: shape.height,
+                rgba: shape.rgba,
+            }));
+        }
+        if self.last_cursor != Some(update.pos) {
+            self.last_cursor = Some(update.pos);
+            let _ = self.conn.send(&IpcMessage::Wire(Message::CursorPos {
+                x: update.pos.x,
+                y: update.pos.y,
+                shape_id: update.pos.shape_id,
+                visible: update.pos.visible,
+            }));
         }
     }
 
@@ -218,7 +261,12 @@ fn serve(conn: IpcConnection, cfg: &ServiceConfig, inbox_dir: &Path, shared: &Sh
         pid: std::process::id(),
     });
     let keep_running = loop {
-        match conn.recv_timeout(Duration::from_millis(100)) {
+        let wait = if session.pipeline.viewer_count() > 0 {
+            CURSOR_POLL
+        } else {
+            IDLE_POLL
+        };
+        match conn.recv_timeout(wait) {
             Ok(Some(msg)) => {
                 if !session.handle(msg, shared) {
                     break false;
@@ -230,6 +278,7 @@ fn serve(conn: IpcConnection, cfg: &ServiceConfig, inbox_dir: &Path, shared: &Sh
                 break true;
             }
         }
+        session.poll_cursor();
         session.poll_lock();
     };
     session.shutdown();

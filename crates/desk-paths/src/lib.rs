@@ -29,6 +29,9 @@ pub struct DeskPaths {
     user_root: PathBuf,
     /// Directory holding every user profile (`C:\Users`); `None` skips the machine-wide scan.
     profiles_root: Option<PathBuf>,
+    /// Received files go to the user's real `Downloads\Desk-Remote` even with custom roots
+    /// (portable mode); tests keep them inside their own tree.
+    downloads_for_received: bool,
 }
 
 impl Default for DeskPaths {
@@ -52,6 +55,7 @@ impl Default for DeskPaths {
             system_root,
             user_root,
             profiles_root: Some(profiles_root),
+            downloads_for_received: true,
         }
     }
 }
@@ -63,7 +67,17 @@ impl DeskPaths {
             system_root: system_root.as_ref().to_path_buf(),
             user_root: user_root.as_ref().to_path_buf(),
             profiles_root: None,
+            downloads_for_received: false,
         }
+    }
+
+    /// Portable layout next to the executable: data under `dir`, received files still in the
+    /// user's `Downloads\Desk-Remote` so the user finds them where every download goes.
+    pub fn portable(dir: impl AsRef<Path>) -> Self {
+        let dir = dir.as_ref();
+        let mut paths = Self::custom(dir.join("system"), dir.join("user"));
+        paths.downloads_for_received = true;
+        paths
     }
 
     /// Same as [`DeskPaths::custom`] but with a profiles directory for the panel-PC scan (tests).
@@ -172,7 +186,7 @@ impl DeskPaths {
     pub fn received_files_dir(&self) -> PathBuf {
         let profile = std::env::var_os("USERPROFILE").filter(|v| !v.is_empty());
         match profile {
-            Some(profile) if self.profiles_root.is_some() => PathBuf::from(profile)
+            Some(profile) if self.downloads_for_received => PathBuf::from(profile)
                 .join("Downloads")
                 .join(RECEIVED_SUBDIR),
             _ => self.user_root.join("received"),
@@ -339,6 +353,11 @@ mod tests {
         assert_eq!(custom.received_files_dir(), PathBuf::from(r"Z:\u\received"));
         let real = DeskPaths::default().received_files_dir();
         assert!(real.ends_with(r"Downloads\Desk-Remote") || real.ends_with("received"));
+        let portable = DeskPaths::portable(r"Z:\p");
+        assert!(portable
+            .received_files_dir()
+            .ends_with(r"Downloads\Desk-Remote"));
+        assert!(portable.system_log_dir().starts_with(r"Z:\p\system"));
     }
 
     #[test]

@@ -133,6 +133,22 @@ pub enum SessionEvent {
     /// The PC user changed what this viewer may do (`Message::Notice`); `kind` is the
     /// snake_case `NoticeKind` (`disconnected_by_host`, `view_only_on`, `view_only_off`).
     Notice { kind: &'static str },
+    /// One remote cursor image (`Message::CursorShape`), straight-alpha RGBA.
+    CursorShape {
+        id: u32,
+        hot_x: u16,
+        hot_y: u16,
+        width: u16,
+        height: u16,
+        rgba: Vec<u8>,
+    },
+    /// Remote cursor position (`Message::CursorPos`, 0..=65535 over the captured monitor).
+    CursorPos {
+        x: u16,
+        y: u16,
+        shape_id: u32,
+        visible: bool,
+    },
     /// The link ended (peer gone, network drop, or local close).
     Closed,
 }

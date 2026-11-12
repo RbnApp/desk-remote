@@ -196,6 +196,27 @@ pub fn install(service_exe: &std::path::Path) -> DeskResult<()> {
     Ok(())
 }
 
+/// Asks the Service Control Manager to stop the service (needs admin). `Ok` also when it is
+/// already stopped.
+pub fn stop_service() -> DeskResult<()> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+        .map_err(|e| svc_err("open service manager (administrator rights required)", e))?;
+    let service = manager
+        .open_service(
+            SERVICE_NAME,
+            ServiceAccess::STOP | ServiceAccess::QUERY_STATUS,
+        )
+        .map_err(|e| svc_err("open service", e))?;
+    let state = service
+        .query_status()
+        .map_err(|e| svc_err("query status", e))?
+        .current_state;
+    if state != ServiceState::Stopped {
+        service.stop().map_err(|e| svc_err("stop service", e))?;
+    }
+    Ok(())
+}
+
 /// Stops and removes the service, then gives back an official Tailscale client this agent
 /// took over. Needs admin. Leaves ProgramData (identity) untouched.
 pub fn uninstall(paths: &DeskPaths) -> DeskResult<()> {

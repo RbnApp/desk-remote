@@ -63,7 +63,7 @@ impl FileInbox {
                 self.send(reply);
             }
             other => match self.receiver.handle(other) {
-                Handled::Saved { reply, .. } => {
+                Handled::Saved { reply, path } => {
                     self.send(reply);
                     let body = t("tray.file_body")
                         .replace("{peer}", &self.current_peer)
@@ -72,6 +72,7 @@ impl FileInbox {
                         ui.pending_notice = Some(Notice {
                             title: t("tray.file_title"),
                             body,
+                            open: Some(path),
                         });
                     });
                 }

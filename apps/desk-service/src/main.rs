@@ -1,7 +1,7 @@
 //! Desk-Remote PC agent: ONE executable, `DeskRemote-Ajan.exe`.
 //!
 //! Usage:
-//!   DeskRemote-Ajan                           double-click: portable test mode (see below)
+//!   DeskRemote-Ajan                           double-click: portable test mode (see below); asks UAC once
 //!   DeskRemote-Ajan install                   register + start the Windows service (admin)
 //!   DeskRemote-Ajan uninstall                 stop + remove the service (admin)
 //!   DeskRemote-Ajan stop                      stop a running `run --console` instance (no window)
@@ -45,6 +45,8 @@ struct Args {
     data_dir: Option<PathBuf>,
     port: Option<u16>,
     run_for: Option<Duration>,
+    /// Double-click start: ask for administrator rights once so admin windows can be controlled.
+    auto_elevate: bool,
 }
 
 fn parse_args() -> DeskResult<Args> {
@@ -56,6 +58,7 @@ fn parse_args() -> DeskResult<Args> {
         args.command = "run".to_string();
         args.console = true;
         args.portable = true;
+        args.auto_elevate = true;
         args.data_dir = Some(portable_data_dir()?);
         return Ok(args);
     }
@@ -97,6 +100,7 @@ fn portable_data_dir() -> DeskResult<PathBuf> {
 
 fn paths_for(args: &Args) -> DeskPaths {
     match &args.data_dir {
+        Some(dir) if args.portable => DeskPaths::portable(dir),
         Some(dir) => DeskPaths::custom(dir.join("system"), dir.join("user")),
         None => desk_paths::canonical(),
     }
@@ -125,6 +129,16 @@ fn run(args: &Args) -> DeskResult<()> {
                 }
                 return Ok(());
             }
+            if args.auto_elevate && !desk_service_core::is_elevated() {
+                // UIPI drops input sent into higher-integrity (administrator) windows, so the
+                // double-click agent asks for administrator rights once. Chosen over a
+                // `requireAdministrator` manifest, which would also prompt for `stop`/`install`
+                // and break the service's per-session helper spawn. Declining keeps the normal agent.
+                match desk_service_core::relaunch_elevated(&DeskPaths::current_exe()?) {
+                    desk_service_core::Runas::Done(_) => return Ok(()),
+                    other => tracing::info!(?other, "continuing without administrator rights"),
+                }
+            }
             if !desk_service_core::role::host_allowed(&paths, args.allow_on_panel_pc) {
                 tracing::warn!(
                     "this PC is a management panel; the agent host is NOT started (developer override: --allow-on-panel-pc)"
@@ -150,12 +164,11 @@ fn run(args: &Args) -> DeskResult<()> {
             Ok(())
         }
         "stop" => {
+            // A console-mode agent first; otherwise the installed Windows service (needs admin).
             if desk_service_core::request_console_stop() {
                 Ok(())
             } else {
-                Err(DeskError::Service(
-                    "no console-mode agent is running".into(),
-                ))
+                desk_service_core::stop_service()
             }
         }
         "run" => desk_service_core::run_dispatcher(paths),

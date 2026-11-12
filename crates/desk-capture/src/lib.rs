@@ -7,7 +7,8 @@
 //!
 //! ## Scope Boundaries
 //! - Frames never leave the GPU here; encoding lives in `desk-codec`.
-//! - Does NOT composite the mouse cursor (DXGI excludes it).
+//! - Does NOT composite the mouse cursor into frames (DXGI excludes it); the cursor is
+//!   sampled separately by the `cursor` module and drawn by the viewer.
 //! - Windows 10/11 only; the whole crate is empty on other platforms.
 //!
 //! ## Dependencies
@@ -16,11 +17,17 @@
 #![cfg(windows)]
 
 mod capturer;
+mod cursor;
+mod dpi;
 mod monitor;
 mod pacer;
 mod win;
 
 pub use capturer::{Capturer, Grab};
+pub use cursor::{
+    compose_rgba, normalize_to_monitor, CursorPos, CursorShape, CursorTracker, CursorUpdate,
+};
+pub use dpi::ensure_per_monitor_dpi_aware;
 pub use monitor::{list_monitors, luid_to_u64, MonitorInfo, MonitorSelector, ScreenRect};
 pub use pacer::FramePacer;
 pub use win::WinContext;
