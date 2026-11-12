@@ -238,6 +238,27 @@ pub async fn viewer_connect(
             SessionEvent::Notice { kind } => InvokeResponseBody::Json(
                 serde_json::json!({"type":"notice","kind":kind}).to_string(),
             ),
+            SessionEvent::CursorShape {
+                id,
+                hot_x,
+                hot_y,
+                width,
+                height,
+                rgba,
+            } => InvokeResponseBody::Json(
+                serde_json::json!({"type":"cursor_shape","id":id,"hotX":hot_x,"hotY":hot_y,
+                    "width":width,"height":height,"rgba":rgba})
+                .to_string(),
+            ),
+            SessionEvent::CursorPos {
+                x,
+                y,
+                shape_id,
+                visible,
+            } => InvokeResponseBody::Json(
+                serde_json::json!({"type":"cursor_pos","x":x,"y":y,"shape":shape_id,"visible":visible})
+                    .to_string(),
+            ),
             SessionEvent::Closed => {
                 InvokeResponseBody::Json(serde_json::json!({"type":"closed"}).to_string())
             }

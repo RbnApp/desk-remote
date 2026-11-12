@@ -57,11 +57,11 @@ pub fn show_running_code() -> bool {
 /// Runs the helper until its tray UI ends; `args` are the arguments after `helper`.
 pub fn run(args: &[String]) -> std::process::ExitCode {
     let args = parse_args(args);
-    ui::set_portable(args.portable);
     // Physical pixels everywhere: capture, injection and the monitor rectangle must agree.
-    // SAFETY: process-wide setting made before any window exists.
-    let _ = unsafe { windows::Win32::UI::WindowsAndMessaging::SetProcessDPIAware() };
+    // System-aware would win over the later per-monitor call and skew every non-primary monitor.
+    desk_capture::ensure_per_monitor_dpi_aware();
     let paths = match args.data_dir {
+        Some(dir) if args.portable => DeskPaths::portable(dir),
         Some(dir) => DeskPaths::custom(dir.join("system"), dir.join("user")),
         None => desk_paths::canonical(),
     };

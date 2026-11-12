@@ -120,6 +120,24 @@ pub enum Message {
     },
     /// Either side: abandons the transfer; the receiver deletes the partial file.
     FileCancel { transfer_id: String },
+    /// Agent -> viewer: one cursor image, sent once per shape (DXGI frames never contain the
+    /// cursor). `rgba` is straight-alpha, top-down, `width * height * 4` bytes.
+    CursorShape {
+        id: u32,
+        hot_x: u16,
+        hot_y: u16,
+        width: u16,
+        height: u16,
+        rgba: Vec<u8>,
+    },
+    /// Agent -> viewer: cursor position over the captured monitor (0..=65535, like input) and
+    /// the id of the shape to draw. Lossy: only the latest one matters.
+    CursorPos {
+        x: u16,
+        y: u16,
+        shape_id: u32,
+        visible: bool,
+    },
 }
 
 /// Largest payload of one [`Message::FileChunk`] (256 KiB).

@@ -1012,6 +1012,7 @@ dependencies = [
 name = "desk-service-core"
 version = "0.1.0"
 dependencies = [
+ "desk-capture",
  "desk-config",
  "desk-crypto",
  "desk-error",

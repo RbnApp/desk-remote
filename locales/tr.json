@@ -328,7 +328,7 @@
     "disconnect_all": "Tüm izleyicileri şimdi ayır",
     "view_only": "Uzaktan kontrolü engelle (yalnız izleme)",
     "about": "Hakkında…",
-    "quit": "Kapat"
+    "quit": "Desk-Remote'u kapat"
   },
   "about": {
     "title": "Desk-Remote hakkında",
@@ -434,7 +434,7 @@
       "cancel": "İptal",
       "cancel_named": "{name} gönderimini iptal et",
       "dismiss": "Kapat",
-      "sent": "Gönderildi: {name} → {pc}",
+      "sent": "Gönderildi: {name} — {pc} → İndirilenler\\Desk-Remote",
       "received": "Alındı: {name}",
       "failed": "{name}: {reason}",
       "speed": "{v}/sn",

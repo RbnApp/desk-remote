@@ -2,16 +2,28 @@
 
 const RANGE = 65535;
 
-/** Maps a pointer position to 0..65535 inside the visible (letterboxed) picture. */
-export function normalize(canvas, clientX, clientY) {
+/**
+ * Viewport rectangle of the visible (letterboxed) picture. The canvas has a CSS border, so the
+ * picture lives in the content box (client*), not the border box getBoundingClientRect() gives;
+ * using the border box shifted every click by the border width.
+ */
+export function pictureRect(canvas) {
   const rect = canvas.getBoundingClientRect();
+  const boxLeft = rect.left + canvas.clientLeft;
+  const boxTop = rect.top + canvas.clientTop;
+  const boxW = canvas.clientWidth;
+  const boxH = canvas.clientHeight;
   const ratio = canvas.width / canvas.height;
-  let w = rect.width;
-  let h = rect.height;
+  let w = boxW;
+  let h = boxH;
   if (w / h > ratio) w = h * ratio;
   else h = w / ratio;
-  const left = rect.left + (rect.width - w) / 2;
-  const top = rect.top + (rect.height - h) / 2;
+  return { left: boxLeft + (boxW - w) / 2, top: boxTop + (boxH - h) / 2, width: w, height: h };
+}
+
+/** Maps a pointer position to 0..65535 inside the visible (letterboxed) picture. */
+export function normalize(canvas, clientX, clientY) {
+  const { left, top, width: w, height: h } = pictureRect(canvas);
   const unit = (value, start, size) => Math.round(Math.min(1, Math.max(0, (value - start) / size)) * RANGE);
   return { x: unit(clientX, left, w), y: unit(clientY, top, h) };
 }

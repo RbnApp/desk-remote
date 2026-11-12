@@ -1,8 +1,8 @@
 //! Tray icon, theme/locale loading and the Win32 message loop (plain Win32).
 //!
-//! There is deliberately no "Exit" entry in the SYSTEM-service mode: the agent is not
-//! user-closable, and a watched PC always shows its tray indicator. Only the portable test mode
-//! (started by the user themselves) offers "Quit". The windows themselves live in `dialog`.
+//! The tray menu offers "Close Desk-Remote" in both modes through one code path: the portable
+//! agent stops directly; the installed service asks for administrator rights (UAC) first, so
+//! the close is always a deliberate, authenticated act. The windows themselves live in `dialog`.
 
 use crate::state::{Notice, Shared, WM_STATE_CHANGED};
 use desk_config::{ConfigManager, PanelConfig};
@@ -16,18 +16,21 @@ use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{CreateFontW, DrawTextW, HFONT};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE,
-    NIM_MODIFY, NOTIFYICONDATAW,
+    ShellExecuteW, Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD,
+    NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    AllowSetForegroundWindow, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-    FindWindowW, GetMessageW, GetSystemMetrics, GetWindowThreadProcessId, LoadIconW, LoadImageW,
-    PostMessageW, PostQuitMessage, RegisterClassExW, RegisterWindowMessageW, TranslateMessage,
-    HICON, IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTCOLOR, MSG, SM_CXICON, SM_CXSMICON, WM_APP,
-    WM_DESTROY, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP, WNDCLASSEXW, WNDPROC, WS_EX_TOOLWINDOW,
+    AllowSetForegroundWindow, ChangeWindowMessageFilterEx, CreateWindowExW, DefWindowProcW,
+    DestroyWindow, DispatchMessageW, FindWindowW, GetMessageW, GetSystemMetrics,
+    GetWindowThreadProcessId, LoadIconW, LoadImageW, PostMessageW, PostQuitMessage,
+    RegisterClassExW, RegisterWindowMessageW, TranslateMessage, HICON, IDI_APPLICATION, IMAGE_ICON,
+    LR_DEFAULTCOLOR, MSG, MSGFLT_ALLOW, SM_CXICON, SM_CXSMICON, SW_SHOWNORMAL, WM_APP, WM_DESTROY,
+    WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP, WNDCLASSEXW, WNDPROC, WS_EX_TOOLWINDOW,
     WS_OVERLAPPED,
 };
 
+/// `NIN_BALLOONUSERCLICK`: the user clicked the balloon (legacy tray callback, low word of lParam).
+const NIN_BALLOONUSERCLICK: u32 = 0x0405;
 const WM_TRAY: u32 = WM_APP + 2;
 const WM_QUIT_UI: u32 = WM_APP + 3;
 const WM_SHOW_CODE: u32 = WM_APP + 4;
@@ -37,15 +40,28 @@ const TRAY_ID: u32 = 1;
 static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
 static THEME: OnceLock<Mutex<ResolvedTheme>> = OnceLock::new();
 static WAS_VIEWED: AtomicBool = AtomicBool::new(false);
-static PORTABLE: AtomicBool = AtomicBool::new(false);
+/// File the visible balloon opens in Explorer when clicked (`None` for informational balloons).
+static BALLOON_TARGET: Mutex<Option<std::path::PathBuf>> = Mutex::new(None);
 
-pub(crate) fn set_portable(portable: bool) {
-    PORTABLE.store(portable, Ordering::SeqCst);
+/// `explorer.exe` argument line that selects `file`; the path is quoted so spaces survive.
+fn explorer_select_args(file: &std::path::Path) -> String {
+    format!("/select,\"{}\"", file.display())
 }
 
-/// Whether the tray menu may offer "Quit" (portable test mode only).
-pub(crate) fn is_portable() -> bool {
-    PORTABLE.load(Ordering::SeqCst)
+/// Opens Explorer on the folder of `file` with the file selected.
+fn reveal_in_explorer(file: &std::path::Path) {
+    let args = wide(&explorer_select_args(file));
+    // SAFETY: NUL-terminated buffers that outlive the call; no window owner needed.
+    let _ = unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            w!("explorer.exe"),
+            PCWSTR(args.as_ptr()),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
 }
 
 /// Posts "open the pairing-code window" to the running helper's tray window. The caller is the
@@ -238,6 +254,9 @@ fn tray_update(hwnd: HWND, viewers: usize, view_only: bool, balloon: Option<&Not
     let mut data = tray_data(hwnd, flags);
     fill(&mut data.szTip, &tooltip(viewers, view_only));
     if let Some(notice) = balloon {
+        if let Ok(mut target) = BALLOON_TARGET.lock() {
+            target.clone_from(&notice.open);
+        }
         fill(&mut data.szInfoTitle, &notice.title);
         fill(&mut data.szInfo, &notice.body);
         data.dwInfoFlags = NIIF_INFO;
@@ -275,6 +294,12 @@ unsafe extern "system" fn tray_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                 WM_LBUTTONUP => crate::code::show(),
                 WM_RBUTTONDOWN => crate::menu::request_info(),
                 WM_RBUTTONUP => crate::menu::show(hwnd),
+                NIN_BALLOONUSERCLICK => {
+                    let target = BALLOON_TARGET.lock().ok().and_then(|mut t| t.take());
+                    if let Some(file) = target {
+                        reveal_in_explorer(&file);
+                    }
+                }
                 _ => {}
             }
             LRESULT(0)
@@ -287,6 +312,7 @@ unsafe extern "system" fn tray_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
             let viewed_now = (viewed && !was).then(|| Notice {
                 title: t("tray.balloon_title"),
                 body: t("tray.balloon_body"),
+                open: None,
             });
             let balloon = shared().and_then(|s| s.take_notice()).or(viewed_now);
             tray_update(hwnd, ui.viewers.len(), view_only, balloon.as_ref());
@@ -388,6 +414,9 @@ fn create_windows(shared: &Arc<Shared>) -> windows::core::Result<()> {
             None,
         )?;
         shared.set_hwnd(tray.0 as isize);
+        // An elevated agent's tray window must still hear the normal-integrity second
+        // double-click ("show the pairing code").
+        let _ = ChangeWindowMessageFilterEx(tray, WM_SHOW_CODE, MSGFLT_ALLOW, None);
 
         crate::dialog::register_class();
         tray_add(tray);
@@ -419,5 +448,21 @@ pub fn quit(shared: &Shared) {
         // SAFETY: posting to a window owned by the UI thread.
         let _ =
             unsafe { PostMessageW(Some(HWND(hwnd as *mut _)), WM_QUIT_UI, WPARAM(0), LPARAM(0)) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explorer_selects_the_received_file_even_with_spaces() {
+        let args = explorer_select_args(std::path::Path::new(
+            r"C:\Users\a b\Downloads\Desk-Remote\x y.txt",
+        ));
+        assert_eq!(
+            args,
+            r#"/select,"C:\Users\a b\Downloads\Desk-Remote\x y.txt""#
+        );
     }
 }

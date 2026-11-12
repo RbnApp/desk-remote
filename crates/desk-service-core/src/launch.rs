@@ -11,6 +11,10 @@ use std::path::Path;
 use std::process::Child;
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
+use windows::Win32::Security::{
+    DuplicateTokenEx, GetTokenInformation, SecurityImpersonation, TokenLinkedToken, TokenPrimary,
+    TOKEN_ALL_ACCESS, TOKEN_LINKED_TOKEN,
+};
 use windows::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
 use windows::Win32::System::RemoteDesktop::{
     ProcessIdToSessionId, WTSGetActiveConsoleSessionId, WTSQueryUserToken,
@@ -150,10 +154,55 @@ fn launch_in_session(exe: &Path, args: &[String], session_id: u32) -> DeskResult
     // SAFETY: valid out-parameter; requires SYSTEM (SeTcbPrivilege), which the service has.
     unsafe { WTSQueryUserToken(session_id, &mut token) }
         .map_err(|e| service_err(&format!("no user token for session {session_id}"), e))?;
-    let result = spawn_with_token(token, exe, args, session_id);
-    // SAFETY: the token is owned here and no longer needed after CreateProcessAsUserW.
-    let _ = unsafe { CloseHandle(token) };
+    // An administrator's session token is the filtered (medium integrity) half of a split
+    // token; Windows (UIPI) drops input injected into elevated windows from it. The helper
+    // injects the remote input, so it runs with the user's own full (linked) token when one
+    // exists. Standard users have none and keep the normal token. The UAC secure desktop
+    // stays out of reach either way.
+    let elevated = linked_primary_token(token);
+    let spawn_token = elevated.unwrap_or(token);
+    let result = spawn_with_token(spawn_token, exe, args, session_id);
+    // SAFETY: both tokens are owned here and no longer needed after CreateProcessAsUserW.
+    unsafe {
+        if let Some(linked) = elevated {
+            let _ = CloseHandle(linked);
+        }
+        let _ = CloseHandle(token);
+    }
     result
+}
+
+/// The elevated twin of a filtered administrator token as a primary token, if the user has one.
+fn linked_primary_token(token: HANDLE) -> Option<HANDLE> {
+    let mut linked = TOKEN_LINKED_TOKEN::default();
+    let mut returned = 0u32;
+    // SAFETY: buffer and length describe `linked`.
+    unsafe {
+        GetTokenInformation(
+            token,
+            TokenLinkedToken,
+            Some((&raw mut linked).cast()),
+            std::mem::size_of::<TOKEN_LINKED_TOKEN>() as u32,
+            &mut returned,
+        )
+    }
+    .ok()?;
+    let mut primary = HANDLE::default();
+    // SAFETY: `linked.LinkedToken` is a valid token handle owned here; closed below.
+    let duplicated = unsafe {
+        DuplicateTokenEx(
+            linked.LinkedToken,
+            TOKEN_ALL_ACCESS,
+            None,
+            SecurityImpersonation,
+            TokenPrimary,
+            &mut primary,
+        )
+    };
+    // SAFETY: closing the handle GetTokenInformation handed us.
+    let _ = unsafe { CloseHandle(linked.LinkedToken) };
+    duplicated.ok()?;
+    Some(primary)
 }
 
 fn spawn_with_token(

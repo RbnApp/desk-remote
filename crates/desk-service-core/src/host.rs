@@ -284,7 +284,16 @@ pub fn wait_for_console_stop(max: Option<std::time::Duration>) {
     let _ =
         unsafe { windows::Win32::System::Console::SetConsoleCtrlHandler(Some(console_ctrl), true) };
     // SAFETY: the event handle is closed before returning.
-    let event = unsafe { CreateEventW(None, true, false, STOP_EVENT) }.ok();
+    let security = crate::elevate::StopEventSecurity::new().ok();
+    let event = unsafe {
+        CreateEventW(
+            security.as_ref().map(|s| s.attributes()),
+            true,
+            false,
+            STOP_EVENT,
+        )
+    }
+    .ok();
     let started = std::time::Instant::now();
     while !CONSOLE_STOP.load(Ordering::SeqCst) {
         if max.is_some_and(|m| started.elapsed() >= m) {

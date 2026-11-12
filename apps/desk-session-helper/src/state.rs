@@ -24,6 +24,8 @@ impl CodeInfo {
 pub struct Notice {
     pub title: String,
     pub body: String,
+    /// File to show in Explorer (selected) when the user clicks the balloon.
+    pub open: Option<std::path::PathBuf>,
 }
 
 /// What the UI needs to draw.

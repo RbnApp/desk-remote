@@ -3,6 +3,7 @@
 import { S, $, appWindow, esc, go, ic, invoke, mountApp, newChannel, screens, t, toast } from "./core.js";
 import { Badge } from "./components.js";
 import { VideoPipeline, parseFrame } from "./decoder.js";
+import { RemoteCursor } from "./cursor.js";
 import { attachInput } from "./input.js";
 import { loadPcs } from "./list.js";
 
@@ -26,6 +27,7 @@ const V = {
   reason: "",
   token: 0,
   pipeline: null,
+  cursor: null,
   retryTimer: null,
   hideTimer: null,
   chain: Promise.resolve(),
@@ -107,6 +109,9 @@ function renderViewer() {
      <div class="stage" id="stage"><div class="screen viewonly" id="screen"><canvas id="remote" tabindex="0" width="1280" height="720" aria-label="${esc(V.pc.name)}"></canvas></div><div id="overlay"></div></div></main>`,
     `app immersive${V.fs ? " fs" : ""}`,
   );
+  V.cursor?.close();
+  V.cursor = new RemoteCursor($("#screen"), $("#remote"));
+  window.onresize = () => V.cursor?.place();
   attachInput($("#remote"), sendInput, () => V.control && !V.hostViewOnly && V.phase === "live");
   paint();
 }
@@ -160,6 +165,12 @@ async function handleMessage(message) {
     case "config":
       await V.pipeline?.configure(message.codec);
       V.hardware = V.pipeline?.hardware ?? null;
+      break;
+    case "cursor_shape":
+      V.cursor?.setShape(message);
+      break;
+    case "cursor_pos":
+      V.cursor?.setPos(message);
       break;
     case "rtt":
       V.rtt = message.ms;
@@ -256,6 +267,8 @@ export function openViewer(pcId) {
 }
 
 export async function closeViewer() {
+  V.cursor?.close();
+  V.cursor = null;
   V.token += 1;
   clearTimeout(V.retryTimer);
   clearTimeout(V.hideTimer);
