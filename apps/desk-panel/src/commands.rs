@@ -21,6 +21,7 @@ pub struct AppState {
     pub session: Mutex<Option<Box<dyn ViewerSession>>>,
     #[cfg_attr(feature = "demo", allow(dead_code))]
     pub incoming: Arc<crate::incoming::IncomingManager>,
+    pub picks: Arc<crate::shell_menu::PickCollector>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -105,6 +106,36 @@ pub fn update_settings(
     cfg.sanitize();
     ConfigManager::save(&state.config_path, &*cfg).map_err(|e| e.to_string())?;
     Ok(cfg.clone())
+}
+
+/// Explorer right-click entry state for the settings switch.
+#[tauri::command]
+pub fn shell_menu_status() -> crate::shell_menu::ShellMenuStatus {
+    crate::shell_menu::status()
+}
+
+/// Turns the Explorer entry on or off and remembers the choice.
+#[tauri::command]
+pub fn shell_menu_set(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<crate::shell_menu::ShellMenuStatus, String> {
+    let mut cfg = lock(&state.config);
+    if enabled {
+        crate::shell_menu::enable(&cfg.language)?;
+    } else {
+        crate::shell_menu::disable()?;
+    }
+    cfg.shell_menu = enabled;
+    ConfigManager::save(&state.config_path, &*cfg).map_err(|e| e.to_string())?;
+    Ok(crate::shell_menu::status())
+}
+
+/// The picker UI calls this once after it registered its `transfer://pick` listener: later
+/// picks are emitted live; a pick that arrived during start-up is returned here.
+#[tauri::command]
+pub fn shell_pick_take(state: State<'_, AppState>) -> Option<crate::shell_menu::PickPayload> {
+    state.picks.claim()
 }
 
 #[tauri::command]

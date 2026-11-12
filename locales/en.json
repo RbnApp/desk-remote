@@ -402,5 +402,8 @@
       "new": "Simulate new device",
       "known": "Simulate known device"
     }
+  },
+  "shell_menu": {
+    "send": "Send with Desk-Remote"
   }
 }
