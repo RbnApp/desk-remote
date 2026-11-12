@@ -10,13 +10,11 @@ use desk_error::{DeskError, DeskResult};
 use desk_paths::DeskPaths;
 use serde::Deserialize;
 use std::io::BufReader;
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdout, Stdio};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// One-time auth key dropped by the panel / installer; deleted after the first successful use.
 const AUTH_KEY_FILE: &str = "authkey.txt";
 const STATUS_FILE: &str = "tailnet-status.json";
@@ -65,7 +63,7 @@ impl TailnetGuard {
             .ok()
             .map(|k| k.trim().to_string())
             .filter(|k| !k.is_empty());
-        let mut cmd = Command::new(&exe);
+        let mut cmd = desk_paths::hidden_command(&exe);
         cmd.arg("listen")
             .arg("--state-dir")
             .arg(&state_dir)
@@ -73,8 +71,7 @@ impl TailnetGuard {
             .arg(port.to_string())
             .arg("--bridge-addr")
             .arg(format!("127.0.0.1:{port}"))
-            .stdout(Stdio::piped())
-            .creation_flags(CREATE_NO_WINDOW);
+            .stdout(Stdio::piped());
         if let Some(key) = &auth_key {
             cmd.env("TS_AUTHKEY", key);
         }
@@ -105,7 +102,7 @@ impl TailnetGuard {
 /// Replaces the folder's ACL with full control for SYSTEM and Administrators only (inherited
 /// by files created later, such as `authkey.txt`). Well-known SIDs keep it language-neutral.
 pub(crate) fn restrict_to_admins(dir: &Path) -> DeskResult<()> {
-    let out = Command::new(DeskPaths::system_tool("icacls.exe"))
+    let out = desk_paths::hidden_command(DeskPaths::system_tool("icacls.exe"))
         .arg(dir)
         .args([
             "/inheritance:r",
@@ -113,7 +110,6 @@ pub(crate) fn restrict_to_admins(dir: &Path) -> DeskResult<()> {
             "*S-1-5-18:(OI)(CI)F",
             "*S-1-5-32-544:(OI)(CI)F",
         ])
-        .creation_flags(CREATE_NO_WINDOW)
         .output()?;
     if out.status.success() {
         Ok(())
@@ -180,7 +176,7 @@ mod tests {
 
     /// Prints the folder ACL through `icacls` (system tool, absolute path).
     fn acl_listing(dir: &Path) -> DeskResult<String> {
-        let out = Command::new(DeskPaths::system_tool("icacls.exe"))
+        let out = desk_paths::hidden_command(DeskPaths::system_tool("icacls.exe"))
             .arg(dir)
             .output()?;
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())

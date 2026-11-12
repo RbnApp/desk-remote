@@ -139,14 +139,10 @@ fn read_record(path: &Path) -> DeskResult<Option<TakeoverRecord>> {
 /// Real controller: `sc.exe` (numeric output parsed, so it works in every Windows language).
 pub struct ScTailscale;
 
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
 impl ScTailscale {
     fn sc(args: &[&str]) -> DeskResult<(bool, String)> {
-        use std::os::windows::process::CommandExt;
-        let out = std::process::Command::new(DeskPaths::system_tool("sc.exe"))
+        let out = desk_paths::hidden_command(DeskPaths::system_tool("sc.exe"))
             .args(args)
-            .creation_flags(CREATE_NO_WINDOW)
             .output()?;
         Ok((
             out.status.success(),
@@ -214,11 +210,9 @@ impl OfficialTailscale for ScTailscale {
     }
 
     fn close_tray(&self) -> DeskResult<()> {
-        use std::os::windows::process::CommandExt;
         // Exit code 128 means "not running", which is fine.
-        let _ = std::process::Command::new(DeskPaths::system_tool("taskkill.exe"))
+        let _ = desk_paths::hidden_command(DeskPaths::system_tool("taskkill.exe"))
             .args(["/F", "/IM", "tailscale-ipn.exe"])
-            .creation_flags(CREATE_NO_WINDOW)
             .output()?;
         Ok(())
     }
