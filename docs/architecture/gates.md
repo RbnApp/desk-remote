@@ -19,6 +19,9 @@ Any pull request or commit that violates a gate will be rejected automatically.
 | 5 | **Dependency & Advisory Gate** | `cargo-deny` (v0.16.0+) | Verifying MIT-compatible licenses & security advisories | `cargo-deny check bans licenses advisories` |
 | 6 | **Version Consistency Gate** | Root script / PowerShell | Verifying all workspace crates match root `VERSION` (0.1.0) | See Section 4 below |
 | 7 | **Hardcoded Color Gate** | Shell / Ripgrep script | Ensuring UI sources take colors only from theme tokens | See Section 6 below |
+| 8 | **Dependency & Advisory Gate** | `cargo-deny` (v0.16.0+) | Verifying MIT-compatible licenses & security advisories | `cargo-deny check bans licenses advisories` |
+| 9 | **Go Quality Gate** | `gofmt`, `go vet` | Formatting and linting for embedded `apps/desk-tailnet-helper` | `gofmt -s -l . && go vet .` |
+
 
 ---
 

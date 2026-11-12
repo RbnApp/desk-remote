@@ -171,7 +171,33 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "  [PASS] Dependency bans, licenses, and advisories verified." -ForegroundColor Green
 
+# ---------------------------------------------------------
+# Gate 9: Go Code Format & Lint Gate (gofmt, go vet)
+# ---------------------------------------------------------
+Write-Host "`n--> Running Gate 9: Go Code Format & Vet Gate (gofmt, go vet)..." -ForegroundColor Yellow
+$GoHelperDir = Join-Path $RepoRoot "apps\desk-tailnet-helper"
+if (Test-Path $GoHelperDir) {
+    Assert-ToolInstalled "go" "Go Compiler & Toolchain"
+    Push-Location $GoHelperDir
+    try {
+        $GofmtViolations = & gofmt -s -l .
+        if ($GofmtViolations) {
+            Write-Error "Gate 9 Failed: Go code formatting violations detected in: $GofmtViolations"
+            exit 1
+        }
+        & go vet .
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Gate 9 Failed: 'go vet' detected issues in apps/desk-tailnet-helper!"
+            exit 1
+        }
+    } finally {
+        Pop-Location
+    }
+    Write-Host "  [PASS] Go helper conforms to gofmt and go vet standards." -ForegroundColor Green
+}
+
 Write-Host "`n==========================================================" -ForegroundColor Green
-Write-Host "       SUCCESS: ALL 8 AUTOMATED GATES PASSED!            " -ForegroundColor Green
+Write-Host "       SUCCESS: ALL 9 AUTOMATED GATES PASSED!            " -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
 exit 0
+

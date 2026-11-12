@@ -82,6 +82,16 @@ impl DeskPaths {
         self.system_root.join("identity.key")
     }
 
+    /// Trusted viewer-panel list on the host (`<ProgramData>/DeskRemote/trusted_peers.dat`, DPAPI).
+    pub fn trusted_peers_path(&self) -> PathBuf {
+        self.system_root.join("trusted_peers.dat")
+    }
+
+    /// Trusted host list on a viewer panel (`<AppData>/DeskRemote/trusted_hosts.dat`, DPAPI).
+    pub fn trusted_hosts_path(&self) -> PathBuf {
+        self.user_root.join("trusted_hosts.dat")
+    }
+
     /// Ensures that the specified directory exists, creating parent directories if needed.
     pub fn ensure_dir(dir: &Path) -> DeskResult<()> {
         std::fs::create_dir_all(dir).map_err(|e| {
