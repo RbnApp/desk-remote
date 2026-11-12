@@ -26,7 +26,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     panel_config.sanitize();
     tracing::info!(path = %config_path.display(), "panel configuration loaded");
 
-    let incoming = Arc::new(incoming::IncomingManager::new(paths, true));
+    let loopback = std::env::args().any(|arg| arg == "--loopback");
+    let incoming = Arc::new(incoming::IncomingManager::new(paths, loopback));
 
     let state = AppState {
         backend: backend::select(),

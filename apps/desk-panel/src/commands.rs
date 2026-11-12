@@ -312,17 +312,11 @@ pub fn incoming_new_code(
 #[tauri::command]
 pub fn incoming_answer(
     state: State<'_, AppState>,
-    request_id: Option<String>,
-    #[allow(non_snake_case)] requestId: Option<String>,
+    request_id: String,
     decision: String,
-    always_allow: Option<bool>,
-    #[allow(non_snake_case)] alwaysAllow: Option<bool>,
+    always_allow: bool,
 ) -> Result<(), String> {
-    let req_id = request_id
-        .or(requestId)
-        .ok_or_else(|| "missing request_id".to_string())?;
-    let allow = always_allow.or(alwaysAllow).unwrap_or(false);
-    state.incoming.answer(&req_id, &decision, allow)
+    state.incoming.answer(&request_id, &decision, always_allow)
 }
 
 // The demo build serves these from `incoming_demo`.

@@ -15,8 +15,8 @@
 
 use desk_crypto::pake::{PakeKeys, PakeRole, PakeState};
 use desk_crypto::{
-    device_id_from_public, DeviceIdentity, NoiseHandshake, NoiseTransport, PairingManager,
-    TrustStore, KEY_LEN, NOISE_MAX_MESSAGE, NOISE_MAX_PLAINTEXT,
+    device_id_from_public, fingerprint_from_public, DeviceIdentity, NoiseHandshake, NoiseTransport,
+    PairingManager, TrustStore, KEY_LEN, NOISE_MAX_MESSAGE, NOISE_MAX_PLAINTEXT,
 };
 use desk_error::{DeskError, DeskResult};
 use desk_protocol::{FrameCodec, Message, PROTOCOL_VERSION};
@@ -60,6 +60,7 @@ pub struct Session {
     pub(crate) transport: Option<NoiseTransport>,
     pub(crate) plain_buf: Vec<u8>,
     pub(crate) peer_key: Option<[u8; KEY_LEN]>,
+    pub(crate) peer_name: Option<String>,
 }
 
 impl Session {
@@ -80,6 +81,7 @@ impl Session {
             transport: None,
             plain_buf: Vec::with_capacity(64 * 1024),
             peer_key: None,
+            peer_name: None,
         })
     }
 
@@ -99,6 +101,18 @@ impl Session {
     #[must_use]
     pub fn peer_device_id(&self) -> Option<String> {
         self.peer_key.as_ref().map(device_id_from_public)
+    }
+
+    /// Visual fingerprint of the peer static public key (if authenticated).
+    #[must_use]
+    pub fn peer_fingerprint(&self) -> Option<String> {
+        self.peer_key.as_ref().map(fingerprint_from_public)
+    }
+
+    /// Claimed computer/peer name sent during handshake.
+    #[must_use]
+    pub fn peer_name(&self) -> Option<&str> {
+        self.peer_name.as_deref()
     }
 
     /// Sets socket read and write timeouts.
@@ -352,8 +366,25 @@ impl Session {
         trust: &mut TrustStore,
         pairing_code: Option<&str>,
     ) -> DeskResult<()> {
+        self.authenticate_as_client_with_name(identity, trust, pairing_code, None)
+    }
+
+    /// Panel side: connects to a host, announcing a specific peer computer name.
+    pub fn authenticate_as_client_with_name(
+        &mut self,
+        identity: &DeviceIdentity,
+        trust: &mut TrustStore,
+        pairing_code: Option<&str>,
+        peer_name: Option<&str>,
+    ) -> DeskResult<()> {
         self.set_timeout(Some(HANDSHAKE_TIMEOUT))?;
-        let result = self.client_handshake(identity, trust, pairing_code, &identity.device_id());
+        let result = self.client_handshake(
+            identity,
+            trust,
+            pairing_code,
+            &identity.device_id(),
+            peer_name,
+        );
         self.set_timeout(Some(DEFAULT_READ_TIMEOUT))?;
         result
     }
@@ -364,6 +395,7 @@ impl Session {
         trust: &mut TrustStore,
         pairing_code: Option<&str>,
         claimed_device_id: &str,
+        custom_name: Option<&str>,
     ) -> DeskResult<()> {
         let mode = if pairing_code.is_some() {
             MODE_PAIR
@@ -412,7 +444,10 @@ impl Session {
         self.transport = Some(hs.into_transport()?);
         self.peer_key = Some(remote);
 
-        self.send_hello_as(claimed_device_id)?;
+        let name_to_send = custom_name
+            .map(str::to_string)
+            .unwrap_or_else(local_pc_name);
+        self.send_hello_as(claimed_device_id, Some(&name_to_send))?;
         self.verify_peer_hello(&remote)
     }
 
@@ -442,20 +477,26 @@ impl Session {
     }
 
     fn send_hello(&mut self, identity: &DeviceIdentity) -> DeskResult<()> {
-        self.send_hello_as(&identity.device_id())
+        let name = local_pc_name();
+        self.send_hello_as(&identity.device_id(), Some(&name))
     }
 
-    fn send_hello_as(&mut self, device_id: &str) -> DeskResult<()> {
+    fn send_hello_as(&mut self, device_id: &str, peer_name: Option<&str>) -> DeskResult<()> {
         self.send(&Message::Hello {
             device_id: device_id.to_string(),
             version: PROTOCOL_VERSION.to_string(),
+            peer_name: peer_name.map(str::to_string),
         })
     }
 
     /// Reads the peer's `Hello` and checks that the claimed ID belongs to its proven key.
     fn verify_peer_hello(&mut self, remote: &[u8; KEY_LEN]) -> DeskResult<()> {
         match self.recv()? {
-            Message::Hello { device_id, version } => {
+            Message::Hello {
+                device_id,
+                version,
+                peer_name,
+            } => {
                 if device_id != device_id_from_public(remote) {
                     return Err(DeskError::Crypto(format!(
                         "peer claimed device id {device_id} that does not match its key"
@@ -466,6 +507,7 @@ impl Session {
                         "protocol version mismatch: {version}"
                     )));
                 }
+                self.peer_name = peer_name.as_deref().map(sanitize_peer_name);
                 Ok(())
             }
             other => Err(DeskError::Protocol(format!(
@@ -483,7 +525,7 @@ impl Session {
         claimed_device_id: &str,
     ) -> DeskResult<()> {
         self.set_timeout(Some(HANDSHAKE_TIMEOUT))?;
-        self.client_handshake(identity, trust, None, claimed_device_id)
+        self.client_handshake(identity, trust, None, claimed_device_id, None)
     }
 
     /// Measures network latency by sending a `Ping` and awaiting the corresponding `Pong`.
@@ -514,4 +556,22 @@ impl Session {
             }
         }
     }
+}
+
+/// Sanitizes a peer/PC name: removes control characters, trims whitespace, limits length to 64 chars.
+#[must_use]
+pub fn sanitize_peer_name(raw: &str) -> String {
+    let clean: String = raw.chars().filter(|c| !c.is_control()).take(64).collect();
+    let trimmed = clean.trim();
+    if trimmed.is_empty() {
+        "Desk-PC".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn local_pc_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "Desk-PC".to_string())
 }

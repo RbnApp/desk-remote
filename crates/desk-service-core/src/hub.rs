@@ -202,37 +202,61 @@ impl Hub {
 
     /// Registers an authenticated viewer; frames for it arrive on the returned receiver.
     pub fn register_viewer(&self, device_id: &str) -> (ViewerId, Receiver<Message>) {
-        self.register_viewer_with_peer(device_id, device_id)
+        self.register_viewer_full(device_id, device_id, None, None)
     }
 
     /// Registers an authenticated viewer with peer address info.
     pub fn register_viewer_with_peer(
         &self,
         device_id: &str,
+        peer_addr: &str,
+    ) -> (ViewerId, Receiver<Message>) {
+        self.register_viewer_full(device_id, peer_addr, None, None)
+    }
+
+    /// Registers an authenticated viewer with peer address, claimed peer name, and key fingerprint.
+    pub fn register_viewer_full(
+        &self,
+        device_id: &str,
         _peer_addr: &str,
+        peer_name: Option<&str>,
+        peer_fingerprint: Option<&str>,
     ) -> (ViewerId, Receiver<Message>) {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = sync_channel(VIEWER_QUEUE);
 
-        let (peer_name, fingerprint, is_known, is_always) = {
+        let (peer_name, fingerprint, is_known, always_mode) = {
             let pairing = lock(&self.pairing);
             let trust = pairing.trust();
             let known = trust.is_device_trusted(device_id);
-            let always = trust.is_device_always_allowed(device_id);
-            let fp = trust.fingerprint_for_device(device_id).unwrap_or_else(|| {
-                let clean = device_id.strip_prefix("desk-").unwrap_or(device_id);
-                format!("{clean}-0000")
-            });
-            let name = if known {
-                format!("Peer-{}", device_id.chars().take(8).collect::<String>())
+            let always_mode = if trust.is_device_always_allowed(device_id) {
+                Some(
+                    trust
+                        .device_always_mode(device_id)
+                        .unwrap_or_else(|| "control".to_string()),
+                )
             } else {
-                format!("Guest-{}", device_id.chars().take(8).collect::<String>())
+                None
             };
-            (name, fp, known, always)
+            let fp = peer_fingerprint
+                .map(str::to_string)
+                .or_else(|| trust.fingerprint_for_device(device_id))
+                .unwrap_or_else(|| {
+                    let clean = device_id.strip_prefix("desk-").unwrap_or(device_id);
+                    clean.to_string()
+                });
+            let name = peer_name.map(str::to_string).unwrap_or_else(|| {
+                if known {
+                    format!("Peer-{}", device_id.chars().take(8).collect::<String>())
+                } else {
+                    format!("Guest-{}", device_id.chars().take(8).collect::<String>())
+                }
+            });
+            (name, fp, known, always_mode)
         };
 
         let mut st = lock(&self.state);
-        let (consent, req_id, event_to_emit) = if !self.consent_gate_enabled || is_always {
+        let (consent, req_id, event_to_emit) = if !self.consent_gate_enabled {
             let active = ActiveSessionInfo {
                 peer_name: peer_name.clone(),
                 fingerprint: fingerprint.clone(),
@@ -241,6 +265,23 @@ impl Hub {
             st.active_session = Some(active.clone());
             (
                 ViewerConsent::Granted(SessionMode::Control),
+                None,
+                Some(ConsentEvent::Session(active)),
+            )
+        } else if let Some(ref mode_str) = always_mode {
+            let mode = if mode_str == "view" {
+                SessionMode::View
+            } else {
+                SessionMode::Control
+            };
+            let active = ActiveSessionInfo {
+                peer_name: peer_name.clone(),
+                fingerprint: fingerprint.clone(),
+                mode: mode_str.clone(),
+            };
+            st.active_session = Some(active.clone());
+            (
+                ViewerConsent::Granted(mode),
                 None,
                 Some(ConsentEvent::Session(active)),
             )
@@ -469,7 +510,11 @@ impl Hub {
                     if always_allow {
                         if let Some(did) = dev_id {
                             let _ = self.with_pairing(|p| {
-                                p.trust_mut().set_device_always_allowed(&did, true)
+                                p.trust_mut().set_device_always_allowed_with_mode(
+                                    &did,
+                                    true,
+                                    Some(decision),
+                                )
                             });
                         }
                     }
@@ -1162,6 +1207,84 @@ mod tests {
         assert_eq!(
             hub.active_session().map(|s| s.mode),
             Some("control".to_string())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn consent_gate_always_allow_preserves_view_mode() -> DeskResult<()> {
+        use desk_crypto::TrustStore;
+        let mut trust = TrustStore::in_memory();
+        let peer_identity = DeviceIdentity::generate()?;
+        trust.add(peer_identity.public_key())?;
+        trust.set_device_always_allowed_with_mode(
+            &peer_identity.device_id(),
+            true,
+            Some("view"),
+        )?;
+
+        let hub = Hub::new_with_options(
+            DeviceIdentity::generate()?,
+            PairingManager::with_trust(trust),
+            true, // consent gate enabled
+        );
+
+        let (id, _rx) = hub.register_viewer(&peer_identity.device_id());
+        assert!(
+            hub.pending_request().is_none(),
+            "always_allow peers must not enter pending"
+        );
+        assert_eq!(
+            hub.active_session().map(|s| s.mode),
+            Some("view".to_string())
+        );
+
+        hub.viewer_join(id);
+
+        // Verify that input is dropped in view mode
+        use desk_ipc::{pipe_access_sddl, IpcClient, IpcServer};
+        static NEXT_TEST: AtomicU64 = AtomicU64::new(500);
+        let pipe_name = format!(
+            r"\\.\pipe\DeskRemote-hub-test-{}-{}",
+            std::process::id(),
+            NEXT_TEST.fetch_add(1, Ordering::SeqCst)
+        );
+        let server = IpcServer::bind(
+            &pipe_name,
+            &pipe_access_sddl(&desk_ipc::current_user_sid()?),
+        )?;
+        let client = std::thread::spawn({
+            let name = pipe_name.clone();
+            move || IpcClient::connect(&name, Duration::from_secs(5))
+        });
+        let service_end = server
+            .accept(Duration::from_secs(5))?
+            .ok_or_else(|| desk_error::DeskError::Ipc("no client".to_string()))?;
+        let helper_end = client
+            .join()
+            .map_err(|_| desk_error::DeskError::Ipc("client thread".to_string()))??;
+
+        hub.attach_helper(service_end);
+
+        // Drain any handshake messages like ViewersChanged
+        while let Ok(Some(_)) = helper_end.recv_timeout(Duration::from_millis(50)) {}
+
+        hub.forward_from_viewer(
+            id,
+            Message::InputEvent(desk_protocol::InputPayload::Key {
+                scancode: 42,
+                down: true,
+            }),
+        );
+
+        let received = helper_end.recv_timeout(Duration::from_millis(50))?;
+        assert!(
+            received.is_none()
+                || !matches!(
+                    received,
+                    Some(desk_ipc::IpcMessage::Wire(Message::InputEvent(_)))
+                ),
+            "input must be dropped when always_allow granted view mode"
         );
         Ok(())
     }

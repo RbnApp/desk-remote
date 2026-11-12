@@ -49,7 +49,11 @@ pub enum InputPayload {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Message {
     /// Initial identity exchange upon connecting.
-    Hello { device_id: String, version: String },
+    Hello {
+        device_id: String,
+        version: String,
+        peer_name: Option<String>,
+    },
     /// Pairing request with one-time verification code.
     PairRequest { code: String },
     /// Result of a pairing code attempt.
@@ -215,12 +219,22 @@ mod tests {
         let msg = Message::Hello {
             device_id: "agent-test-1234".to_string(),
             version: PROTOCOL_VERSION.to_string(),
+            peer_name: None,
         };
 
         let encoded = FrameCodec::encode(&msg)?;
         let decoded = FrameCodec::decode(&encoded)?;
 
         assert_eq!(decoded, Some((msg, encoded.len())));
+
+        let msg_with_name = Message::Hello {
+            device_id: "agent-test-1234".to_string(),
+            version: PROTOCOL_VERSION.to_string(),
+            peer_name: Some("Laptop-Alice".to_string()),
+        };
+        let encoded = FrameCodec::encode(&msg_with_name)?;
+        let decoded = FrameCodec::decode(&encoded)?;
+        assert_eq!(decoded, Some((msg_with_name, encoded.len())));
         Ok(())
     }
 

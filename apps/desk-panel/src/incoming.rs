@@ -6,7 +6,7 @@
 use desk_crypto::{DeviceIdentity, TrustStore};
 use desk_paths::DeskPaths;
 use desk_service_core::{ConsentEvent, HostOptions, HostRole, ServiceHost};
-use desk_transport::primary_local_ip;
+use desk_transport::{primary_local_ip, TailscaleDetector};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex, MutexGuard};
 use tauri::{AppHandle, Emitter};
@@ -47,10 +47,15 @@ pub struct IncomingManager {
     pc_name: String,
     paths: DeskPaths,
     loopback_only: bool,
+    port: Option<u16>,
 }
 
 impl IncomingManager {
     pub fn new(paths: DeskPaths, loopback_only: bool) -> Self {
+        Self::with_port(paths, loopback_only, Some(desk_paths::DEFAULT_PORT))
+    }
+
+    pub fn with_port(paths: DeskPaths, loopback_only: bool, port: Option<u16>) -> Self {
         let pc_name = std::env::var("COMPUTERNAME")
             .or_else(|_| std::env::var("HOSTNAME"))
             .unwrap_or_else(|_| "Desk-PC".to_string());
@@ -59,6 +64,7 @@ impl IncomingManager {
             pc_name,
             paths,
             loopback_only,
+            port,
         }
     }
 
@@ -81,10 +87,20 @@ impl IncomingManager {
         let port = host.port().unwrap_or(0);
         let mut addresses = Vec::new();
         if port > 0 {
-            addresses.push(format!("127.0.0.1:{port}"));
-            if !self.loopback_only {
+            if self.loopback_only {
+                addresses.push(format!("127.0.0.1:{port}"));
+            } else {
                 if let Some(ip) = primary_local_ip() {
                     addresses.push(format!("{ip}:{port}"));
+                }
+                let ts = TailscaleDetector::detect();
+                if ts.running {
+                    for ip in ts.ips {
+                        let addr = format!("{ip}:{port}");
+                        if !addresses.contains(&addr) {
+                            addresses.push(addr);
+                        }
+                    }
                 }
             }
         }
@@ -138,8 +154,9 @@ impl IncomingManager {
             let trust = TrustStore::open(&self.paths.trusted_hosts_path())
                 .map_err(|e| format!("cannot open trust store: {e}"))?;
 
+            let port = self.port.unwrap_or(desk_paths::DEFAULT_PORT);
             let mut opts =
-                HostOptions::for_panel_in_app(self.paths.clone(), Some(0), self.loopback_only);
+                HostOptions::for_panel_in_app(self.paths.clone(), Some(port), self.loopback_only);
             opts.custom_identity = Some(identity);
             opts.custom_trust = Some(trust);
             opts.role = HostRole::PanelInApp;
@@ -252,5 +269,34 @@ impl IncomingManager {
 impl Drop for IncomingManager {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn manager_defaults_to_default_port_and_detects_pc_name() {
+        let paths = DeskPaths::custom(PathBuf::from(r"C:\test\sys"), PathBuf::from(r"C:\test\usr"));
+        let mgr = IncomingManager::new(paths, true);
+        assert_eq!(mgr.port, Some(desk_paths::DEFAULT_PORT));
+        assert!(!mgr.pc_name.is_empty());
+
+        let state = mgr.get_state();
+        assert!(!state.enabled);
+        assert_eq!(state.pc_name, mgr.pc_name);
+        assert!(state.addresses.is_empty());
+    }
+
+    #[test]
+    fn addresses_filter_loopback_in_lan_mode() {
+        let paths = DeskPaths::custom(PathBuf::from(r"C:\test\sys"), PathBuf::from(r"C:\test\usr"));
+        let mgr_loopback = IncomingManager::with_port(paths.clone(), true, Some(47800));
+        assert!(mgr_loopback.loopback_only);
+
+        let mgr_lan = IncomingManager::with_port(paths, false, Some(47800));
+        assert!(!mgr_lan.loopback_only);
     }
 }

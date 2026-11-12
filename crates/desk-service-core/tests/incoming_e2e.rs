@@ -21,6 +21,10 @@ struct TestHostRig {
 
 impl TestHostRig {
     fn start() -> DeskResult<Self> {
+        Self::start_with_port(Some(0))
+    }
+
+    fn start_with_port(port: Option<u16>) -> DeskResult<Self> {
         let temp_dir = tempfile::tempdir().map_err(desk_error::DeskError::Io)?;
         let paths = DeskPaths::custom(temp_dir.path().join("system"), temp_dir.path().join("user"));
         paths.mark_panel_pc()?;
@@ -28,7 +32,7 @@ impl TestHostRig {
         let identity = DeviceIdentity::generate()?;
         let trust = TrustStore::open(&paths.trusted_hosts_path())?;
 
-        let mut opts = HostOptions::for_panel_in_app(paths.clone(), Some(0), true);
+        let mut opts = HostOptions::for_panel_in_app(paths.clone(), port, true);
         opts.custom_identity = Some(identity);
         opts.custom_trust = Some(trust);
         opts.role = HostRole::PanelInApp;
@@ -315,5 +319,170 @@ fn netstat_no_port_when_disabled_and_cleared_on_stop() -> DeskResult<()> {
         "Port must NOT accept connections when host is stopped"
     );
     println!("[PORT-TEST] Verified: Port closed and released on stop. Kapaliyken port yok!");
+    Ok(())
+}
+
+#[test]
+fn always_allow_view_preserved_across_reconnect() -> DeskResult<()> {
+    println!("[ALWAYS-VIEW-TEST] Step 1: Starting Host Rig with consent gate...");
+    let rig = TestHostRig::start()?;
+    let hub = rig.host.hub();
+    let port = rig.port;
+
+    // Attach fake IPC session helper to Panel A
+    use desk_ipc::{pipe_access_sddl, IpcClient, IpcMessage, IpcServer};
+    static NEXT_ALWAYS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(200);
+    let pipe_name = format!(
+        r"\\.\pipe\DeskRemote-e2e-helper-{}",
+        NEXT_ALWAYS.fetch_add(1, Ordering::SeqCst)
+    );
+    let server = IpcServer::bind(
+        &pipe_name,
+        &pipe_access_sddl(&desk_ipc::current_user_sid()?),
+    )?;
+    let client = std::thread::spawn({
+        let p = pipe_name.clone();
+        move || IpcClient::connect(&p, Duration::from_secs(5))
+    });
+    let service_end = server
+        .accept(Duration::from_secs(5))?
+        .expect("server accept");
+    let helper_end = client.join().unwrap().expect("client connect");
+    hub.attach_helper(service_end);
+
+    // Initial pair with code
+    let code = hub.with_pairing(PairingManager::create_pairing_code)?;
+    let panel_b_temp = tempfile::tempdir().map_err(desk_error::DeskError::Io)?;
+    let mut panel_b_trust = TrustStore::open(&panel_b_temp.path().join("panel_b_trust.json"))?;
+    let panel_b_identity = DeviceIdentity::generate()?;
+
+    let mut viewer_session = connect(PeerTarget::loopback(port))?;
+    viewer_session.authenticate_as_client(&panel_b_identity, &mut panel_b_trust, Some(&code))?;
+    viewer_session.send(&Message::ViewerJoin)?;
+
+    std::thread::sleep(Duration::from_millis(100));
+    let pending_req = hub.pending_request().expect("pending request required");
+    // User answers with 'view' and always_allow = true
+    hub.answer_consent(&pending_req.request_id, "view", true)
+        .expect("answer consent view");
+
+    assert_eq!(
+        hub.active_session().map(|s| s.mode),
+        Some("view".to_string())
+    );
+
+    // Disconnect viewer
+    drop(viewer_session);
+    std::thread::sleep(Duration::from_millis(150));
+    assert!(hub.active_session().is_none());
+
+    // Reconnect without code: always_allow must grant 'view' (NOT 'control'!)
+    println!("[ALWAYS-VIEW-TEST] Step 2: Panel B reconnects (no code, pinned)...");
+    let mut reconnect_session = connect(PeerTarget::loopback(port))?;
+    reconnect_session.authenticate_as_client(&panel_b_identity, &mut panel_b_trust, None)?;
+    reconnect_session.send(&Message::ViewerJoin)?;
+
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(
+        hub.pending_request().is_none(),
+        "Must NOT prompt when always_allow is true"
+    );
+    let active = hub.active_session().expect("active session must exist");
+    assert_eq!(
+        active.mode, "view",
+        "Must preserve view mode! Must NOT escalate to control!"
+    );
+
+    // Send input from viewer: MUST BE DROPPED by hub because session is view-only!
+    reconnect_session.send(&Message::InputEvent(desk_protocol::InputPayload::Key {
+        scancode: 77,
+        down: true,
+    }))?;
+    std::thread::sleep(Duration::from_millis(100));
+    let helper_rx = helper_end.recv_timeout(Duration::from_millis(100))?;
+    assert!(
+        helper_rx.is_none() || !matches!(helper_rx, Some(IpcMessage::Wire(Message::InputEvent(_)))),
+        "Input MUST BE DROPPED when always_allow preserved view mode!"
+    );
+    println!("[ALWAYS-VIEW-TEST] Verified: always_allow preserved view mode and dropped input!");
+
+    rig.host.stop();
+    Ok(())
+}
+
+#[test]
+fn fixed_default_port_and_conflict_behavior() -> DeskResult<()> {
+    println!("[PORT-TEST] Starting host on DEFAULT_PORT 47800...");
+    let rig = TestHostRig::start_with_port(Some(desk_paths::DEFAULT_PORT))?;
+    assert_eq!(rig.port, desk_paths::DEFAULT_PORT);
+
+    // Starting a second host on the same port must fail with AddrInUse
+    let temp_dir2 = tempfile::tempdir().map_err(desk_error::DeskError::Io)?;
+    let paths2 = DeskPaths::custom(
+        temp_dir2.path().join("system"),
+        temp_dir2.path().join("user"),
+    );
+    paths2.mark_panel_pc()?;
+    let identity2 = DeviceIdentity::generate()?;
+    let trust2 = TrustStore::open(&paths2.trusted_hosts_path())?;
+
+    let mut opts2 = HostOptions::for_panel_in_app(paths2, Some(desk_paths::DEFAULT_PORT), true);
+    opts2.custom_identity = Some(identity2);
+    opts2.custom_trust = Some(trust2);
+    opts2.role = HostRole::PanelInApp;
+    opts2.consent_gate = true;
+    opts2.loopback_only = true;
+
+    let second_host_result = ServiceHost::start(opts2);
+    assert!(
+        second_host_result.is_err(),
+        "Second host on DEFAULT_PORT must fail with port conflict"
+    );
+    println!("[PORT-TEST] Verified: DEFAULT_PORT 47800 conflict correctly returns error.");
+
+    rig.host.stop();
+    Ok(())
+}
+
+#[test]
+fn hello_peer_name_and_real_fingerprint() -> DeskResult<()> {
+    println!("[HELLO-TEST] Starting host...");
+    let rig = TestHostRig::start()?;
+    let hub = rig.host.hub();
+    let port = rig.port;
+
+    let code = hub.with_pairing(PairingManager::create_pairing_code)?;
+    let temp = tempfile::tempdir().map_err(desk_error::DeskError::Io)?;
+    let mut client_trust = TrustStore::open(&temp.path().join("client_trust.json"))?;
+    let client_identity = DeviceIdentity::generate()?;
+    let real_fp = client_identity.fingerprint();
+
+    let mut session = connect(PeerTarget::loopback(port))?;
+    // Send a custom peer name with whitespace to verify sanitization
+    session.authenticate_as_client_with_name(
+        &client_identity,
+        &mut client_trust,
+        Some(&code),
+        Some("  Office-Workstation-1  "),
+    )?;
+    session.send(&Message::ViewerJoin)?;
+
+    std::thread::sleep(Duration::from_millis(100));
+    let req = hub.pending_request().expect("Pending request must exist");
+    assert_eq!(
+        req.peer_name, "Office-Workstation-1",
+        "Sanitized peer name must match Hello name"
+    );
+    assert_eq!(
+        req.fingerprint, real_fp,
+        "Fingerprint must match real key fingerprint"
+    );
+    assert!(
+        !req.fingerprint.ends_with("-0000"),
+        "Must NOT have fake -0000 suffix"
+    );
+
+    rig.host.stop();
+    println!("[HELLO-TEST] Verified: Real PC name and real key fingerprint delivered to consent request!");
     Ok(())
 }

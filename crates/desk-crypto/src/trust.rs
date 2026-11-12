@@ -22,6 +22,9 @@ pub struct TrustedPeer {
     /// Whether this peer is allowed to connect without interactive user consent.
     #[serde(default)]
     pub always_allow: bool,
+    /// Mode to grant when `always_allow` connects ("view" or "control").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub always_mode: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -92,6 +95,7 @@ impl TrustStore {
             public_key_hex: to_hex(public),
             device_id: device_id_from_public(public),
             always_allow: false,
+            always_mode: None,
         });
         self.persist()
     }
@@ -119,23 +123,66 @@ impl TrustStore {
             .any(|p| p.device_id == device_id && p.always_allow)
     }
 
-    /// Updates the `always_allow` flag for a peer by public key.
-    pub fn set_always_allowed(&mut self, public: &[u8; KEY_LEN], allow: bool) -> DeskResult<()> {
+    /// Returns the saved `always_mode` ("view" or "control") for a device.
+    #[must_use]
+    pub fn device_always_mode(&self, device_id: &str) -> Option<String> {
+        self.peers
+            .iter()
+            .find(|p| p.device_id == device_id && p.always_allow)
+            .and_then(|p| p.always_mode.clone())
+    }
+
+    /// Updates the `always_allow` flag and granted mode for a peer by public key.
+    pub fn set_always_allowed_with_mode(
+        &mut self,
+        public: &[u8; KEY_LEN],
+        allow: bool,
+        mode: Option<&str>,
+    ) -> DeskResult<()> {
         let hex = to_hex(public);
         if let Some(peer) = self.peers.iter_mut().find(|p| p.public_key_hex == hex) {
             peer.always_allow = allow;
+            peer.always_mode = if allow {
+                mode.map(str::to_string)
+            } else {
+                None
+            };
             self.persist()?;
         }
         Ok(())
     }
 
-    /// Updates the `always_allow` flag for a peer by device ID.
-    pub fn set_device_always_allowed(&mut self, device_id: &str, allow: bool) -> DeskResult<()> {
+    /// Updates the `always_allow` flag and granted mode for a peer by device ID.
+    pub fn set_device_always_allowed_with_mode(
+        &mut self,
+        device_id: &str,
+        allow: bool,
+        mode: Option<&str>,
+    ) -> DeskResult<()> {
         if let Some(peer) = self.peers.iter_mut().find(|p| p.device_id == device_id) {
             peer.always_allow = allow;
+            peer.always_mode = if allow {
+                mode.map(str::to_string)
+            } else {
+                None
+            };
             self.persist()?;
         }
         Ok(())
+    }
+
+    /// Updates the `always_allow` flag for a peer by public key.
+    pub fn set_always_allowed(&mut self, public: &[u8; KEY_LEN], allow: bool) -> DeskResult<()> {
+        self.set_always_allowed_with_mode(public, allow, if allow { Some("control") } else { None })
+    }
+
+    /// Updates the `always_allow` flag for a peer by device ID.
+    pub fn set_device_always_allowed(&mut self, device_id: &str, allow: bool) -> DeskResult<()> {
+        self.set_device_always_allowed_with_mode(
+            device_id,
+            allow,
+            if allow { Some("control") } else { None },
+        )
     }
 
     /// Computes or retrieves fingerprint for a trusted peer by device ID.
@@ -247,6 +294,17 @@ mod tests {
         let dev_id = device_id_from_public(&key);
         assert!(reopened.is_device_always_allowed(&dev_id));
         assert!(reopened.fingerprint_for_device(&dev_id).is_some());
+
+        // Test view mode persistence
+        let mut store = reopened;
+        store.set_device_always_allowed_with_mode(&dev_id, true, Some("view"))?;
+        assert_eq!(store.device_always_mode(&dev_id), Some("view".to_string()));
+
+        let reopened_view = TrustStore::open(&path)?;
+        assert_eq!(
+            reopened_view.device_always_mode(&dev_id),
+            Some("view".to_string())
+        );
         Ok(())
     }
 

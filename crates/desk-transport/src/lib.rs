@@ -14,7 +14,7 @@ pub mod tailscale;
 pub use discovery::{DiscoveredPeer, LanAnnouncer, LanBrowser, SERVICE_TYPE};
 pub use listener::Listener;
 pub use local_addr::primary_local_ip;
-pub use session::Session;
+pub use session::{sanitize_peer_name, Session};
 pub use split::{SessionReader, SessionWriter};
 pub use tailscale::{
     extract_login_url, helper_online, TailnetHelperController, TailscaleDetector, TailscalePeer,
