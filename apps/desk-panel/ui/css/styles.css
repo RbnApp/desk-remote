@@ -28,6 +28,7 @@ svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-widt
 .side{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:var(--s4) var(--s3);gap:var(--s5)}
 .brand{display:flex;align-items:center;gap:var(--s2);padding:0 var(--s2);font-weight:700;font-size:var(--fs-lg);letter-spacing:.2px}
 .brand .logo{width:28px;height:28px;border-radius:var(--r-sm);background:var(--primary);color:var(--on-primary);display:grid;place-items:center}
+.brand .logo svg{width:20px;height:20px;fill:currentColor;stroke:none}
 .nav{display:flex;flex-direction:column;gap:var(--s1)}
 .nav button{display:flex;align-items:center;gap:var(--s3);height:var(--ctl);padding:0 var(--s3);border:0;border-radius:var(--r-md);background:transparent;color:var(--text-muted);cursor:pointer;text-align:left;transition:background var(--t)}
 .nav button:hover{background:var(--surface-hover);color:var(--text)}
