@@ -21,6 +21,7 @@ Desk-Remote/
 │   ├── desk-service/             # The agent executable DeskRemote-Ajan.exe: Windows Service (SYSTEM, Session 0), portable double-click mode, `helper` subcommand
 │   ├── desk-session-helper/      # Library: user session helper (tray, capture, input), started as `DeskRemote-Ajan.exe helper`
 │   ├── desk-panel/               # Desktop management GUI application
+│   ├── desk-shell-ext/           # Windows 11 first-level Explorer menu entry (COM DLL desk_remote_menu.dll)
 │   └── desk-relay/               # Self-hosted signaling and WebRTC relay server
 ├── crates/                       # Common shared libraries & single-point systems
 │   ├── desk-common/              # Foundational types, primitives, and prelude
@@ -45,6 +46,7 @@ Desk-Remote/
 ├── docs/                         # Project documentation
 │   └── architecture/             # Architecture rules, guidelines, gates
 ├── locales/                      # Translation catalogs (en.json, tr.json)
+├── packaging/                    # Installer sources: agent NSIS script, panel NSIS hooks, sparse-package manifest
 ├── scripts/                      # Build, test, and quality gate automation scripts
 ├── Cargo.toml                    # Root workspace manifest
 ├── VERSION                       # Canonical version string (0.1.0)
@@ -63,6 +65,13 @@ Desk-Remote/
 - **Role**: Windows Service running under the `NT AUTHORITY\SYSTEM` account in Session 0.
 - **Responsibility**: Boots automatically at machine startup (even before any user logs in), monitors Windows session changes (`WTSRegisterSessionNotification`), spawns the helper (`DeskRemote-Ajan.exe helper`, same file) into the active console session via `CreateProcessAsUserW`, and provides service watchdog management.
 - **Scope Restriction**: No GUI code, no direct desktop screen scraping (Session 0 has no interactive desktop in modern Windows).
+
+### `apps/desk-shell-ext`
+- **Role**: In-process COM server (`IExplorerCommand`) that shows "Send with Desk-Remote" in the Windows 11 first-level Explorer menu. Loaded by Explorer through the sparse package `DeskRemote.ExplorerMenu` (`packaging/AppxManifest.xml.in`).
+- **Responsibility**: Only builds the menu entry and starts `desk-panel.exe --send <paths>`; the title comes from `locales/` through `desk-i18n`. It never talks to the network.
+
+### `packaging/` and `scripts/build-installers.ps1`
+- **Role**: Two installers (`dist/Desk-Remote-Panel-Setup-<VERSION>.exe`, `dist/Desk-Remote-Ajan-Setup-<VERSION>.exe`). The panel installer (Tauri NSIS) never installs the agent; the agent installer registers the service and rolls back on failure. Installer texts are generated from `locales/*.json`.
 
 ### `apps/desk-session-helper`
 - **Role**: Library holding the lightweight helper that runs inside the active interactive user desktop session. It has no executable of its own: `apps/desk-service` starts it as the `helper` subcommand, so the agent ships as one file.

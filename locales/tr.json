@@ -490,6 +490,16 @@
   "shell_menu": {
     "send": "Desk-Remote ile gönder"
   },
+  "installer": {
+    "agent_name": "Desk-Remote Ajan",
+    "panel_name": "Desk-Remote",
+    "service_install": "Desk-Remote ajan servisi kaydediliyor ve başlatılıyor…",
+    "service_remove": "Desk-Remote ajan servisi durduruluyor ve kaldırılıyor…",
+    "service_failed": "Ajan servisi kurulamadı. Kurulum iptal edildi, hiçbir dosya bırakılmadı.",
+    "menu_register": "Gezgin girişi \"Desk-Remote ile gönder\" ekleniyor…",
+    "menu_remove": "Gezgin girişi \"Desk-Remote ile gönder\" kaldırılıyor…",
+    "stop_tray": "Çalışan ajan kapatılıyor…"
+  },
   "tabs": {
     "label": "Bağlı bilgisayarlar",
     "add": "Başka bir bilgisayara bağlan",

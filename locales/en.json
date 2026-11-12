@@ -490,6 +490,16 @@
   "shell_menu": {
     "send": "Send with Desk-Remote"
   },
+  "installer": {
+    "agent_name": "Desk-Remote Agent",
+    "panel_name": "Desk-Remote",
+    "service_install": "Registering and starting the Desk-Remote agent service…",
+    "service_remove": "Stopping and removing the Desk-Remote agent service…",
+    "service_failed": "The agent service could not be installed. The installation was cancelled and nothing was kept.",
+    "menu_register": "Adding the Explorer entry \"Send with Desk-Remote\"…",
+    "menu_remove": "Removing the Explorer entry \"Send with Desk-Remote\"…",
+    "stop_tray": "Closing the running agent…"
+  },
   "tabs": {
     "label": "Connected PCs",
     "add": "Connect another PC",

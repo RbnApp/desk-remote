@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let _guard = desk_logger::init(&config)?;
 
-    if shell_menu::handle_cli_removal(&args) {
+    if shell_menu::handle_cli_removal(&args) || shell_menu::handle_cli_enable(&args) {
         return Ok(());
     }
 
