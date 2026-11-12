@@ -31,7 +31,6 @@ pub fn crc32(data: &[u8]) -> u32 {
 
 /// Normalized user input event payload.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "kind", content = "data")]
 pub enum InputPayload {
     /// Normalized mouse movement, buttons, and wheel.
     ///
@@ -48,7 +47,6 @@ pub enum InputPayload {
 
 /// Central wire message schemas for Desk-Remote.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type", content = "payload")]
 pub enum Message {
     /// Initial identity exchange upon connecting.
     Hello { device_id: String, version: String },
@@ -94,14 +92,15 @@ pub enum Message {
 /// - Magic (4 bytes): `[b'D', b'E', b'S', b'K']`
 /// - Length (4 bytes, BE): length of serialized payload
 /// - CRC32 (4 bytes, BE): CRC32 of payload bytes
-/// - Payload (N bytes): JSON-serialized [`Message`]
+/// - Payload (N bytes): `postcard` binary-serialized [`Message`] (byte buffers such as
+///   `VideoFrame::data` are carried raw, not as number arrays)
 #[derive(Debug, Default, Clone)]
 pub struct FrameCodec;
 
 impl FrameCodec {
     /// Encodes a [`Message`] into a framed byte buffer.
     pub fn encode(msg: &Message) -> DeskResult<Vec<u8>> {
-        let payload = serde_json::to_vec(msg)
+        let payload = postcard::to_stdvec(msg)
             .map_err(|e| DeskError::Protocol(format!("Failed to serialize message: {e}")))?;
 
         if payload.len() > MAX_FRAME_PAYLOAD_SIZE {
@@ -171,7 +170,7 @@ impl FrameCodec {
             )));
         }
 
-        let message = serde_json::from_slice(payload)
+        let message = postcard::from_bytes(payload)
             .map_err(|e| DeskError::Protocol(format!("Failed to parse message payload: {e}")))?;
 
         Ok(Some((message, total_frame_len)))
@@ -275,6 +274,38 @@ mod tests {
 
         let partial = &encoded[..encoded.len() / 2];
         assert_eq!(FrameCodec::decode(partial)?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn test_video_frame_binary_vs_json_size() -> DeskResult<()> {
+        // Pseudo-random 1 MiB payload (worst case for JSON number arrays).
+        let mut state = 0x1234_5678u32;
+        let data: Vec<u8> = (0..1024 * 1024)
+            .map(|_| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                (state >> 24) as u8
+            })
+            .collect();
+        let msg = Message::VideoFrame {
+            ts_us: 1,
+            keyframe: true,
+            data,
+        };
+        let binary = FrameCodec::encode(&msg)?.len();
+        let json = serde_json::to_vec(&msg)
+            .map_err(|e| DeskError::Protocol(e.to_string()))?
+            .len();
+        // Machine-readable line captured as report evidence (`--nocapture`).
+        #[allow(clippy::print_stdout)]
+        {
+            println!("VIDEOFRAME_1MIB json_bytes={json} binary_bytes={binary}");
+        }
+        assert!(
+            binary < 1024 * 1024 + 64,
+            "binary overhead too large: {binary}"
+        );
+        assert!(json > 2 * binary);
         Ok(())
     }
 }

@@ -94,7 +94,7 @@ Any subsystem that touches OS resources, networking, configuration, or identity 
 
 ### 3.6. Protocol & Messages (`crates/desk-protocol`)
 - **Owner**: `crates/desk-protocol`
-- **Core Technology**: Strongly typed binary/JSON message frames, `serde`.
+- **Core Technology**: Strongly typed binary message frames (`postcard` payload inside the DESK/length/CRC32 frame), `serde`. Byte buffers (video) travel raw.
 - **Public API Principle**:
   - Defines the single source of truth for all wire protocol structures:
     - Control messages: Handshake, AuthChallenge, AuthResponse, Heartbeat.
@@ -107,10 +107,10 @@ Any subsystem that touches OS resources, networking, configuration, or identity 
 
 ### 3.7. Crypto & Identity (`crates/desk-crypto`)
 - **Owner**: `crates/desk-crypto`
-- **Core Technology**: Modern standard cryptography (e.g. `ed25519-dalek` / `ring`), Windows DPAPI (`CryptProtectData`) for at-rest storage.
+- **Core Technology**: Audited crates only: `snow` (Noise_XX_25519_ChaChaPoly_BLAKE2s sessions), `spake2` (first-time PAKE pairing with the short code), `chacha20poly1305`, `hmac`, OS CSPRNG via `getrandom`; Windows DPAPI (`CryptProtectData`) for at-rest storage of the X25519 static key and the trusted-peer list.
 - **Public API Principle**:
   - Manages host identity keypairs (public/private key), deriving permanent Device IDs from the public key.
-  - Provides cryptographic authentication challenge generation and signature verification.
+  - Pairing: SPAKE2 keyed by the one-time code (never sent), key confirmation, static-key exchange, persistent pinning (`TrustStore`). Sessions: Noise_XX with pinned static keys, per-direction keys, replay-rejecting nonces.
   - Manages secure storage of pairing secrets and authorized client certificates in Windows Credential Vault or DPAPI-encrypted files.
 - **Strictly Forbidden Outside Owner**:
   - Plaintext password storage or unauthenticated connections.

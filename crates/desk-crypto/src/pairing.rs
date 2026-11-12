@@ -1,110 +1,124 @@
-//! One-time pairing code generation and verification for Desk-Remote.
+//! One-time pairing code lifecycle and trusted-peer bookkeeping for Desk-Remote.
 //!
-//! Enforces mutual trust between the host machine and viewer panels.
-//! Follows the DAPP-67 pairing UX: a 4-letter + 4-digit code (e.g. `ABCD-2345`).
+//! The host shows a short code (`ABCD-2345`) to the user. The code is only ever used as
+//! the PAKE password (see [`crate::pake`]); it is single use, expires after five minutes
+//! and is revoked after [`MAX_FAILED_ATTEMPTS`] wrong attempts.
 
-use std::collections::HashSet;
+use crate::identity::KEY_LEN;
+use crate::rand::random_index;
+use crate::trust::TrustStore;
+use desk_error::DeskResult;
 use std::time::{Duration, Instant};
 
 /// Standard validity duration for a pairing code (5 minutes).
 pub const PAIRING_CODE_TTL: Duration = Duration::from_secs(300);
 
-/// Generates a randomized pairing code matching the pattern `[A-Z]{4}-[0-9]{4}`.
-#[must_use]
-pub fn generate_pairing_code() -> String {
+/// Wrong attempts after which the active code is revoked.
+pub const MAX_FAILED_ATTEMPTS: u32 = 5;
+
+/// Generates a pairing code matching `[A-Z]{4}-[0-9]{4}` from the OS CSPRNG.
+pub fn generate_pairing_code() -> DeskResult<String> {
     const LETTERS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ"; // omitted I, O to prevent confusion
     const DIGITS: &[u8] = b"23456789"; // omitted 0, 1
 
     let mut code = String::with_capacity(9);
     for _ in 0..4 {
-        let idx = fastrand::usize(..LETTERS.len());
-        code.push(LETTERS[idx] as char);
+        code.push(LETTERS[random_index(LETTERS.len())?] as char);
     }
     code.push('-');
     for _ in 0..4 {
-        let idx = fastrand::usize(..DIGITS.len());
-        code.push(DIGITS[idx] as char);
+        code.push(DIGITS[random_index(DIGITS.len())?] as char);
     }
-    code
+    Ok(code)
 }
 
-/// Active pairing challenge state.
 #[derive(Debug)]
 struct ActiveChallenge {
     code: String,
     created_at: Instant,
+    failures: u32,
 }
 
-/// Pairing manager maintaining active pairing code and authenticated peer whitelist.
+/// Pairing manager: active code state plus the persistent list of trusted peer keys.
 #[derive(Debug, Default)]
 pub struct PairingManager {
     active_challenge: Option<ActiveChallenge>,
-    paired_peers: HashSet<String>,
+    trust: TrustStore,
 }
 
 impl PairingManager {
-    /// Creates a new empty [`PairingManager`].
+    /// Creates a manager with an in-memory trust store.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Generates and activates a new pairing code, expiring any previous code.
-    pub fn create_pairing_code(&mut self) -> String {
-        let code = generate_pairing_code();
+    /// Creates a manager backed by the given (typically persistent) trust store.
+    #[must_use]
+    pub fn with_trust(trust: TrustStore) -> Self {
+        Self {
+            active_challenge: None,
+            trust,
+        }
+    }
+
+    /// Generates and activates a new pairing code, replacing any previous one.
+    pub fn create_pairing_code(&mut self) -> DeskResult<String> {
+        let code = generate_pairing_code()?;
         self.active_challenge = Some(ActiveChallenge {
             code: code.clone(),
             created_at: Instant::now(),
+            failures: 0,
         });
-        code
+        Ok(code)
     }
 
     /// Returns the currently active pairing code if still valid.
     #[must_use]
     pub fn active_code(&self) -> Option<&str> {
         let challenge = self.active_challenge.as_ref()?;
-        if challenge.created_at.elapsed() < PAIRING_CODE_TTL {
-            Some(&challenge.code)
-        } else {
-            None
-        }
+        (challenge.created_at.elapsed() < PAIRING_CODE_TTL).then_some(challenge.code.as_str())
     }
 
-    /// Verifies a submitted code against the active challenge.
-    ///
-    /// If valid and not expired, the code is consumed (one-time use) and returns `true`.
-    /// Otherwise returns `false`.
-    pub fn verify_code(&mut self, candidate: &str) -> bool {
-        let is_valid = match &self.active_challenge {
-            Some(challenge) if challenge.created_at.elapsed() < PAIRING_CODE_TTL => {
-                candidate.trim().eq_ignore_ascii_case(&challenge.code)
+    /// Records a failed pairing attempt; revokes the code after [`MAX_FAILED_ATTEMPTS`].
+    pub fn record_failure(&mut self) {
+        let revoke = match &mut self.active_challenge {
+            Some(c) => {
+                c.failures += 1;
+                c.failures >= MAX_FAILED_ATTEMPTS
             }
-            _ => false,
+            None => false,
         };
-
-        if is_valid {
-            // One-time consumption: expire code immediately upon successful match
+        if revoke {
             self.active_challenge = None;
-            true
-        } else {
-            false
         }
     }
 
-    /// Authorizes a peer device ID permanently for this session.
-    pub fn add_paired_peer(&mut self, peer_id: impl Into<String>) {
-        self.paired_peers.insert(peer_id.into());
+    /// Consumes the active code after a successful pairing (single use).
+    pub fn consume_code(&mut self) {
+        self.active_challenge = None;
     }
 
-    /// Checks if a peer device ID has previously paired and is authorized.
+    /// Persistently trusts a peer's static public key.
+    pub fn add_trusted(&mut self, public: &[u8; KEY_LEN]) -> DeskResult<()> {
+        self.trust.add(public)
+    }
+
+    /// Whether the peer key has been paired.
     #[must_use]
-    pub fn is_paired(&self, peer_id: &str) -> bool {
-        self.paired_peers.contains(peer_id)
+    pub fn is_trusted(&self, public: &[u8; KEY_LEN]) -> bool {
+        self.trust.is_trusted(public)
     }
 
-    /// Removes all paired peers.
-    pub fn clear_paired_peers(&mut self) {
-        self.paired_peers.clear();
+    /// Read access to the trust store.
+    #[must_use]
+    pub fn trust(&self) -> &TrustStore {
+        &self.trust
+    }
+
+    /// Mutable access to the trust store (revocation, listing).
+    pub fn trust_mut(&mut self) -> &mut TrustStore {
+        &mut self.trust
     }
 }
 
@@ -113,49 +127,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_code_format() {
-        let code = generate_pairing_code();
+    fn code_format() -> DeskResult<()> {
+        let code = generate_pairing_code()?;
         assert_eq!(code.len(), 9);
         assert_eq!(&code[4..5], "-");
-        for ch in code[..4].chars() {
-            assert!(ch.is_ascii_uppercase());
-        }
-        for ch in code[5..].chars() {
-            assert!(ch.is_ascii_digit());
-        }
+        assert!(code[..4].chars().all(|c| c.is_ascii_uppercase()));
+        assert!(code[5..].chars().all(|c| c.is_ascii_digit()));
+        Ok(())
     }
 
     #[test]
-    fn test_verification_success_consumes_code() {
+    fn consume_makes_code_single_use() -> DeskResult<()> {
         let mut mgr = PairingManager::new();
-        let code = mgr.create_pairing_code();
+        let code = mgr.create_pairing_code()?;
         assert_eq!(mgr.active_code(), Some(code.as_str()));
-
-        // Verification succeeds
-        assert!(mgr.verify_code(&code));
-
-        // Code consumed, second attempt fails
-        assert!(!mgr.verify_code(&code));
+        mgr.consume_code();
         assert_eq!(mgr.active_code(), None);
+        Ok(())
     }
 
     #[test]
-    fn test_verification_rejects_invalid_code() {
+    fn code_revoked_after_max_failures() -> DeskResult<()> {
         let mut mgr = PairingManager::new();
-        let code = mgr.create_pairing_code();
-
-        assert!(!mgr.verify_code("WRONG-1234"));
-        // Original code remains active
-        assert_eq!(mgr.active_code(), Some(code.as_str()));
+        mgr.create_pairing_code()?;
+        for _ in 0..MAX_FAILED_ATTEMPTS - 1 {
+            mgr.record_failure();
+            assert!(mgr.active_code().is_some());
+        }
+        mgr.record_failure();
+        assert_eq!(mgr.active_code(), None);
+        Ok(())
     }
 
     #[test]
-    fn test_paired_peers_authorization() {
+    fn trust_bookkeeping() -> DeskResult<()> {
         let mut mgr = PairingManager::new();
-        assert!(!mgr.is_paired("peer-panel-01"));
-
-        mgr.add_paired_peer("peer-panel-01");
-        assert!(mgr.is_paired("peer-panel-01"));
-        assert!(!mgr.is_paired("peer-panel-02"));
+        let key = [3u8; KEY_LEN];
+        assert!(!mgr.is_trusted(&key));
+        mgr.add_trusted(&key)?;
+        assert!(mgr.is_trusted(&key));
+        assert!(!mgr.is_trusted(&[4u8; KEY_LEN]));
+        Ok(())
     }
 }

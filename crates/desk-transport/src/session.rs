@@ -1,9 +1,23 @@
 //! Active transport session and connection abstraction.
 //!
-//! Owns the underlying TCP socket, wire framing, session encryption via
-//! [`desk_crypto::SessionCipher`], and pairing handshake verification.
+//! Owns the TCP socket and drives the connection security protocol:
+//!
+//! 1. 5-byte preamble `DRM1` + mode (`PAIR` first time, `SESSION` afterwards).
+//! 2. `PAIR` only: SPAKE2 key exchange keyed by the short code (the code is never sent),
+//!    mutual key confirmation, then exchange of the static public keys sealed under the
+//!    PAKE key. Both sides persist the peer key (pinning).
+//! 3. Always: `Noise_XX_25519_ChaChaPoly_BLAKE2s` with static-key pinning. A peer whose
+//!    static key is not in the trust store is rejected before any application data.
+//! 4. Encrypted `Hello` exchange; the claimed `device_id` must equal the one derived from
+//!    the authenticated static key.
+//!
+//! Application messages are `desk-protocol` binary frames, split into Noise-sized chunks.
 
-use desk_crypto::{derive_session_key, PairingManager, SessionCipher};
+use desk_crypto::pake::{PakeKeys, PakeRole, PakeState};
+use desk_crypto::{
+    device_id_from_public, DeviceIdentity, NoiseHandshake, NoiseTransport, PairingManager,
+    TrustStore, KEY_LEN, NOISE_MAX_MESSAGE, NOISE_MAX_PLAINTEXT,
+};
 use desk_error::{DeskError, DeskResult};
 use desk_protocol::{FrameCodec, Message, PROTOCOL_VERSION};
 use std::io::{Read, Write};
@@ -12,13 +26,20 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_WRITE_TIMEOUT: Duration = Duration::from_secs(30);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Connection preamble magic + wire-security version.
+const PREAMBLE_MAGIC: [u8; 4] = *b"DRM1";
+const MODE_SESSION: u8 = 0x02;
+const MODE_PAIR: u8 = 0x01;
 
 /// Active remote desktop transport session.
 pub struct Session {
     stream: TcpStream,
     peer_addr: SocketAddr,
-    cipher: Option<SessionCipher>,
-    read_buf: Vec<u8>,
+    transport: Option<NoiseTransport>,
+    plain_buf: Vec<u8>,
+    peer_key: Option<[u8; KEY_LEN]>,
 }
 
 impl Session {
@@ -36,8 +57,9 @@ impl Session {
         Ok(Self {
             stream,
             peer_addr,
-            cipher: None,
-            read_buf: Vec::with_capacity(64 * 1024),
+            transport: None,
+            plain_buf: Vec::with_capacity(64 * 1024),
+            peer_key: None,
         })
     }
 
@@ -45,6 +67,18 @@ impl Session {
     #[must_use]
     pub fn peer_addr(&self) -> SocketAddr {
         self.peer_addr
+    }
+
+    /// Authenticated static public key of the peer (after a successful handshake).
+    #[must_use]
+    pub fn peer_public_key(&self) -> Option<[u8; KEY_LEN]> {
+        self.peer_key
+    }
+
+    /// Authenticated device ID of the peer (derived from its static key).
+    #[must_use]
+    pub fn peer_device_id(&self) -> Option<String> {
+        self.peer_key.as_ref().map(device_id_from_public)
     }
 
     /// Sets socket read and write timeouts.
@@ -58,183 +92,342 @@ impl Session {
         Ok(())
     }
 
-    /// Sends a protocol message across the transport.
+    // ---- raw length-prefixed frames (handshake and Noise chunks) ----
+
+    fn write_raw(&mut self, payload: &[u8]) -> DeskResult<()> {
+        if payload.len() > NOISE_MAX_MESSAGE {
+            return Err(DeskError::Transport("raw frame too large".to_string()));
+        }
+        let len = u32::try_from(payload.len())
+            .map_err(|_| DeskError::Transport("raw frame length overflow".to_string()))?;
+        let mut out = Vec::with_capacity(4 + payload.len());
+        out.extend_from_slice(&len.to_be_bytes());
+        out.extend_from_slice(payload);
+        self.stream.write_all(&out).map_err(DeskError::Io)?;
+        self.stream.flush().map_err(DeskError::Io)
+    }
+
+    fn read_raw(&mut self) -> DeskResult<Vec<u8>> {
+        let mut len_bytes = [0u8; 4];
+        self.read_exact_mapped(&mut len_bytes)?;
+        let len = usize::try_from(u32::from_be_bytes(len_bytes))
+            .map_err(|_| DeskError::Transport("length conversion failed".to_string()))?;
+        if len > NOISE_MAX_MESSAGE {
+            return Err(DeskError::Transport(format!(
+                "raw frame of {len} bytes exceeds limit"
+            )));
+        }
+        let mut payload = vec![0u8; len];
+        self.read_exact_mapped(&mut payload)?;
+        Ok(payload)
+    }
+
+    fn read_exact_mapped(&mut self, buf: &mut [u8]) -> DeskResult<()> {
+        self.stream.read_exact(buf).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                DeskError::Transport("Peer disconnected".to_string())
+            } else {
+                DeskError::Io(e)
+            }
+        })
+    }
+
+    // ---- application messages ----
+
+    /// Sends a protocol message; fails before authentication completed.
     pub fn send(&mut self, msg: &Message) -> DeskResult<()> {
-        let frame_bytes = FrameCodec::encode(msg)?;
+        let frame = FrameCodec::encode(msg)?;
+        let transport = self
+            .transport
+            .as_mut()
+            .ok_or_else(|| DeskError::Transport("session is not authenticated".to_string()))?;
 
-        let payload_to_wire = match &mut self.cipher {
-            Some(cipher) => cipher.encrypt(&frame_bytes)?,
-            None => frame_bytes,
-        };
-
-        let len_u32 = u32::try_from(payload_to_wire.len())
-            .map_err(|_| DeskError::Transport("Payload length exceeds u32 limit".to_string()))?;
-
-        self.stream
-            .write_all(&len_u32.to_be_bytes())
-            .map_err(DeskError::Io)?;
-        self.stream
-            .write_all(&payload_to_wire)
-            .map_err(DeskError::Io)?;
-        self.stream.flush().map_err(DeskError::Io)?;
-
-        Ok(())
+        let mut wire = Vec::with_capacity(frame.len() + frame.len() / 1024 * 24 + 64);
+        for chunk in frame.chunks(NOISE_MAX_PLAINTEXT) {
+            let ct = transport.encrypt(chunk)?;
+            let len = u32::try_from(ct.len())
+                .map_err(|_| DeskError::Transport("chunk length overflow".to_string()))?;
+            wire.extend_from_slice(&len.to_be_bytes());
+            wire.extend_from_slice(&ct);
+        }
+        self.stream.write_all(&wire).map_err(DeskError::Io)?;
+        self.stream.flush().map_err(DeskError::Io)
     }
 
     /// Receives the next complete message from the transport.
+    ///
+    /// Any integrity failure (tampering, replay, reordering) is an error; the caller must
+    /// drop the session afterwards.
     pub fn recv(&mut self) -> DeskResult<Message> {
         loop {
-            // Check if we have at least 4 bytes for length prefix
-            if self.read_buf.len() >= 4 {
-                let len_bytes: [u8; 4] = self.read_buf[..4]
-                    .try_into()
-                    .map_err(|_| DeskError::Transport("Slice conversion failed".to_string()))?;
-                let frame_len = usize::try_from(u32::from_be_bytes(len_bytes))
-                    .map_err(|_| DeskError::Transport("Length conversion failed".to_string()))?;
-
-                let total_needed = 4 + frame_len;
-                if self.read_buf.len() >= total_needed {
-                    let raw_payload = &self.read_buf[4..total_needed];
-
-                    let decrypted = match &self.cipher {
-                        Some(cipher) => cipher.decrypt(raw_payload)?,
-                        None => raw_payload.to_vec(),
-                    };
-
-                    self.read_buf.drain(..total_needed);
-
-                    let (msg, _) = FrameCodec::decode(&decrypted)?.ok_or_else(|| {
-                        DeskError::Protocol("Incomplete frame in packet".to_string())
-                    })?;
-
-                    return Ok(msg);
-                }
+            if let Some((msg, used)) = FrameCodec::decode(&self.plain_buf)? {
+                self.plain_buf.drain(..used);
+                return Ok(msg);
             }
-
-            // Read more bytes from the socket
-            let mut chunk = [0u8; 32 * 1024];
-            let read_bytes = self.stream.read(&mut chunk).map_err(DeskError::Io)?;
-            if read_bytes == 0 {
-                return Err(DeskError::Transport("Peer disconnected".to_string()));
-            }
-            self.read_buf.extend_from_slice(&chunk[..read_bytes]);
+            let ct = self.read_raw()?;
+            let transport = self
+                .transport
+                .as_mut()
+                .ok_or_else(|| DeskError::Transport("session is not authenticated".to_string()))?;
+            let plain = transport.decrypt(&ct)?;
+            self.plain_buf.extend_from_slice(&plain);
         }
     }
 
-    /// Performs the host-side pairing handshake.
+    // ---- handshakes ----
+
+    /// Host side: accepts a panel in `PAIR` or `SESSION` mode.
     ///
-    /// Receives `PairRequest { code }` from the viewer, validates it against `pairing_mgr`.
-    /// If rejected, sends `PairResult { success: false }` and returns an error.
-    /// If accepted, sends `PairResult { success: true }`, activates session encryption, and succeeds.
+    /// * `PAIR` requires an active code in `pairing_mgr`; the panel key learned through the
+    ///   PAKE is stored in the manager's trust store and must match the Noise static key.
+    /// * Any panel whose static key is not trusted is rejected.
     pub fn authenticate_as_host(
         &mut self,
         pairing_mgr: &mut PairingManager,
-        host_device_id: &str,
+        identity: &DeviceIdentity,
     ) -> DeskResult<()> {
-        // Send Hello
-        self.send(&Message::Hello {
-            device_id: host_device_id.to_string(),
-            version: PROTOCOL_VERSION.to_string(),
-        })?;
-
-        // Expect Hello from client
-        let client_hello = self.recv()?;
-        let client_id = match client_hello {
-            Message::Hello { device_id, .. } => device_id,
-            other => {
-                return Err(DeskError::Protocol(format!(
-                    "Expected Hello from client, received {other:?}"
-                )))
-            }
-        };
-
-        // Expect PairRequest
-        let pair_msg = self.recv()?;
-        let code = match pair_msg {
-            Message::PairRequest { code } => code,
-            other => {
-                return Err(DeskError::Protocol(format!(
-                    "Expected PairRequest, received {other:?}"
-                )))
-            }
-        };
-
-        let valid = pairing_mgr.verify_code(&code);
-        if !valid {
-            self.send(&Message::PairResult {
-                success: false,
-                error: Some("Invalid or expired pairing code".to_string()),
-            })?;
-            return Err(DeskError::Crypto(format!(
-                "Host rejected pairing attempt from {client_id}: invalid pairing code"
-            )));
-        }
-
-        self.send(&Message::PairResult {
-            success: true,
-            error: None,
-        })?;
-
-        pairing_mgr.add_paired_peer(&client_id);
-
-        // Derive shared session key from verified pairing code
-        let session_key = derive_session_key(code.as_bytes(), client_id.as_bytes());
-        self.cipher = Some(SessionCipher::new(session_key));
-
-        Ok(())
+        self.set_timeout(Some(HANDSHAKE_TIMEOUT))?;
+        let result = self.host_handshake(pairing_mgr, identity);
+        self.set_timeout(Some(DEFAULT_READ_TIMEOUT))?;
+        result
     }
 
-    /// Performs the client-side pairing handshake with the remote host.
-    pub fn authenticate_as_client(
+    fn host_handshake(
         &mut self,
-        client_device_id: &str,
-        pairing_code: &str,
+        pairing_mgr: &mut PairingManager,
+        identity: &DeviceIdentity,
     ) -> DeskResult<()> {
-        // Expect Hello from host
-        let host_hello = self.recv()?;
-        let host_id = match host_hello {
-            Message::Hello { device_id, .. } => device_id,
+        let mut preamble = [0u8; 5];
+        self.read_exact_mapped(&mut preamble)?;
+        if preamble[..4] != PREAMBLE_MAGIC {
+            return Err(DeskError::Protocol(
+                "invalid connection preamble".to_string(),
+            ));
+        }
+
+        let paired_key = match preamble[4] {
+            MODE_PAIR => Some(self.host_pair(pairing_mgr, identity)?),
+            MODE_SESSION => None,
             other => {
                 return Err(DeskError::Protocol(format!(
-                    "Expected Hello from host, received {other:?}"
+                    "unknown connection mode {other:#04x}"
                 )))
             }
         };
 
-        // Send Hello
+        let mut hs = NoiseHandshake::responder(identity)?;
+        let m1 = self.read_raw()?;
+        hs.read_message(&m1)?;
+        let m2 = hs.write_message()?;
+        self.write_raw(&m2)?;
+        let m3 = self.read_raw()?;
+        hs.read_message(&m3)?;
+
+        let remote = hs
+            .remote_static()
+            .ok_or_else(|| DeskError::Crypto("peer static key missing".to_string()))?;
+        if !pairing_mgr.is_trusted(&remote) {
+            return Err(DeskError::Crypto(format!(
+                "rejected unpaired peer {}",
+                device_id_from_public(&remote)
+            )));
+        }
+        if let Some(expected) = paired_key {
+            if expected != remote {
+                return Err(DeskError::Crypto(
+                    "session key differs from the key exchanged during pairing".to_string(),
+                ));
+            }
+        }
+        self.transport = Some(hs.into_transport()?);
+        self.peer_key = Some(remote);
+
+        self.verify_peer_hello(&remote)?;
+        self.send_hello(identity)
+    }
+
+    fn host_pair(
+        &mut self,
+        pairing_mgr: &mut PairingManager,
+        identity: &DeviceIdentity,
+    ) -> DeskResult<[u8; KEY_LEN]> {
+        let code = pairing_mgr
+            .active_code()
+            .map(str::to_string)
+            .ok_or_else(|| DeskError::Crypto("no active pairing code".to_string()))?;
+
+        let panel_msg = self.read_raw()?;
+        let (state, host_msg) = PakeState::start(PakeRole::Host, &code);
+        self.write_raw(&host_msg)?;
+        let keys = match state.finish(&panel_msg) {
+            Ok(k) => k,
+            Err(e) => {
+                pairing_mgr.record_failure();
+                return Err(e);
+            }
+        };
+
+        // The host verifies first and only answers on success, so a wrong-code client never
+        // obtains a value it could test guesses against offline.
+        let tag = self.read_raw()?;
+        if !keys.verify_confirmation(PakeRole::Panel, &tag) {
+            pairing_mgr.record_failure();
+            return Err(DeskError::Crypto(
+                "pairing rejected: invalid pairing code".to_string(),
+            ));
+        }
+        self.write_raw(&keys.confirmation_tag(PakeRole::Host)?)?;
+
+        let sealed = self.read_raw()?;
+        let panel_pub = keys.open_static_key(&sealed)?;
+        self.write_raw(&keys.seal_static_key(identity.public_key())?)?;
+
+        pairing_mgr.consume_code();
+        pairing_mgr.add_trusted(&panel_pub)?;
+        Ok(panel_pub)
+    }
+
+    /// Panel side: connects to a host. With `pairing_code` the first-time PAKE pairing runs
+    /// first and the host key is pinned in `trust`; without it the host key must already be
+    /// pinned.
+    pub fn authenticate_as_client(
+        &mut self,
+        identity: &DeviceIdentity,
+        trust: &mut TrustStore,
+        pairing_code: Option<&str>,
+    ) -> DeskResult<()> {
+        self.set_timeout(Some(HANDSHAKE_TIMEOUT))?;
+        let result = self.client_handshake(identity, trust, pairing_code, &identity.device_id());
+        self.set_timeout(Some(DEFAULT_READ_TIMEOUT))?;
+        result
+    }
+
+    fn client_handshake(
+        &mut self,
+        identity: &DeviceIdentity,
+        trust: &mut TrustStore,
+        pairing_code: Option<&str>,
+        claimed_device_id: &str,
+    ) -> DeskResult<()> {
+        let mode = if pairing_code.is_some() {
+            MODE_PAIR
+        } else {
+            MODE_SESSION
+        };
+        let mut preamble = Vec::with_capacity(5);
+        preamble.extend_from_slice(&PREAMBLE_MAGIC);
+        preamble.push(mode);
+        self.stream.write_all(&preamble).map_err(DeskError::Io)?;
+
+        let paired_key = match pairing_code {
+            Some(code) => {
+                let host_pub = self.client_pair(identity, code)?;
+                trust.add(&host_pub)?;
+                Some(host_pub)
+            }
+            None => None,
+        };
+
+        let mut hs = NoiseHandshake::initiator(identity)?;
+        let m1 = hs.write_message()?;
+        self.write_raw(&m1)?;
+        let m2 = self.read_raw()?;
+        hs.read_message(&m2)?;
+
+        // Pin check happens BEFORE our static key is revealed in message 3.
+        let remote = hs
+            .remote_static()
+            .ok_or_else(|| DeskError::Crypto("host static key missing".to_string()))?;
+        if !trust.is_trusted(&remote) {
+            return Err(DeskError::Crypto(format!(
+                "host {} is not paired (unknown key, possible interception)",
+                device_id_from_public(&remote)
+            )));
+        }
+        if let Some(expected) = paired_key {
+            if expected != remote {
+                return Err(DeskError::Crypto(
+                    "session key differs from the key exchanged during pairing".to_string(),
+                ));
+            }
+        }
+        let m3 = hs.write_message()?;
+        self.write_raw(&m3)?;
+        self.transport = Some(hs.into_transport()?);
+        self.peer_key = Some(remote);
+
+        self.send_hello_as(claimed_device_id)?;
+        self.verify_peer_hello(&remote)
+    }
+
+    fn client_pair(&mut self, identity: &DeviceIdentity, code: &str) -> DeskResult<[u8; KEY_LEN]> {
+        let (state, panel_msg) = PakeState::start(PakeRole::Panel, code);
+        self.write_raw(&panel_msg)?;
+        let rejected = |e: DeskError| match e {
+            DeskError::Transport(_) | DeskError::Io(_) => DeskError::Crypto(
+                "pairing rejected by host (wrong, expired or already used code)".to_string(),
+            ),
+            other => other,
+        };
+        let host_msg = self.read_raw().map_err(rejected)?;
+        let keys: PakeKeys = state.finish(&host_msg)?;
+
+        self.write_raw(&keys.confirmation_tag(PakeRole::Panel)?)?;
+        let host_tag = self.read_raw().map_err(rejected)?;
+        if !keys.verify_confirmation(PakeRole::Host, &host_tag) {
+            return Err(DeskError::Crypto(
+                "host failed key confirmation (wrong code or impostor)".to_string(),
+            ));
+        }
+
+        self.write_raw(&keys.seal_static_key(identity.public_key())?)?;
+        let sealed = self.read_raw().map_err(rejected)?;
+        keys.open_static_key(&sealed)
+    }
+
+    fn send_hello(&mut self, identity: &DeviceIdentity) -> DeskResult<()> {
+        self.send_hello_as(&identity.device_id())
+    }
+
+    fn send_hello_as(&mut self, device_id: &str) -> DeskResult<()> {
         self.send(&Message::Hello {
-            device_id: client_device_id.to_string(),
+            device_id: device_id.to_string(),
             version: PROTOCOL_VERSION.to_string(),
-        })?;
+        })
+    }
 
-        // Send PairRequest
-        self.send(&Message::PairRequest {
-            code: pairing_code.to_string(),
-        })?;
-
-        // Expect PairResult
-        let result_msg = self.recv()?;
-        match result_msg {
-            Message::PairResult {
-                success: true,
-                error: _,
-            } => {
-                let session_key =
-                    derive_session_key(pairing_code.as_bytes(), client_device_id.as_bytes());
-                self.cipher = Some(SessionCipher::new(session_key));
+    /// Reads the peer's `Hello` and checks that the claimed ID belongs to its proven key.
+    fn verify_peer_hello(&mut self, remote: &[u8; KEY_LEN]) -> DeskResult<()> {
+        match self.recv()? {
+            Message::Hello { device_id, version } => {
+                if device_id != device_id_from_public(remote) {
+                    return Err(DeskError::Crypto(format!(
+                        "peer claimed device id {device_id} that does not match its key"
+                    )));
+                }
+                if version != PROTOCOL_VERSION {
+                    return Err(DeskError::Protocol(format!(
+                        "protocol version mismatch: {version}"
+                    )));
+                }
                 Ok(())
             }
-            Message::PairResult {
-                success: false,
-                error,
-            } => Err(DeskError::Crypto(format!(
-                "Remote host {host_id} rejected pairing code: {}",
-                error.unwrap_or_else(|| "unspecified error".to_string())
-            ))),
             other => Err(DeskError::Protocol(format!(
-                "Expected PairResult, received {other:?}"
+                "Expected Hello, received {other:?}"
             ))),
         }
+    }
+
+    /// Test hook: client handshake claiming a foreign device id.
+    #[cfg(test)]
+    pub(crate) fn authenticate_as_client_claiming(
+        &mut self,
+        identity: &DeviceIdentity,
+        trust: &mut TrustStore,
+        claimed_device_id: &str,
+    ) -> DeskResult<()> {
+        self.set_timeout(Some(HANDSHAKE_TIMEOUT))?;
+        self.client_handshake(identity, trust, None, claimed_device_id)
     }
 
     /// Measures network latency by sending a `Ping` and awaiting the corresponding `Pong`.
