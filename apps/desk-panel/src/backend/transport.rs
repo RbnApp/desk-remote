@@ -10,7 +10,7 @@ use desk_config::PairedPc;
 use desk_crypto::{DeviceIdentity, TrustStore};
 use desk_error::{DeskError, DeskResult};
 use desk_paths::DeskPaths;
-use desk_protocol::Message;
+use desk_protocol::{Message, NoticeKind};
 use desk_transport::{
     connect_timeout, is_this_pc, primary_local_ip, LanBrowser, PeerTarget, Session, SessionReader,
     SessionWriter, TailscaleDetector, DEFAULT_PORT,
@@ -512,6 +512,9 @@ fn spawn_reader(
                         inner.record(&device_id, Ok(ms));
                         sink(SessionEvent::Rtt { ms });
                     }
+                    Ok(Message::Notice { kind }) => sink(SessionEvent::Notice {
+                        kind: notice_code(kind),
+                    }),
                     Ok(msg) => stream.handle(msg, &sink),
                     Err(e) => {
                         if !live.stop.load(Ordering::Relaxed) {
@@ -533,6 +536,15 @@ fn spawn_reader(
         })
         .map(|_| ())
         .map_err(DeskError::Io)
+}
+
+/// Stable snake_case code of a host notice, handed to the viewer UI.
+fn notice_code(kind: NoticeKind) -> &'static str {
+    match kind {
+        NoticeKind::DisconnectedByHost => "disconnected_by_host",
+        NoticeKind::ViewOnlyOn => "view_only_on",
+        NoticeKind::ViewOnlyOff => "view_only_off",
+    }
 }
 
 /// Turns `VideoConfig`/`VideoFrame` into UI events; the browser needs an `avc1.*` codec string.

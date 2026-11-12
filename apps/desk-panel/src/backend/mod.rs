@@ -66,6 +66,10 @@ pub enum PairError {
     Rejected,
     /// The host does not know this panel, or this panel does not know the host.
     Unpaired,
+    /// The PC user declined the incoming connection.
+    Denied,
+    /// Nobody on the PC answered the incoming connection in time.
+    NoAnswer,
 }
 
 impl PairError {
@@ -78,6 +82,8 @@ impl PairError {
             Self::Network => "network",
             Self::Rejected => "rejected",
             Self::Unpaired => "unpaired",
+            Self::Denied => "denied",
+            Self::NoAnswer => "no_answer",
         }
     }
 }
@@ -124,6 +130,9 @@ pub enum SessionEvent {
     },
     /// Round-trip time from `Ping/Pong`.
     Rtt { ms: u32 },
+    /// The PC user changed what this viewer may do (`Message::Notice`); `kind` is the
+    /// snake_case `NoticeKind` (`disconnected_by_host`, `view_only_on`, `view_only_off`).
+    Notice { kind: &'static str },
     /// The link ended (peer gone, network drop, or local close).
     Closed,
 }
@@ -157,6 +166,10 @@ pub trait Backend: Send + Sync {
     }
     /// Test hook: break the active link and make the next connects fail.
     fn simulate_drop(&self) {}
+    /// Test hook: push a host notice (`kind` as in [`SessionEvent::Notice`]) to the live session.
+    fn simulate_notice(&self, _kind: &str) {}
+    /// Test hook: make the next connect fail with this `PairError` code.
+    fn simulate_connect_failure(&self, _code: &str) {}
 }
 
 /// Picks the backend for this build.

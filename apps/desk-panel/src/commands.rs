@@ -200,6 +200,9 @@ pub async fn viewer_connect(
             SessionEvent::Rtt { ms } => {
                 InvokeResponseBody::Json(serde_json::json!({"type":"rtt","ms":ms}).to_string())
             }
+            SessionEvent::Notice { kind } => InvokeResponseBody::Json(
+                serde_json::json!({"type":"notice","kind":kind}).to_string(),
+            ),
             SessionEvent::Closed => {
                 InvokeResponseBody::Json(serde_json::json!({"type":"closed"}).to_string())
             }
@@ -271,6 +274,18 @@ pub async fn tailscale_connect() -> Result<(), String> {
 #[tauri::command]
 pub fn demo_drop(state: State<'_, AppState>) {
     state.backend.simulate_drop();
+}
+
+/// Test hook of the demo backend; a no-op elsewhere.
+#[tauri::command]
+pub fn demo_notice(state: State<'_, AppState>, kind: String) {
+    state.backend.simulate_notice(&kind);
+}
+
+/// Test hook of the demo backend; a no-op elsewhere.
+#[tauri::command]
+pub fn demo_connect_failure(state: State<'_, AppState>, code: String) {
+    state.backend.simulate_connect_failure(&code);
 }
 
 #[cfg(test)]

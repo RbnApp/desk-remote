@@ -3,6 +3,7 @@
 import { S, appWindow, go, invoke, refocus, render } from "./core.js";
 import { applyTheme, loadCatalog, loadPreviews, watchSystemTheme } from "./theme.js";
 import { loadPcs, refreshResults } from "./list.js";
+import { incomingActions, setIncomingEnabled, startIncoming } from "./incoming.js";
 import { onCodeInput, onTargetInput, pair, pickTarget, resetPair, submitPair } from "./pair.js";
 import {
   connectTailscale,
@@ -46,6 +47,7 @@ const actions = {
   "ts-keys": () => openKeysPage(),
   "ts-install": () => openInstallPage(),
   "ts-copy": () => copyKeyCommand(),
+  ...incomingActions,
 };
 
 document.addEventListener("click", (e) => {
@@ -70,6 +72,8 @@ document.addEventListener("change", async (e) => {
     refocus('input[name="view"]:checked');
   } else if (name === "palette" || name === "mode" || name === "lang") {
     await onSettingChange(name, value);
+  } else if (id === "incEnabled") {
+    setIncomingEnabled(checked);
   } else if (id === "ctl") {
     setControl(checked);
   }
@@ -116,6 +120,7 @@ async function boot() {
     render();
     loadPcs();
     startSidebarPolling();
+    startIncoming();
   } finally {
     await appWindow().show();
   }

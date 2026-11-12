@@ -8,6 +8,11 @@
     "core:window:allow-show",
     "core:window:allow-set-fullscreen",
     "core:window:allow-is-fullscreen",
+    "core:window:allow-is-minimized",
+    "core:window:allow-unminimize",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-request-user-attention",
+    "core:window:allow-set-title",
     "opener:allow-open-url"
   ]
 }

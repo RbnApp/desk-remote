@@ -213,7 +213,9 @@
     },
     "toast": {
       "control": "Control on — mouse and keyboard now go to the remote PC",
-      "viewonly": "Back to view-only mode"
+      "viewonly": "Back to view-only mode",
+      "host_viewonly_on": "{name} turned control off — watch only",
+      "host_viewonly_off": "Control is allowed again"
     },
     "connecting": {
       "title": "Connecting to {name}…",
@@ -235,6 +237,22 @@
     "demo": {
       "title": "Demo controls",
       "drop": "Drop connection"
+    },
+    "ended": {
+      "title": "{name} ended the session",
+      "body": "The person at that PC disconnected you."
+    },
+    "denied": {
+      "title": "{name} refused the connection",
+      "body": "The person at that PC declined the request. You can try again."
+    },
+    "noanswer": {
+      "title": "{name} didn't answer",
+      "body": "Nobody accepted the request in time. Ask them to check the screen, then try again."
+    },
+    "hostviewonly": {
+      "pill": "Watch only (set on that PC)",
+      "tip": "The person at {name} allows watching only; input is off."
     }
   },
   "set": {
@@ -319,5 +337,70 @@
   },
   "common": {
     "close": "Close"
+  },
+  "incoming": {
+    "nav": "This PC",
+    "on_short": "On",
+    "title": "Connections to this PC",
+    "sub": "Let other devices running Desk-Remote connect to this PC.",
+    "loading": "Loading…",
+    "unavailable": "This build can't accept connections yet.",
+    "toggle": "Accept connections",
+    "on": "On",
+    "off": "Off",
+    "off_hint": "If you turn this on, other devices can connect to this PC while the app is open.",
+    "on_hint": "Other devices can ask to connect while Desk-Remote is open. You approve every request.",
+    "pc_name": "Name of this PC",
+    "live": {
+      "hint": "You can end it from the bar at the top."
+    },
+    "code": {
+      "title": "Connection code",
+      "hint": "Enter this code on the other device. Each code works once.",
+      "expires": "New code in {s} s",
+      "new": "New code",
+      "copy": "Copy code",
+      "copied": "Code copied"
+    },
+    "addr": {
+      "title": "Addresses",
+      "sub": "The other device can also connect to one of these addresses.",
+      "hint": "Click to copy",
+      "copied": "Address copied",
+      "none": "No network address found."
+    },
+    "mode": {
+      "view": "Watch only",
+      "control": "Control"
+    },
+    "dialog": {
+      "title": "{name} wants to connect to this PC",
+      "body": "Whoever you allow can see your screen. Only accept devices you know.",
+      "fingerprint": "Fingerprint",
+      "known": "Known device",
+      "unknown": "New device",
+      "always": "Always allow this device",
+      "countdown": "No answer in {s} s counts as Reject.",
+      "view": "Watch only",
+      "control": "Allow control",
+      "reject": "Reject"
+    },
+    "band": {
+      "title": "This PC is being watched",
+      "give": "Allow control",
+      "take": "Take control back",
+      "disconnect": "Disconnect"
+    },
+    "ended": {
+      "host": "You ended the connection.",
+      "peer": "The other device left.",
+      "timeout": "The connection timed out.",
+      "rejected": "The request was rejected."
+    },
+    "demo": {
+      "title": "Demo controls",
+      "new": "Simulate new device",
+      "known": "Simulate known device"
+    }
   }
 }
