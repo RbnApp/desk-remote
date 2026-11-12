@@ -4,16 +4,30 @@ import { S, $, esc, ic, invoke, mountApp, screens, t } from "./core.js";
 import { Shell } from "./components.js";
 import { loadPcs } from "./list.js";
 
-const KNOWN_ERRORS = ["invalid", "expired", "used", "network"];
+const KNOWN_ERRORS = ["invalid", "expired", "used", "network", "rejected", "unpaired"];
+const FOUND_POLL_MS = 3000;
 const CODE_LENGTH = 8;
 
-export const pair = { code: "", name: "", phase: "idle", err: null, pcName: "", newId: null };
+export const pair = { code: "", name: "", target: "", found: [], phase: "idle", err: null, pcName: "", newId: null };
 
 export function resetPair() {
-  Object.assign(pair, { code: "", name: "", phase: "idle", err: null, pcName: "", newId: null });
+  Object.assign(pair, { code: "", name: "", target: "", phase: "idle", err: null, pcName: "", newId: null });
 }
 
 const codeComplete = () => pair.code.replace("-", "").length === CODE_LENGTH;
+const ready = () => codeComplete() && pair.target.trim() !== "";
+
+/** Chips for the PCs found on the LAN / tailnet; the selected one fills the address field. */
+function foundList() {
+  if (!pair.found.length) return `<div class="hint">${t("pair.target.none")}</div>`;
+  const chips = pair.found
+    .map((c) => {
+      const tag = c.paired ? ` · ${t("pair.target.paired")}` : "";
+      return `<button type="button" class="chip" data-act="pick-target" data-address="${esc(c.address)}" aria-pressed="${pair.target.trim() === c.address}">${ic("link")}${esc(c.name)} <small>${t(`pair.target.${c.source}`)}${tag}</small></button>`;
+    })
+    .join("");
+  return `<div class="chips" role="group" aria-label="${t("pair.target.found")}">${chips}</div>`;
+}
 
 /** Normalises typed input to `ABCD-2345`. */
 export function formatCode(raw) {
@@ -36,9 +50,11 @@ function form() {
   const submit = busy
     ? `${ic("arc", "spin")}${t("pair.verifying")}`
     : `${ic("check")}${t("pair.submit")}`;
-  const disabled = !codeComplete() || busy ? 'aria-disabled="true" disabled' : "";
+  const disabled = !ready() || busy ? 'aria-disabled="true" disabled' : "";
   const demoHint = S.info.demo ? `<div class="hint">${t("pair.demo")}</div>` : "";
   return `<form class="panel" id="pairForm" novalidate><h2>${t("pair.form.title")}</h2>
+    <div class="field"><label for="target">${t("pair.target.label")}</label><input id="target" class="input" autocomplete="off" spellcheck="false" placeholder="${esc(t("pair.target.ph"))}" value="${esc(pair.target)}" aria-describedby="targetHint" ${busy ? "readonly" : ""}><div class="hint" id="targetHint">${t("pair.target.hint")}</div>
+    <div id="found" aria-live="polite">${foundList()}</div></div>
     <div class="field"><label for="code">${t("pair.code.label")}</label><input id="code" class="input code" inputmode="text" autocomplete="off" spellcheck="false" maxlength="9" placeholder="XXXX-XXXX" value="${esc(pair.code)}" aria-describedby="codeHint codeErr" ${pair.err ? 'aria-invalid="true"' : ""} ${busy ? "readonly" : ""}><div class="hint" id="codeHint">${t("pair.code.hint")}</div>
     <div id="codeErr" role="alert">${errorBox()}</div></div>
     <div class="field"><label for="pname">${t("pair.name.label")}</label><input id="pname" class="input" placeholder="${esc(t("pair.name.ph"))}" value="${esc(pair.name)}" autocomplete="off" aria-describedby="pnameHint" ${busy ? "readonly" : ""}><div class="hint" id="pnameHint">${t("pair.name.hint")}</div></div>
@@ -56,8 +72,49 @@ function renderPair() {
   const head = `<header class="head"><button class="btn icon ghost" data-go="list" aria-label="${t("pair.back")}">${ic("back")}</button><div class="grow"><h1>${t("pair.title")}</h1><div class="sub">${t("pair.sub")}</div></div></header>`;
   const main = pair.phase === "success" ? successBox() : form();
   mountApp(Shell(`<div class="pair" style="max-width:none">${main}${steps()}</div>`, "pair", head));
-  const input = $("#code");
-  if (input && pair.phase === "idle") input.focus();
+  const input = $("#target");
+  if (input && pair.phase === "idle" && !pair.target) input.focus();
+  else if (pair.phase === "idle") $("#code")?.focus();
+  loadFound();
+}
+
+async function loadFound() {
+  try {
+    pair.found = await invoke("discover_pcs");
+  } catch {
+    pair.found = [];
+  }
+  const host = $("#found");
+  if (host && S.screen === "pair" && pair.phase !== "success") host.innerHTML = foundList();
+}
+
+setInterval(() => {
+  if (S.screen === "pair" && pair.phase === "idle") loadFound();
+}, FOUND_POLL_MS);
+
+/** Updates the enabled state of the submit button. */
+function syncSubmit() {
+  const button = $("#pairBtn");
+  if (!button) return;
+  button.disabled = !ready();
+  if (ready()) button.removeAttribute("aria-disabled");
+  else button.setAttribute("aria-disabled", "true");
+}
+
+export function onTargetInput(value) {
+  pair.target = value;
+  pair.err = null;
+  $("#codeErr").innerHTML = "";
+  syncSubmit();
+}
+
+export function pickTarget(address) {
+  pair.target = address;
+  const input = $("#target");
+  if (input) input.value = address;
+  $("#found").innerHTML = foundList();
+  syncSubmit();
+  $("#code")?.focus();
 }
 
 /** Live formatting of the code field without re-rendering the form. */
@@ -67,19 +124,16 @@ export function onCodeInput(input) {
   pair.err = null;
   input.removeAttribute("aria-invalid");
   $("#codeErr").innerHTML = "";
-  const button = $("#pairBtn");
-  button.disabled = !codeComplete();
-  if (codeComplete()) button.removeAttribute("aria-disabled");
-  else button.setAttribute("aria-disabled", "true");
+  syncSubmit();
 }
 
 export async function submitPair() {
-  if (!codeComplete() || pair.phase === "verifying") return;
+  if (!ready() || pair.phase === "verifying") return;
   pair.phase = "verifying";
   pair.err = null;
   renderPair();
   try {
-    const pc = await invoke("pair_pc", { code: pair.code, name: pair.name.trim() || null });
+    const pc = await invoke("pair_pc", { target: pair.target.trim(), code: pair.code, name: pair.name.trim() || null });
     pair.phase = "success";
     pair.pcName = pc.name;
     pair.newId = pc.id;

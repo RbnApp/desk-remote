@@ -47,6 +47,7 @@
   },
   "warn": {
     "latency": "Yüksek gecikme",
+    "unpaired": "Bu PC paneli artık tanımıyor",
     "agent": "Aracı güncel değil"
   },
   "list": {
@@ -102,7 +103,17 @@
     },
     "code": {
       "label": "PC'de görünen kod",
-      "hint": "8 karakter. Kod 10 dakika geçerlidir ve yalnız bir kez kullanılır."
+      "hint": "8 karakter. Kod 5 dakika geçerlidir ve yalnız bir kez kullanılır."
+    },
+    "target": {
+      "label": "PC adresi",
+      "ph": "192.168.1.20 ya da ofis-pc",
+      "hint": "Aşağıda ağında ya da Tailscale'de bulunan bir PC'yi seç, ya da IP adresini veya adını yaz.",
+      "found": "Yakında bulunanlar",
+      "none": "Henüz PC bulunamadı. Adresi elle yaz.",
+      "lan": "Yerel ağ",
+      "tailscale": "Tailscale",
+      "paired": "eşleşmiş"
     },
     "name": {
       "label": "PC adı (isteğe bağlı)",
@@ -142,6 +153,18 @@
       "network": {
         "title": "PC'ye ulaşılamadı",
         "detail": "Bağlantını (yerel ağ ya da Tailscale) kontrol edip tekrar dene."
+      },
+      "rejected": {
+        "title": "PC kodu reddetti",
+        "detail": "Kod yanlış, süresi dolmuş ya da daha önce kullanılmış. PC'de “Yeni kod göster”e tıkla ve tekrar dene."
+      },
+      "unpaired": {
+        "title": "Eşleşmemiş",
+        "detail": "Bu PC bu paneli tanımıyor. Yeni bir kodla yeniden eşleştir."
+      },
+      "target": {
+        "title": "Adres eksik",
+        "detail": "Listeden bir PC seç ya da IP adresini veya adını yaz."
       }
     },
     "ok": {
@@ -197,7 +220,9 @@
       "body": "{name} yanıt vermiyor. Yeniden bağlanılıyor ({n}/{max})…",
       "retry": "Şimdi dene",
       "fail_title": "Bağlanılamadı",
-      "fail_body": "{name} {max} denemede de yanıt vermedi. PC kapalı ya da ağdan kopmuş olabilir."
+      "fail_body": "{name} {max} denemede de yanıt vermedi. PC kapalı ya da ağdan kopmuş olabilir.",
+      "unpaired_title": "PC bağlantıyı reddetti",
+      "unpaired_body": "{name} bu paneli artık tanımıyor ya da anahtarı değişti. PC'de yeni kodla yeniden eşleştir."
     },
     "unsupported": {
       "title": "Bu sistem H.264 çözemiyor",

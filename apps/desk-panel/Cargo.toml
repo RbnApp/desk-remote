@@ -16,11 +16,14 @@ demo = []
 
 [dependencies]
 desk-config = { workspace = true }
+desk-crypto = { workspace = true }
 desk-error = { workspace = true }
 desk-i18n = { workspace = true }
 desk-logger = { workspace = true }
 desk-paths = { workspace = true }
+desk-protocol = { workspace = true }
 desk-theme = { workspace = true }
+desk-transport = { workspace = true }
 desk-version = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

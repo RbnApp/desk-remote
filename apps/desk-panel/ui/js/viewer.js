@@ -22,6 +22,7 @@ const V = {
   decodeMs: 0,
   hardware: null,
   retry: 1,
+  reason: "",
   token: 0,
   pipeline: null,
   retryTimer: null,
@@ -66,6 +67,9 @@ function overlay() {
     case "lost":
       return overlayCard("bad", ic("wifi-off"), t("view.lost.title"), t("view.lost.body", { name, n: V.retry, max: MAX_RETRY }), retry + back);
     case "failed":
+      if (V.reason === "unpaired") {
+        return overlayCard("bad", ic("alert"), t("view.lost.unpaired_title"), t("view.lost.unpaired_body", { name }), back);
+      }
       return overlayCard("bad", ic("alert"), t("view.lost.fail_title"), t("view.lost.fail_body", { name, max: MAX_RETRY }), retry + back);
     case "unsupported":
       return overlayCard("bad", ic("alert"), t("view.unsupported.title"), t("view.unsupported.body"), back);
@@ -172,9 +176,17 @@ async function startSession() {
 }
 
 async function attempt() {
+  V.reason = "";
   try {
     await startSession();
-  } catch {
+  } catch (reason) {
+    V.reason = typeof reason === "string" ? reason : "";
+    if (V.reason === "unpaired") {
+      V.token += 1;
+      V.phase = "failed";
+      paint();
+      return;
+    }
     enterLost(V.retry);
   }
 }

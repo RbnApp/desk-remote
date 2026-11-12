@@ -9,6 +9,9 @@ pub struct PairedPc {
     pub id: String,
     /// Display name chosen at pairing time.
     pub name: String,
+    /// Last known `host:port` (LAN or Tailscale) used to reach the PC without discovery.
+    #[serde(default)]
+    pub address: Option<String>,
 }
 
 /// Management panel configuration schema.
@@ -91,7 +94,7 @@ pub struct ServiceConfig {
 impl Default for ServiceConfig {
     fn default() -> Self {
         Self {
-            control_port: 50051,
+            control_port: desk_paths::DEFAULT_PORT,
             relay_url: None,
             log_level: "info".to_string(),
             allow_unattended: true,

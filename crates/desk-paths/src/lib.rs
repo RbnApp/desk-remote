@@ -4,6 +4,8 @@ use desk_error::{DeskError, DeskResult};
 use std::path::{Path, PathBuf};
 
 const APP_NAME: &str = "DeskRemote";
+/// TCP port the PC agent listens on and the panel dials by default.
+pub const DEFAULT_PORT: u16 = 47800;
 const DEFAULT_SYSTEM_BASE: &str = r"C:\ProgramData";
 /// Tray icon location relative to the helper executable.
 pub const TRAY_ICON_RELATIVE: &str = r"icons\tray\desk-remote.ico";
@@ -82,6 +84,11 @@ impl DeskPaths {
     /// Identity keypair file path (`<ProgramData>/DeskRemote/identity.key`).
     pub fn identity_key_path(&self) -> PathBuf {
         self.system_root.join("identity.key")
+    }
+
+    /// Viewer-panel identity keypair (`<AppData>/DeskRemote/panel_identity.key`, DPAPI).
+    pub fn panel_identity_path(&self) -> PathBuf {
+        self.user_root.join("panel_identity.key")
     }
 
     /// Trusted viewer-panel list on the host (`<ProgramData>/DeskRemote/trusted_peers.dat`, DPAPI).

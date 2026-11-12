@@ -52,15 +52,17 @@ export function ConnectBtn(pc, small) {
 
 const warnText = (pc) => (pc.warn ? t(`warn.${pc.warn}`) : "");
 
+const latency = (pc) => (pc.status === "online" || pc.status === "warning") && pc.latency_ms != null ? ` · ${pc.latency_ms} ms` : "";
+
 export function PcCard(pc) {
-  const seen = `<div class="meta">${ic("clock")}${t("last.label")}: ${lastSeen(pc)}</div>`;
+  const seen = `<div class="meta">${ic("clock")}${t("last.label")}: ${lastSeen(pc)}${latency(pc)}</div>`;
   const warn = pc.warn ? `<div class="meta w">${ic("alert")}${warnText(pc)}</div>` : "";
   return `<article class="card" aria-label="${esc(pc.name)}">${Thumb(pc)}<div class="body"><div class="top"><div class="name" title="${esc(pc.name)}">${esc(pc.name)}</div>${Badge(pc.status)}</div>${warn}${seen}<div class="act">${ConnectBtn(pc)}</div></div></article>`;
 }
 
 export function PcRow(pc) {
   const warn = pc.warn ? `<div class="sub2" style="color:var(--warning)">${warnText(pc)}</div>` : "";
-  return `<tr><td><div class="name" title="${esc(pc.name)}">${esc(pc.name)}</div>${warn}</td><td>${Badge(pc.status)}</td><td class="sub2">${lastSeen(pc)}</td><td class="act">${ConnectBtn(pc, true)}</td></tr>`;
+  return `<tr><td><div class="name" title="${esc(pc.name)}">${esc(pc.name)}</div>${warn}</td><td>${Badge(pc.status)}</td><td class="sub2">${lastSeen(pc)}${latency(pc)}</td><td class="act">${ConnectBtn(pc, true)}</td></tr>`;
 }
 
 export function StateBlock(icon, title, body, buttons) {

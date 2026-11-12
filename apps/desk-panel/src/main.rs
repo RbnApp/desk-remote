@@ -5,7 +5,6 @@
 
 mod backend;
 mod commands;
-mod tailscale;
 
 use commands::AppState;
 use desk_config::{ConfigManager, PanelConfig};
@@ -41,6 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             commands::get_theme,
             commands::palette_previews,
             commands::list_pcs,
+            commands::discover_pcs,
             commands::pair_pc,
             commands::viewer_connect,
             commands::viewer_disconnect,

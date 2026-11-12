@@ -33,13 +33,27 @@ const PREAMBLE_MAGIC: [u8; 4] = *b"DRM1";
 const MODE_SESSION: u8 = 0x02;
 const MODE_PAIR: u8 = 0x01;
 
+/// Encodes `msg` and encrypts it into length-prefixed Noise chunks ready for the socket.
+pub(crate) fn seal_message(transport: &mut NoiseTransport, msg: &Message) -> DeskResult<Vec<u8>> {
+    let frame = FrameCodec::encode(msg)?;
+    let mut wire = Vec::with_capacity(frame.len() + frame.len() / 1024 * 24 + 64);
+    for chunk in frame.chunks(NOISE_MAX_PLAINTEXT) {
+        let ct = transport.encrypt(chunk)?;
+        let len = u32::try_from(ct.len())
+            .map_err(|_| DeskError::Transport("chunk length overflow".to_string()))?;
+        wire.extend_from_slice(&len.to_be_bytes());
+        wire.extend_from_slice(&ct);
+    }
+    Ok(wire)
+}
+
 /// Active remote desktop transport session.
 pub struct Session {
-    stream: TcpStream,
-    peer_addr: SocketAddr,
-    transport: Option<NoiseTransport>,
-    plain_buf: Vec<u8>,
-    peer_key: Option<[u8; KEY_LEN]>,
+    pub(crate) stream: TcpStream,
+    pub(crate) peer_addr: SocketAddr,
+    pub(crate) transport: Option<NoiseTransport>,
+    pub(crate) plain_buf: Vec<u8>,
+    pub(crate) peer_key: Option<[u8; KEY_LEN]>,
 }
 
 impl Session {
@@ -107,7 +121,7 @@ impl Session {
         self.stream.flush().map_err(DeskError::Io)
     }
 
-    fn read_raw(&mut self) -> DeskResult<Vec<u8>> {
+    pub(crate) fn read_raw(&mut self) -> DeskResult<Vec<u8>> {
         let mut len_bytes = [0u8; 4];
         self.read_exact_mapped(&mut len_bytes)?;
         let len = usize::try_from(u32::from_be_bytes(len_bytes))
@@ -136,20 +150,11 @@ impl Session {
 
     /// Sends a protocol message; fails before authentication completed.
     pub fn send(&mut self, msg: &Message) -> DeskResult<()> {
-        let frame = FrameCodec::encode(msg)?;
         let transport = self
             .transport
             .as_mut()
             .ok_or_else(|| DeskError::Transport("session is not authenticated".to_string()))?;
-
-        let mut wire = Vec::with_capacity(frame.len() + frame.len() / 1024 * 24 + 64);
-        for chunk in frame.chunks(NOISE_MAX_PLAINTEXT) {
-            let ct = transport.encrypt(chunk)?;
-            let len = u32::try_from(ct.len())
-                .map_err(|_| DeskError::Transport("chunk length overflow".to_string()))?;
-            wire.extend_from_slice(&len.to_be_bytes());
-            wire.extend_from_slice(&ct);
-        }
+        let wire = seal_message(transport, msg)?;
         self.stream.write_all(&wire).map_err(DeskError::Io)?;
         self.stream.flush().map_err(DeskError::Io)
     }
