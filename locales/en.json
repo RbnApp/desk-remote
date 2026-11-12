@@ -275,6 +275,22 @@
     },
     "saved": "Settings saved"
   },
+  "tray": {
+    "tooltip_idle": "Desk-Remote — ready",
+    "tooltip_viewed": "Desk-Remote — being viewed ({n})",
+    "show_code": "Show pairing code",
+    "viewers": "Connected viewers",
+    "viewers_none": "Nobody is viewing this PC.",
+    "viewers_some": "Viewing this PC now:",
+    "balloon_title": "Your screen is being viewed",
+    "balloon_body": "A paired device is watching this PC.",
+    "code_title": "Pairing code",
+    "code_hint": "Type this code in the Desk-Remote panel.",
+    "code_expires": "Valid for {m}:{s}",
+    "code_expired": "The code has expired.",
+    "code_new": "New code",
+    "code_unavailable": "The service is not responding."
+  },
   "common": {
     "close": "Close"
   }

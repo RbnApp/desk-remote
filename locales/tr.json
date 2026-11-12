@@ -275,6 +275,22 @@
     },
     "saved": "Ayarlar kaydedildi"
   },
+  "tray": {
+    "tooltip_idle": "Desk-Remote — hazır",
+    "tooltip_viewed": "Desk-Remote — izleniyor ({n})",
+    "show_code": "Eşleştirme kodunu göster",
+    "viewers": "Bağlı izleyiciler",
+    "viewers_none": "Bu PC'yi şu an kimse izlemiyor.",
+    "viewers_some": "Şu an bu PC'yi izleyenler:",
+    "balloon_title": "Ekranın izleniyor",
+    "balloon_body": "Eşleşmiş bir cihaz bu PC'yi izliyor.",
+    "code_title": "Eşleştirme kodu",
+    "code_hint": "Bu kodu Desk-Remote panelinde yaz.",
+    "code_expires": "Geçerlilik: {m}:{s}",
+    "code_expired": "Kodun süresi doldu.",
+    "code_new": "Yeni kod",
+    "code_unavailable": "Hizmet yanıt vermiyor."
+  },
   "common": {
     "close": "Kapat"
   }

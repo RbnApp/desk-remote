@@ -94,7 +94,7 @@ export function Shell(inner, active, head) {
   const nav = (id, icon, label, extra = "") =>
     `<button data-go="${id}" ${active === id || (id === "list" && active === "pair") ? 'aria-current="page"' : ""}>${ic(icon)}<span>${label}</span>${extra}</button>`;
   const narrow = active === "settings" || active === "pair" ? "narrow" : "";
-  return `<aside class="side"><div class="brand"><div class="logo">${ic("monitor")}</div><span>${t("app.name")}</span></div>
+  return `<aside class="side"><div class="brand"><div class="logo">${ic("logo")}</div><span>${t("app.name")}</span></div>
     <nav class="nav" aria-label="${t("nav.main")}">${nav("list", "grid", t("nav.pcs"), `<span class="count">${S.pcs.length}</span>`)}${nav("settings", "settings", t("nav.settings"))}</nav>
     ${NetStatus()}</aside>
     <main class="main">${head}<div class="content ${narrow}" id="content">${inner}</div></main>`;

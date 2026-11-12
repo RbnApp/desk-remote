@@ -4,7 +4,7 @@
 //! CRC32-validated [`FrameCodec`] used across all Desk-Remote connections.
 
 use desk_error::{DeskError, DeskResult};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 /// Canonical wire protocol version string.
 pub const PROTOCOL_VERSION: &str = "0.1.0";
@@ -100,6 +100,11 @@ pub struct FrameCodec;
 impl FrameCodec {
     /// Encodes a [`Message`] into a framed byte buffer.
     pub fn encode(msg: &Message) -> DeskResult<Vec<u8>> {
+        Self::encode_value(msg)
+    }
+
+    /// Encodes any serde value (for example the IPC message enum) with the same frame layout.
+    pub fn encode_value<T: Serialize>(msg: &T) -> DeskResult<Vec<u8>> {
         let payload = postcard::to_stdvec(msg)
             .map_err(|e| DeskError::Protocol(format!("Failed to serialize message: {e}")))?;
 
@@ -128,6 +133,11 @@ impl FrameCodec {
     /// Returns `Ok(Some((message, consumed_bytes)))` on success, `Ok(None)` if more
     /// bytes are required, or `Err(DeskError)` on framing or integrity errors.
     pub fn decode(buf: &[u8]) -> DeskResult<Option<(Message, usize)>> {
+        Self::decode_value(buf)
+    }
+
+    /// Decodes one serde value of type `T` from a continuous byte buffer (see [`Self::decode`]).
+    pub fn decode_value<T: DeserializeOwned>(buf: &[u8]) -> DeskResult<Option<(T, usize)>> {
         if buf.len() < 12 {
             return Ok(None);
         }

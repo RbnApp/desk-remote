@@ -34,10 +34,16 @@ pub enum PeerTarget {
     LoopbackBridge(SocketAddr),
 }
 
-/// TCP port a Desk-Remote host listens on unless its address says otherwise.
-pub const DEFAULT_PORT: u16 = 47800;
+/// TCP port a Desk-Remote host listens on unless its address says otherwise (single source: desk-paths).
+pub use desk_paths::DEFAULT_PORT;
 
 impl PeerTarget {
+    /// Loopback target on `port` (same-machine viewer, tests, tsnet bridge).
+    #[must_use]
+    pub fn loopback(port: u16) -> Self {
+        Self::Lan(SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, port)))
+    }
+
     /// Parses `ip`, `ip:port`, `host` or `host:port` (the port defaults to [`DEFAULT_PORT`]).
     ///
     /// Tailnet addresses (`100.64.0.0/10`) become [`PeerTarget::Tailscale`], everything else

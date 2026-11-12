@@ -179,6 +179,39 @@ impl Session {
         }
     }
 
+    /// Like [`Self::recv`] but returns `Ok(None)` when no data arrives within `wait`.
+    ///
+    /// Readiness is probed with `peek`, so a timeout can never leave a half-read chunk
+    /// behind: once the first byte is available the whole chunk is read with the normal
+    /// read timeout. This lets one thread multiplex sending and receiving on a session.
+    pub fn recv_timeout(&mut self, wait: Duration) -> DeskResult<Option<Message>> {
+        if let Some((msg, used)) = FrameCodec::decode(&self.plain_buf)? {
+            self.plain_buf.drain(..used);
+            return Ok(Some(msg));
+        }
+        self.stream
+            .set_read_timeout(Some(wait.max(Duration::from_millis(1))))
+            .map_err(DeskError::Io)?;
+        let mut probe = [0u8; 1];
+        let probed = self.stream.peek(&mut probe);
+        self.stream
+            .set_read_timeout(Some(DEFAULT_READ_TIMEOUT))
+            .map_err(DeskError::Io)?;
+        match probed {
+            Ok(0) => Err(DeskError::Transport("Peer disconnected".to_string())),
+            Ok(_) => self.recv().map(Some),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                Ok(None)
+            }
+            Err(e) => Err(DeskError::Io(e)),
+        }
+    }
+
     // ---- handshakes ----
 
     /// Host side: accepts a panel in `PAIR` or `SESSION` mode.

@@ -33,8 +33,23 @@ pub struct LanAnnouncer {
 }
 
 impl LanAnnouncer {
+    /// Starts announcing on every local interface (the daemon tracks address changes).
+    pub fn start_auto(device_id: &str, port: u16, version: &str) -> DeskResult<Self> {
+        Self::start_inner(device_id, "", port, version, true)
+    }
+
     /// Starts announcing a Desk-Remote host on the local subnet.
     pub fn start(device_id: &str, bind_ip: &str, port: u16, version: &str) -> DeskResult<Self> {
+        Self::start_inner(device_id, bind_ip, port, version, false)
+    }
+
+    fn start_inner(
+        device_id: &str,
+        bind_ip: &str,
+        port: u16,
+        version: &str,
+        auto_addr: bool,
+    ) -> DeskResult<Self> {
         let daemon = ServiceDaemon::new().map_err(|e| {
             DeskError::Transport(format!("Failed to create mDNS ServiceDaemon: {e}"))
         })?;
@@ -43,7 +58,7 @@ impl LanAnnouncer {
         let host_name = format!("{instance_name}.local.");
         let properties = [("id", device_id), ("v", version)];
 
-        let service_info = ServiceInfo::new(
+        let mut service_info = ServiceInfo::new(
             SERVICE_TYPE,
             &instance_name,
             &host_name,
@@ -53,6 +68,9 @@ impl LanAnnouncer {
         )
         .map_err(|e| DeskError::Transport(format!("Failed to construct ServiceInfo: {e}")))?;
 
+        if auto_addr {
+            service_info = service_info.enable_addr_auto();
+        }
         let fullname = service_info.get_fullname().to_string();
 
         daemon
