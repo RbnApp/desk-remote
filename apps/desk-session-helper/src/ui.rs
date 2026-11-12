@@ -25,13 +25,12 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW,
-    GetSystemMetrics, KillTimer, LoadIconW, LoadImageW, MessageBoxW, PostMessageW, PostQuitMessage,
-    RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetTimer, SetWindowTextW,
-    ShowWindow, TranslateMessage, HICON, IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTCOLOR,
-    MB_ICONINFORMATION, MB_OK, MSG, SM_CXSMICON, SW_HIDE, SW_SHOW, WINDOW_EX_STYLE, WM_APP,
-    WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP,
-    WM_TIMER, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_EX_TOOLWINDOW, WS_OVERLAPPED, WS_SYSMENU,
-    WS_VISIBLE,
+    GetSystemMetrics, KillTimer, LoadIconW, LoadImageW, PostMessageW, PostQuitMessage,
+    RegisterClassExW, RegisterWindowMessageW, SetForegroundWindow, SetTimer, SetWindowTextW,
+    ShowWindow, TranslateMessage, HICON, IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTCOLOR, MSG,
+    SM_CXICON, SM_CXSMICON, SW_HIDE, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_COMMAND,
+    WM_DESTROY, WM_LBUTTONUP, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW,
+    WNDPROC, WS_CAPTION, WS_CHILD, WS_EX_TOOLWINDOW, WS_OVERLAPPED, WS_SYSMENU, WS_VISIBLE,
 };
 
 const WM_TRAY: u32 = WM_APP + 2;
@@ -148,6 +147,30 @@ pub(crate) fn load_icon_sized(size: i32) -> HICON {
     }
 }
 
+/// Registers a window class that carries the Desk-Remote icon (large `hIcon` for Alt+Tab /
+/// the taskbar, small `hIconSm` for the title bar), both loaded from embedded resource 1 at
+/// the system's current icon metrics so they stay sharp at 125 / 150 % scaling. Every window
+/// of this agent registers through here so none falls back to the default Windows icon.
+/// The icons belong to the class for the life of the process (loaded once per class).
+pub(crate) fn register_app_window_class(name: PCWSTR, proc: WNDPROC) {
+    // SAFETY: plain metrics queries and a class registration on the UI thread; registering an
+    // existing class name just fails harmlessly.
+    unsafe {
+        let Ok(module) = GetModuleHandleW(None) else {
+            return;
+        };
+        RegisterClassExW(&WNDCLASSEXW {
+            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+            lpfnWndProc: proc,
+            hInstance: module.into(),
+            lpszClassName: name,
+            hIcon: load_icon_sized(GetSystemMetrics(SM_CXICON)),
+            hIconSm: load_icon_sized(GetSystemMetrics(SM_CXSMICON)),
+            ..Default::default()
+        });
+    }
+}
+
 fn tray_data(
     hwnd: HWND,
     flags: windows::Win32::UI::Shell::NOTIFY_ICON_DATA_FLAGS,
@@ -254,25 +277,6 @@ pub(crate) fn show_code_window() {
         let _ = SetForegroundWindow(hwnd);
         let _ = InvalidateRect(Some(hwnd), None, true);
         SetTimer(Some(hwnd), TIMER_REFRESH, 1000, None);
-    }
-}
-
-pub(crate) fn show_viewers_box(owner: HWND) {
-    let viewers = shared().map(|s| s.snapshot().viewers).unwrap_or_default();
-    let text = if viewers.is_empty() {
-        t("tray.viewers_none")
-    } else {
-        format!("{}\n\n{}", t("tray.viewers_some"), viewers.join("\n"))
-    };
-    let (text_w, title_w) = (wide(&text), wide(&t("tray.viewers")));
-    // SAFETY: NUL-terminated buffers outlive the call.
-    unsafe {
-        MessageBoxW(
-            Some(owner),
-            PCWSTR(text_w.as_ptr()),
-            PCWSTR(title_w.as_ptr()),
-            MB_OK | MB_ICONINFORMATION,
-        );
     }
 }
 
@@ -495,12 +499,7 @@ fn create_windows(shared: &Arc<Shared>) -> windows::core::Result<()> {
         let instance = module.into();
 
         let tray_class = w!("DeskRemoteTrayWindow");
-        RegisterClassW(&WNDCLASSW {
-            lpfnWndProc: Some(tray_proc),
-            hInstance: instance,
-            lpszClassName: tray_class,
-            ..Default::default()
-        });
+        register_app_window_class(tray_class, Some(tray_proc));
         let tray = CreateWindowExW(
             WS_EX_TOOLWINDOW,
             tray_class,
@@ -518,12 +517,9 @@ fn create_windows(shared: &Arc<Shared>) -> windows::core::Result<()> {
         shared.set_hwnd(tray.0 as isize);
 
         let code_class = w!("DeskRemoteCodeWindow");
-        RegisterClassW(&WNDCLASSW {
-            lpfnWndProc: Some(code_proc),
-            hInstance: instance,
-            lpszClassName: code_class,
-            ..Default::default()
-        });
+        register_app_window_class(code_class, Some(code_proc));
+        crate::about::register_class();
+        crate::viewers::register_class();
         let title = wide(&t("tray.code_title"));
         let code = CreateWindowExW(
             WINDOW_EX_STYLE(0),

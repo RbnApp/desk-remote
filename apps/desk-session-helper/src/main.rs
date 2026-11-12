@@ -12,6 +12,7 @@ mod link;
 mod menu;
 mod state;
 mod ui;
+mod viewers;
 
 use desk_logger::{LogLevel, LoggerConfig};
 use desk_paths::DeskPaths;

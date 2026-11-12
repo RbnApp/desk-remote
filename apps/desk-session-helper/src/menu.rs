@@ -221,7 +221,7 @@ fn run(hwnd: HWND, picked: usize, info: Option<&AgentInfo>) {
             }
         }
         ID_SHOW_CODE => ui::show_code_window(),
-        ID_VIEWERS => ui::show_viewers_box(hwnd),
+        ID_VIEWERS => crate::viewers::show(hwnd),
         ID_DISCONNECT_ALL => send(&IpcMessage::DisconnectAllRequest),
         ID_VIEW_ONLY => send(&IpcMessage::SetViewOnly {
             enabled: !info.is_some_and(|i| i.view_only),

@@ -3,7 +3,10 @@
 //! Same plain-Win32 style as the pairing-code window; colours come from the active
 //! `desk-theme` palette. Closing the window destroys it, the agent keeps running.
 
-use crate::ui::{colorref, current_theme, draw_text, font, load_icon_sized, shared, wide};
+use crate::ui::{
+    colorref, current_theme, draw_text, font, load_icon_sized, register_app_window_class, shared,
+    wide,
+};
 use desk_i18n::t;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use windows::core::{w, PCWSTR};
@@ -16,9 +19,8 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyWindow, DrawIconEx, GetClientRect,
-    RegisterClassW, SetForegroundWindow, ShowWindow, DI_NORMAL, HMENU, SW_SHOW, WINDOW_EX_STYLE,
-    WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_PAINT, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_SYSMENU,
-    WS_VISIBLE,
+    SetForegroundWindow, ShowWindow, DI_NORMAL, HMENU, SW_SHOW, WINDOW_EX_STYLE, WM_CLOSE,
+    WM_COMMAND, WM_DESTROY, WM_PAINT, WS_CAPTION, WS_CHILD, WS_SYSMENU, WS_VISIBLE,
 };
 
 const BUTTON_CLOSE: usize = 200;
@@ -140,6 +142,11 @@ unsafe extern "system" fn about_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARA
     }
 }
 
+/// Registers the icon-carrying window class (once, at start-up).
+pub(crate) fn register_class() {
+    register_app_window_class(w!("DeskRemoteAboutWindow"), Some(about_proc));
+}
+
 /// Opens the About window (or raises it when already open).
 pub fn show(_owner: HWND) {
     let existing = ABOUT_HWND.load(Ordering::SeqCst);
@@ -157,13 +164,6 @@ pub fn show(_owner: HWND) {
         };
         let instance = module.into();
         let class = w!("DeskRemoteAboutWindow");
-        // Registering twice just fails harmlessly; the first registration stays.
-        RegisterClassW(&WNDCLASSW {
-            lpfnWndProc: Some(about_proc),
-            hInstance: instance,
-            lpszClassName: class,
-            ..Default::default()
-        });
         let title = wide(&t("about.title"));
         let Ok(window) = CreateWindowExW(
             WINDOW_EX_STYLE(0),
