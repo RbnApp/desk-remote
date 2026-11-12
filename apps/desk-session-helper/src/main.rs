@@ -8,6 +8,8 @@
 #![windows_subsystem = "windows"]
 
 mod about;
+mod code;
+mod dialog;
 mod link;
 mod menu;
 mod state;

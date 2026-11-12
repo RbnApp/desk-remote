@@ -6,7 +6,7 @@
 //! deliberately no "Exit" or "Stop agent" entry.
 
 use crate::state::UiState;
-use crate::ui::{self, shared, wide};
+use crate::ui::{shared, wide};
 use desk_i18n::t;
 use desk_ipc::{AgentInfo, IpcMessage, TailnetState};
 use windows::core::PCWSTR;
@@ -220,13 +220,13 @@ fn run(hwnd: HWND, picked: usize, info: Option<&AgentInfo>) {
                 copy_to_clipboard(hwnd, &endpoint(ip, i.port));
             }
         }
-        ID_SHOW_CODE => ui::show_code_window(),
-        ID_VIEWERS => crate::viewers::show(hwnd),
+        ID_SHOW_CODE => crate::code::show(),
+        ID_VIEWERS => crate::viewers::show(),
         ID_DISCONNECT_ALL => send(&IpcMessage::DisconnectAllRequest),
         ID_VIEW_ONLY => send(&IpcMessage::SetViewOnly {
             enabled: !info.is_some_and(|i| i.view_only),
         }),
-        ID_ABOUT => crate::about::show(hwnd),
+        ID_ABOUT => crate::about::show(),
         _ => {}
     }
 }
