@@ -146,10 +146,10 @@ fn assert_err_contains<T: std::fmt::Debug>(res: DeskResult<T>, needle: &str) {
     }
 }
 
-/// Full flow: first-time PAKE pairing, Noise session, Ping and a 10 MiB frame, with the
+/// Full flow: first-time PAKE pairing, Noise session, Ping and a 6 MiB frame, with the
 /// wire captured. Asserts the pairing code and plaintext never appear on the wire.
 #[test]
-fn e2e_pair_then_session_10mb_with_wire_capture() -> DeskResult<()> {
+fn e2e_pair_then_session_6mb_with_wire_capture() -> DeskResult<()> {
     let host_id = DeviceIdentity::generate()?;
     let panel_id = DeviceIdentity::generate()?;
     let mut mgr = PairingManager::new();
@@ -169,7 +169,7 @@ fn e2e_pair_then_session_10mb_with_wire_capture() -> DeskResult<()> {
                     match s.recv()? {
                         Message::Ping { ts } => s.send(&Message::Pong { ts })?,
                         Message::VideoFrame { data, .. } => {
-                            assert_eq!(data.len(), 10 * 1024 * 1024);
+                            assert_eq!(data.len(), 6 * 1024 * 1024);
                             s.send(&Message::Status {
                                 online: true,
                                 latency_ms: 42,
@@ -192,7 +192,7 @@ fn e2e_pair_then_session_10mb_with_wire_capture() -> DeskResult<()> {
 
     let latency = s.ping()?;
     assert!(latency < Duration::from_secs(2));
-    let marker = vec![0xABu8; 10 * 1024 * 1024];
+    let marker = vec![0xABu8; 6 * 1024 * 1024];
     s.send(&Message::VideoFrame {
         ts_us: 7,
         keyframe: true,
@@ -564,5 +564,38 @@ fn peer_target_parse_classifies_and_defaults_port() -> DeskResult<()> {
         PeerTarget::Lan(_)
     ));
     assert!(PeerTarget::parse("no such host !!").is_err());
+    Ok(())
+}
+
+/// DAPP-103 M-02: a paired peer announcing a frame over the network limit is cut off at the
+/// frame header, before the receiver buffers it.
+#[test]
+fn red_frame_over_the_network_limit_is_refused() -> DeskResult<()> {
+    let host_id = DeviceIdentity::generate()?;
+    let panel_id = DeviceIdentity::generate()?;
+    let mut mgr = PairingManager::new();
+    let code = mgr.create_pairing_code()?;
+    let (listener, host_addr) = local_listener()?;
+    let host = thread::spawn(move || -> DeskResult<String> {
+        let mgr = Mutex::new(mgr);
+        let mut s = listener.accept()?;
+        s.authenticate_as_host(&mgr, &host_id)?;
+        match s.recv() {
+            Err(e) => Ok(e.to_string()),
+            Ok(m) => Err(DeskError::Protocol(format!("accepted {m:?}"))),
+        }
+    });
+    let mut panel_trust = TrustStore::in_memory();
+    let mut s = connect(PeerTarget::Lan(host_addr))?;
+    s.authenticate_as_client(&panel_id, &mut panel_trust, Some(&code))?;
+    let too_big = desk_protocol::MAX_NETWORK_FRAME_PAYLOAD_SIZE + 1024;
+    // The send may fail once the host hangs up; only the host's verdict matters.
+    let _ = s.send(&Message::VideoFrame {
+        ts_us: 1,
+        keyframe: true,
+        data: vec![7u8; too_big],
+    });
+    let verdict = join(host)??;
+    assert!(verdict.contains("exceeds maximum allowed"), "{verdict}");
     Ok(())
 }

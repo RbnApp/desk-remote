@@ -171,7 +171,14 @@ fn run(args: &Args) -> DeskResult<()> {
                 desk_service_core::stop_service()
             }
         }
-        "run" => desk_service_core::run_dispatcher(paths),
+        "run" => {
+            // The service owns the machine-wide data folder: lock it to SYSTEM and
+            // Administrators (users read only) before anything is created in it (DAPP-103 M-07).
+            if let Err(e) = paths.secure_system_dir() {
+                tracing::error!(error = %e, "cannot restrict the data folder; continuing with inherited access");
+            }
+            desk_service_core::run_dispatcher(paths)
+        }
         other => Err(DeskError::Config(format!(
             "unknown command '{other}' (install | uninstall | stop | helper | run [--console [--loopback]])"
         ))),

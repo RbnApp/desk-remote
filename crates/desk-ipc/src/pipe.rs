@@ -6,6 +6,7 @@
 use crate::message::IpcMessage;
 use desk_error::{DeskError, DeskResult};
 use desk_protocol::FrameCodec;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -33,7 +34,8 @@ use windows::Win32::System::Pipes::{
     PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
 use windows::Win32::System::Threading::{
-    CreateEventW, GetCurrentProcess, OpenProcessToken, WaitForSingleObject,
+    CreateEventW, GetCurrentProcess, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW,
+    WaitForSingleObject, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 
@@ -99,6 +101,54 @@ pub fn current_user_sid() -> DeskResult<String> {
         .map_err(|e| ipc_err("OpenProcessToken", e))?;
     let owned = OwnedHandle(token);
     user_sid_of_token(owned.0)
+}
+
+/// What a pipe client must be to be accepted (see [`IpcConnection::verify_client`]).
+#[derive(Debug, Clone, Copy)]
+pub struct ExpectedClient<'a> {
+    pub pid: u32,
+    /// Executable the client process must be running.
+    pub image: &'a Path,
+    /// SID string of the user the client must run as.
+    pub user_sid: &'a str,
+}
+
+/// Case-insensitive comparison of two Windows paths after resolving them.
+fn same_path(a: &Path, b: &Path) -> bool {
+    let norm = |p: &Path| {
+        std::fs::canonicalize(p)
+            .unwrap_or_else(|_| p.to_path_buf())
+            .to_string_lossy()
+            .to_lowercase()
+    };
+    norm(a) == norm(b)
+}
+
+/// Executable path and token user SID of a running process.
+fn process_image_and_user(pid: u32) -> DeskResult<(PathBuf, String)> {
+    // SAFETY: plain open of a process by id; the handle is wrapped and closed on drop.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }
+        .map(OwnedHandle)
+        .map_err(|e| ipc_err("OpenProcess", e))?;
+    let mut buf = vec![0u16; 32_768];
+    let mut len = buf.len() as u32;
+    // SAFETY: `buf` holds `len` UTF-16 units; `len` is updated to the written length.
+    unsafe {
+        QueryFullProcessImageNameW(
+            process.0,
+            PROCESS_NAME_WIN32,
+            PWSTR(buf.as_mut_ptr()),
+            &mut len,
+        )
+    }
+    .map_err(|e| ipc_err("QueryFullProcessImageNameW", e))?;
+    let image = PathBuf::from(String::from_utf16_lossy(&buf[..len as usize]));
+    let mut token = HANDLE::default();
+    // SAFETY: valid process handle; the token is wrapped and closed on drop.
+    unsafe { OpenProcessToken(process.0, TOKEN_QUERY, &mut token) }
+        .map_err(|e| ipc_err("OpenProcessToken", e))?;
+    let token = OwnedHandle(token);
+    Ok((image, user_sid_of_token(token.0)?))
 }
 
 /// Owned kernel handle that may move between threads.
@@ -294,6 +344,34 @@ impl IpcConnection {
         unsafe { GetNamedPipeClientProcessId(self.inner.handle.0, &mut pid) }
             .map_err(|e| ipc_err("GetNamedPipeClientProcessId", e))?;
         Ok(pid)
+    }
+
+    /// Proves who is on the other end of a server-side connection (DAPP-103 / H-04). The pipe
+    /// exists before the helper starts, so any process of the session user could connect first;
+    /// the connection is only accepted when pid, executable image and token user all match.
+    /// The pid cannot be recycled while the supervisor holds the helper's process handle.
+    pub fn verify_client(&self, expected: &ExpectedClient<'_>) -> DeskResult<()> {
+        let pid = self.client_process_id()?;
+        if pid != expected.pid {
+            return Err(DeskError::Ipc(format!(
+                "unexpected pipe client pid {pid} (want {})",
+                expected.pid
+            )));
+        }
+        let (image, user) = process_image_and_user(pid)?;
+        if !same_path(&image, expected.image) {
+            return Err(DeskError::Ipc(format!(
+                "pipe client runs {} instead of {}",
+                image.display(),
+                expected.image.display()
+            )));
+        }
+        if !user.eq_ignore_ascii_case(expected.user_sid) {
+            return Err(DeskError::Ipc(
+                "pipe client belongs to another user".to_string(),
+            ));
+        }
+        Ok(())
     }
 
     /// Marks the connection closed; the handle is released when the last clone drops.

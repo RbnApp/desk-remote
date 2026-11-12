@@ -126,10 +126,10 @@ impl IncomingManager {
             (active, ttl)
         });
 
-        let code = code.unwrap_or_else(|| {
-            hub.with_pairing(|p| p.create_pairing_code())
-                .unwrap_or_default()
-        });
+        // No auto-renewal here: this runs on every UI poll, and a new code would reset the
+        // wrong-attempt counter, so a guesser would never hit the limit. A new code is created
+        // only by `set_enabled` and by the user's "new code" action (DAPP-103 M-04).
+        let code = code.unwrap_or_default();
 
         let pending = hub.pending_request().map(|r| RequestInfo {
             request_id: r.request_id,
@@ -328,6 +328,47 @@ mod tests {
         assert!(!state.enabled);
         assert_eq!(state.pc_name, mgr.pc_name);
         assert!(state.addresses.is_empty());
+    }
+
+    /// DAPP-103 M-04: the 1-second UI poll must never mint a new code, because a new code
+    /// resets the wrong-attempt counter and makes the 5-attempt limit meaningless.
+    #[test]
+    fn polling_the_state_never_renews_a_revoked_code() -> Result<(), String> {
+        let tmp = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let paths = DeskPaths::custom(tmp.path().join("sys"), tmp.path().join("usr"));
+        let mgr = IncomingManager::with_port(paths.clone(), true, Some(0));
+        let mut opts = HostOptions::for_panel_in_app(paths, Some(0), true);
+        opts.custom_identity = Some(DeviceIdentity::generate().map_err(|e| e.to_string())?);
+        opts.custom_trust = Some(TrustStore::in_memory());
+        opts.role = HostRole::PanelInApp;
+        opts.consent_gate = true;
+        let host = ServiceHost::start(opts).map_err(|e| e.to_string())?;
+        let hub = Arc::clone(host.hub());
+        let first = hub
+            .with_pairing(|p| p.create_pairing_code())
+            .map_err(|e| e.to_string())?;
+        *lock(&mgr.host) = Some(host);
+
+        assert_eq!(mgr.get_state().code, first, "a live code is shown as is");
+        // Five wrong guesses revoke the code.
+        hub.with_pairing(|p| (0..5).for_each(|_| p.record_failure()));
+        for _ in 0..3 {
+            assert_eq!(
+                mgr.get_state().code,
+                "",
+                "polling must not create a new code"
+            );
+        }
+        assert_eq!(
+            hub.with_pairing(|p| p.active_code().map(str::to_string)),
+            None
+        );
+        // The explicit user action still creates one.
+        assert!(!mgr.new_code()?.code.is_empty());
+        if let Some(host) = lock(&mgr.host).take() {
+            host.stop();
+        }
+        Ok(())
     }
 
     #[test]

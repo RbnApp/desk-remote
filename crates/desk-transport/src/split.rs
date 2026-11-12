@@ -8,7 +8,7 @@
 use crate::session::{seal_message, Session};
 use desk_crypto::NoiseTransport;
 use desk_error::{DeskError, DeskResult};
-use desk_protocol::{FrameCodec, Message};
+use desk_protocol::Message;
 use std::io::Write;
 use std::net::{Shutdown, TcpStream};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -56,7 +56,7 @@ impl SessionReader {
     /// Blocks until the next complete message arrives (bounded by the session read timeout).
     pub fn recv(&mut self) -> DeskResult<Message> {
         loop {
-            if let Some((msg, used)) = FrameCodec::decode(&self.raw.plain_buf)? {
+            if let Some((msg, used)) = self.raw.decode_buffered()? {
                 self.raw.plain_buf.drain(..used);
                 return Ok(msg);
             }

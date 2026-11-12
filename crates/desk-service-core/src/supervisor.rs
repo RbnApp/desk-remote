@@ -3,7 +3,7 @@
 use crate::hub::Hub;
 use crate::launch::{active_console_session, launch_helper, HelperProcess, LaunchMode};
 use crate::tracker::{Backoff, SessionEvent, SessionTracker};
-use desk_ipc::{pipe_access_sddl, IpcMessage, IpcServer};
+use desk_ipc::{pipe_access_sddl, ExpectedClient, IpcMessage, IpcServer};
 use desk_paths::DeskPaths;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -110,10 +110,14 @@ fn start(cfg: &SupervisorConfig, hub: &Arc<Hub>, session: u32) -> desk_error::De
     let reader_stop = Arc::new(AtomicBool::new(false));
     let hub = Arc::clone(hub);
     let stop = Arc::clone(&reader_stop);
-    let expected_pid = process.pid();
+    let expected = ExpectedHelper {
+        pid: process.pid(),
+        image: cfg.helper_exe.clone(),
+        user_sid,
+    };
     std::thread::Builder::new()
         .name("desk-helper-ipc".to_string())
-        .spawn(move || helper_link(&server, &hub, &stop, expected_pid))
+        .spawn(move || helper_link(&server, &hub, &stop, &expected))
         .map_err(|e| desk_error::DeskError::Service(format!("ipc thread: {e}")))?;
     Ok(Running {
         process,
@@ -137,20 +141,41 @@ fn session_user_sid(session: u32) -> desk_error::DeskResult<String> {
     sid
 }
 
-/// Accepts the helper connection (verifying who connected) and pumps its messages.
-fn helper_link(server: &IpcServer, hub: &Arc<Hub>, stop: &Arc<AtomicBool>, expected_pid: u32) {
+/// Who the one accepted pipe client must be: the helper this supervisor just started.
+struct ExpectedHelper {
+    pid: u32,
+    image: PathBuf,
+    user_sid: String,
+}
+
+/// Accepts the helper connection (verifying who connected) and pumps its messages. Nothing is
+/// sent to a client before it passed [`desk_ipc::IpcConnection::verify_client`], so a
+/// look-alike process of the same user never sees the pairing code (DAPP-103 H-04 / M-10).
+fn helper_link(
+    server: &IpcServer,
+    hub: &Arc<Hub>,
+    stop: &Arc<AtomicBool>,
+    expected: &ExpectedHelper,
+) {
     let conn = loop {
         if stop.load(Ordering::SeqCst) {
             return;
         }
         match server.accept(Duration::from_millis(500)) {
-            Ok(Some(c)) => match c.client_process_id() {
-                Ok(pid) if pid == expected_pid => break c,
-                other => {
-                    tracing::warn!(?other, expected_pid, "rejected unexpected IPC client");
-                    c.close();
+            Ok(Some(c)) => {
+                let verdict = c.verify_client(&ExpectedClient {
+                    pid: expected.pid,
+                    image: &expected.image,
+                    user_sid: &expected.user_sid,
+                });
+                match verdict {
+                    Ok(()) => break c,
+                    Err(e) => {
+                        tracing::warn!(error = %e, expected_pid = expected.pid, "rejected unexpected IPC client");
+                        c.close();
+                    }
                 }
-            },
+            }
             Ok(None) => {}
             Err(e) => {
                 tracing::warn!(error = %e, "ipc accept failed");

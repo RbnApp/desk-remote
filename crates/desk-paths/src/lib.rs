@@ -255,6 +255,28 @@ impl DeskPaths {
         self.user_root.join("bin").join("desk-tailnet-helper.exe")
     }
 
+    /// Record of what the tailnet hand-over changed on the official Tailscale client
+    /// (`<system>/takeover/official-tailscale.json`). The folder is admin-only
+    /// ([`restrict_to_admins`]); a user-writable record would let any user cancel the restore.
+    #[must_use]
+    pub fn takeover_record_path(&self) -> PathBuf {
+        self.system_root
+            .join("takeover")
+            .join("official-tailscale.json")
+    }
+
+    /// Creates the machine-wide data folder and locks it down: SYSTEM and Administrators
+    /// have full control, ordinary users may only read and list (`service.json`, logs).
+    /// Without this, `C:\ProgramData\DeskRemote` inherits "Users can create and delete files"
+    /// and any user could replace the identity, the trust list, the limits or the logs.
+    pub fn secure_system_dir(&self) -> DeskResult<()> {
+        Self::ensure_dir(&self.system_root)?;
+        apply_acl(
+            &self.system_root,
+            &[ACE_SYSTEM_DIR, ACE_ADMINS_DIR, ACE_USERS_READ_DIR],
+        )
+    }
+
     /// Windows Named Pipe name for the central service.
     pub fn pipe_service() -> &'static str {
         r"\\.\pipe\DeskRemote-Service"
@@ -290,6 +312,49 @@ pub fn hide_window(cmd: &mut std::process::Command) -> &mut std::process::Comman
     cmd
 }
 
+/// `icacls` grant strings with well-known SIDs (language neutral).
+const ACE_SYSTEM_DIR: &str = "*S-1-5-18:(OI)(CI)F";
+const ACE_ADMINS_DIR: &str = "*S-1-5-32-544:(OI)(CI)F";
+const ACE_USERS_READ_DIR: &str = "*S-1-5-32-545:(OI)(CI)RX";
+const ACE_SYSTEM_FILE: &str = "*S-1-5-18:F";
+const ACE_ADMINS_FILE: &str = "*S-1-5-32-544:F";
+
+/// Replaces the ACL of `target` (inheritance cut) with exactly `grants`.
+fn apply_acl(target: &Path, grants: &[&str]) -> DeskResult<()> {
+    let mut cmd = hidden_command(DeskPaths::system_tool("icacls.exe"));
+    cmd.arg(target).arg("/inheritance:r");
+    for grant in grants {
+        cmd.args(["/grant:r", grant]);
+    }
+    let out = cmd.output()?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(DeskError::Paths(format!(
+            "icacls failed for {}: {}",
+            target.display(),
+            String::from_utf8_lossy(&out.stdout).trim()
+        )))
+    }
+}
+
+/// Folder ACL: full control for SYSTEM and Administrators only, inherited by new children
+/// (secrets such as the tailnet auth key and the takeover record live in such folders).
+pub fn restrict_to_admins(dir: &Path) -> DeskResult<()> {
+    apply_acl(dir, &[ACE_SYSTEM_DIR, ACE_ADMINS_DIR])
+}
+
+/// Folder ACL for a per-user (portable) run: the given user SID and SYSTEM only.
+pub fn restrict_to_user(dir: &Path, user_sid: &str) -> DeskResult<()> {
+    let grant = format!("*{user_sid}:(OI)(CI)F");
+    apply_acl(dir, &[ACE_SYSTEM_DIR, &grant])
+}
+
+/// File ACL: full control for SYSTEM and Administrators only.
+pub fn restrict_file_to_admins(file: &Path) -> DeskResult<()> {
+    apply_acl(file, &[ACE_SYSTEM_FILE, ACE_ADMINS_FILE])
+}
+
 /// Convenience function returning the default canonical paths.
 pub fn canonical() -> DeskPaths {
     DeskPaths::default()
@@ -298,6 +363,73 @@ pub fn canonical() -> DeskPaths {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn acl_lines(dir: &Path) -> Vec<String> {
+        let out = hidden_command(DeskPaths::system_tool("icacls.exe"))
+            .arg(dir)
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default();
+        let text = out.replace(&dir.display().to_string(), "");
+        text.lines()
+            .filter(|l| l.contains(":("))
+            .map(|l| l.trim().to_string())
+            .collect()
+    }
+
+    /// DAPP-103 M-07: the data folder ends up SYSTEM/Administrators full + Users read-only,
+    /// and a child created before the call loses its inherited user access too.
+    #[test]
+    fn secure_system_dir_locks_the_data_folder_and_its_children() -> DeskResult<()> {
+        let tmp = tempfile::tempdir().map_err(DeskError::Io)?;
+        let root = tmp.path().join("DeskRemote");
+        let paths = DeskPaths::custom(&root, tmp.path().join("user"));
+        DeskPaths::ensure_dir(&root)?;
+        let child = root.join("service.json");
+        std::fs::write(&child, "{}")?;
+        let before = acl_lines(&root);
+        assert!(
+            before.len() > 3,
+            "fixture must start with broader access: {before:?}"
+        );
+        paths.secure_system_dir()?;
+        let after = acl_lines(&root);
+        let child_after = acl_lines(&child);
+        assert_eq!(after.len(), 3, "{after:?}");
+        let has = |lines: &[String], names: &[&str]| {
+            lines.iter().any(|l| names.iter().any(|n| l.contains(n)))
+        };
+        assert!(has(&after, &["SYSTEM", "S-1-5-18"]));
+        assert!(has(&after, &["Administrators", "S-1-5-32-544"]));
+        let users: Vec<_> = after
+            .iter()
+            .filter(|l| l.contains("Users") || l.contains("S-1-5-32-545"))
+            .collect();
+        assert_eq!(users.len(), 1, "{after:?}");
+        assert!(
+            !users[0].contains("(F)") && !users[0].contains("(M)") && !users[0].contains("(W)")
+        );
+        assert_eq!(
+            child_after.len(),
+            3,
+            "child must follow the folder: {child_after:?}"
+        );
+        // Idempotent: a second run leaves the same ACL.
+        paths.secure_system_dir()?;
+        assert_eq!(acl_lines(&root), after);
+        Ok(())
+    }
+
+    #[test]
+    fn takeover_record_lives_in_its_own_folder() {
+        let paths = DeskPaths::custom(PathBuf::from("sys"), PathBuf::from("usr"));
+        assert_eq!(
+            paths.takeover_record_path(),
+            PathBuf::from("sys")
+                .join("takeover")
+                .join("official-tailscale.json")
+        );
+    }
 
     #[test]
     fn test_custom_paths_and_structure() {

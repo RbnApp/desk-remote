@@ -15,6 +15,8 @@ pub const OFFICIAL_SERVICE: &str = "Tailscale";
 
 /// `sc` start type code for automatic start.
 pub const START_AUTO: u32 = 2;
+/// `sc` start type code for manual start.
+pub const START_DEMAND: u32 = 3;
 /// `sc` start type code: the service cannot start.
 pub const START_DISABLED: u32 = 4;
 
@@ -36,6 +38,8 @@ pub trait OfficialTailscale {
     fn close_tray(&self) -> DeskResult<()>;
     /// Returns whether the caller has administrator privileges to control services.
     fn is_admin(&self) -> bool;
+    /// Limits `dir` to SYSTEM and Administrators (the takeover record folder, DAPP-103 H-06).
+    fn secure_dir(&self, dir: &Path) -> DeskResult<()>;
 }
 
 /// Outcome, written to `tailnet-status.json` next to the helper state.
@@ -88,6 +92,13 @@ pub fn take_over(
         tracing::warn!("administrator permission required to take over official Tailscale service");
         return TakeoverStatus::NeedsAdmin;
     }
+    // The record decides what `restore` later applies as SYSTEM, so its folder must be
+    // admin-only before anything is written; if that cannot be guaranteed, do nothing.
+    if let Some(dir) = record_path.parent() {
+        if let Err(e) = DeskPaths::ensure_dir(dir).and_then(|()| ctl.secure_dir(dir)) {
+            return fail(&e);
+        }
+    }
     // Keep the first record: a second run would otherwise store "disabled" as the original.
     if !record_path.exists() {
         let record = TakeoverRecord {
@@ -114,6 +125,13 @@ pub fn restore(ctl: &impl OfficialTailscale, record_path: &Path) -> DeskResult<b
     let Some(record) = read_record(record_path)? else {
         return Ok(false);
     };
+    // The record is data from disk: never let it disable the service or pass odd values to `sc`.
+    if !matches!(record.start_type, START_AUTO | START_DEMAND) {
+        return Err(DeskError::Service(format!(
+            "takeover record has an unacceptable start type ({}); nothing restored",
+            record.start_type
+        )));
+    }
     ctl.set_start_type(record.start_type)?;
     if record.was_running {
         ctl.start()?;
@@ -206,7 +224,7 @@ impl OfficialTailscale for ScTailscale {
         let word = match start_type {
             START_DISABLED => "disabled",
             START_AUTO => "auto",
-            3 => "demand",
+            START_DEMAND => "demand",
             _ => "delayed-auto",
         };
         let (ok, out) = Self::sc(&["config", OFFICIAL_SERVICE, "start=", word])?;
@@ -227,6 +245,10 @@ impl OfficialTailscale for ScTailscale {
 
     fn is_admin(&self) -> bool {
         is_current_process_admin()
+    }
+
+    fn secure_dir(&self, dir: &Path) -> DeskResult<()> {
+        desk_paths::restrict_to_admins(dir)
     }
 }
 
@@ -274,6 +296,7 @@ mod tests {
         calls: RefCell<Vec<String>>,
         fail_stop: bool,
         is_admin: bool,
+        fail_secure: bool,
     }
 
     impl Fake {
@@ -283,6 +306,7 @@ mod tests {
                 calls: RefCell::new(Vec::new()),
                 fail_stop: false,
                 is_admin: true,
+                fail_secure: false,
             }
         }
         fn running_auto() -> Self {
@@ -327,6 +351,13 @@ mod tests {
         }
         fn is_admin(&self) -> bool {
             self.is_admin
+        }
+        fn secure_dir(&self, _dir: &Path) -> DeskResult<()> {
+            self.calls.borrow_mut().push("secure_dir".into());
+            if self.fail_secure {
+                return Err(DeskError::Paths("acl denied".into()));
+            }
+            Ok(())
         }
     }
 
@@ -406,7 +437,7 @@ mod tests {
         );
         assert_eq!(
             fake.calls(),
-            ["start_type=4", "stop", "close_tray"],
+            ["secure_dir", "start_type=4", "stop", "close_tray"],
             "disable boot start, stop, close tray"
         );
     }
@@ -482,6 +513,45 @@ mod tests {
             rec(&dir).exists(),
             "record kept so uninstall can still undo"
         );
+    }
+
+    #[test]
+    fn red_unsecurable_record_folder_blocks_the_takeover() {
+        let dir = tmp();
+        let mut fake = Fake::running_auto();
+        fake.fail_secure = true;
+        let status = take_over(&fake, true, || true, &rec(&dir));
+        assert!(matches!(status, TakeoverStatus::Failed { .. }));
+        assert_eq!(fake.calls(), ["secure_dir"], "official client untouched");
+        assert!(!rec(&dir).exists());
+    }
+
+    #[test]
+    fn red_tampered_record_cannot_disable_or_inject_a_start_type() {
+        for bad in [START_DISABLED, 0, 1, 7, 99] {
+            let dir = tmp();
+            let fake = Fake::running_auto();
+            ok(write_record(
+                &rec(&dir),
+                &TakeoverRecord {
+                    start_type: bad,
+                    was_running: true,
+                },
+            ));
+            assert!(restore(&fake, &rec(&dir)).is_err(), "start type {bad}");
+            assert!(fake.calls().is_empty(), "nothing applied for {bad}");
+        }
+        let dir = tmp();
+        let fake = Fake::running_auto();
+        ok(write_record(
+            &rec(&dir),
+            &TakeoverRecord {
+                start_type: START_DEMAND,
+                was_running: false,
+            },
+        ));
+        assert!(ok(restore(&fake, &rec(&dir))));
+        assert_eq!(fake.calls(), ["start_type=3"]);
     }
 
     #[test]

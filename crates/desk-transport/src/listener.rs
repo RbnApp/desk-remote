@@ -3,18 +3,47 @@
 use crate::session::Session;
 use desk_error::{DeskError, DeskResult};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
+
+/// Most connections one listener keeps open at the same time (unauthenticated handshakes,
+/// viewers and file senders together). One more is closed on arrival, so a paired but
+/// misbehaving panel cannot exhaust threads and memory (DAPP-103 M-01).
+pub const MAX_LIVE_CONNECTIONS: usize = 32;
+
+/// Holds one live-connection slot; released when the [`Session`] that owns it is dropped.
+pub(crate) struct LiveSlot(Arc<AtomicUsize>);
+
+impl Drop for LiveSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 /// Server socket listener accepting incoming sessions.
 pub struct Listener {
     listener: TcpListener,
+    live: Arc<AtomicUsize>,
+    max_live: usize,
 }
 
 impl Listener {
     /// Binds a new TCP listener to the specified socket address.
     pub fn bind(addr: SocketAddr) -> DeskResult<Self> {
         let listener = TcpListener::bind(addr).map_err(DeskError::Io)?;
-        Ok(Self { listener })
+        Ok(Self {
+            listener,
+            live: Arc::new(AtomicUsize::new(0)),
+            max_live: MAX_LIVE_CONNECTIONS,
+        })
+    }
+
+    /// Overrides [`MAX_LIVE_CONNECTIONS`] (tests).
+    #[must_use]
+    pub fn with_max_live(mut self, max_live: usize) -> Self {
+        self.max_live = max_live;
+        self
     }
 
     /// Binds to every IPv4 interface on `port` (`0` picks a free port).
@@ -47,8 +76,72 @@ impl Listener {
     }
 
     /// Accepts the next incoming TCP connection and wraps it in a [`Session`].
+    /// Connections beyond the live limit are closed at once and never returned.
     pub fn accept(&self) -> DeskResult<Session> {
-        let (stream, _) = self.listener.accept().map_err(DeskError::Io)?;
-        Session::new(stream)
+        loop {
+            let (stream, peer) = self.listener.accept().map_err(DeskError::Io)?;
+            if self.live.fetch_add(1, Ordering::SeqCst) >= self.max_live {
+                self.live.fetch_sub(1, Ordering::SeqCst);
+                tracing::warn!(%peer, limit = self.max_live, "too many open connections, closed");
+                continue;
+            }
+            let slot = LiveSlot(Arc::clone(&self.live));
+            let mut session = Session::new(stream)?;
+            session.live_slot = Some(slot);
+            return Ok(session);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+    use std::sync::mpsc;
+
+    /// True when the peer closed the socket without sending anything.
+    fn closed_by_server(client: &mut TcpStream) -> bool {
+        let _ = client.set_read_timeout(Some(Duration::from_secs(3)));
+        let mut byte = [0u8; 1];
+        matches!(client.read(&mut byte), Ok(0))
+    }
+
+    #[test]
+    fn connections_over_the_live_limit_are_closed_and_slots_are_reused() -> DeskResult<()> {
+        let listener = Arc::new(Listener::bind_loopback(0)?.with_max_live(2));
+        let port = listener.local_port()?;
+        let (tx, rx) = mpsc::channel();
+        let accepting = Arc::clone(&listener);
+        std::thread::spawn(move || {
+            while let Ok(session) = accepting.accept() {
+                if tx.send(session).is_err() {
+                    break;
+                }
+            }
+        });
+        let connect = || TcpStream::connect((Ipv4Addr::LOCALHOST, port)).map_err(DeskError::Io);
+        let _a = connect()?;
+        let first = rx
+            .recv_timeout(Duration::from_secs(3))
+            .map_err(|e| DeskError::Transport(e.to_string()))?;
+        let _b = connect()?;
+        let _second = rx
+            .recv_timeout(Duration::from_secs(3))
+            .map_err(|e| DeskError::Transport(e.to_string()))?;
+        let mut over = connect()?;
+        assert!(
+            closed_by_server(&mut over),
+            "third connection must be closed"
+        );
+        assert!(
+            rx.try_recv().is_err(),
+            "third connection must not reach the caller"
+        );
+        // Releasing one session frees its slot for a new connection.
+        drop(first);
+        let _c = connect()?;
+        assert!(rx.recv_timeout(Duration::from_secs(3)).is_ok());
+        listener.wake();
+        Ok(())
     }
 }

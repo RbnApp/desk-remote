@@ -236,7 +236,7 @@ impl Session {
             }),
             IpcMessage::AgentInfo(info) => shared.update(|ui| ui.info = Some(info)),
             IpcMessage::Shutdown => return false,
-            other => tracing::debug!(?other, "ignored service message"),
+            other => tracing::debug!(kind = other.kind(), "ignored service message"),
         }
         true
     }

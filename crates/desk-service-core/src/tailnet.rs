@@ -7,10 +7,10 @@
 use crate::control::Control;
 use crate::takeover::{self, ScTailscale, TakeoverStatus};
 use desk_error::{DeskError, DeskResult};
-use desk_paths::DeskPaths;
+use desk_paths::{restrict_file_to_admins, restrict_to_admins, DeskPaths};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::io::BufReader;
+use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdout, Stdio};
 use std::sync::Arc;
@@ -23,7 +23,6 @@ pub const EMBEDDED_HELPER_BYTES: &[u8] =
 /// One-time auth key dropped by the panel / installer; deleted after the first successful use.
 const AUTH_KEY_FILE: &str = "authkey.txt";
 const STATUS_FILE: &str = "tailnet-status.json";
-const RECORD_FILE: &str = "official-tailscale.json";
 
 #[derive(Deserialize)]
 struct HelperReport {
@@ -130,12 +129,17 @@ impl TailnetGuard {
 
         let state_dir = paths.system_dir().join("tailscale");
         DeskPaths::ensure_dir(&state_dir).ok()?;
-        if harden {
-            // The auth key (and node state) must not be readable by ordinary users.
-            if let Err(e) = restrict_to_admins(&state_dir) {
-                tracing::error!(error = %e, "cannot restrict the tailnet state folder; helper not started");
-                return None;
-            }
+        // The auth key (and node state) must not be readable by ordinary users in ANY mode.
+        // Portable runs of a non-admin user cannot be locked to Administrators without locking
+        // themselves out, so there the folder is limited to the current user instead.
+        let restricted = if harden {
+            restrict_to_admins(&state_dir)
+        } else {
+            restrict_to_current_user(&state_dir)
+        };
+        if let Err(e) = restricted {
+            tracing::error!(error = %e, "cannot restrict the tailnet state folder; helper not started");
+            return None;
         }
         let key_file = state_dir.join(AUTH_KEY_FILE);
         let auth_key = std::fs::read_to_string(&key_file)
@@ -151,19 +155,30 @@ impl TailnetGuard {
             .arg("--bridge-addr")
             .arg(format!("127.0.0.1:{port}"))
             .stdout(Stdio::piped());
-        if let Some(key) = &auth_key {
-            cmd.env("TS_AUTHKEY", key);
+        // The key travels over the child's stdin, never through the environment or the command
+        // line, where other processes of the same user could read it (DAPP-103 M-06).
+        if auth_key.is_some() {
+            cmd.arg("--auth-key-stdin").stdin(Stdio::piped());
+        } else {
+            cmd.stdin(Stdio::null());
         }
+        let record = paths.takeover_record_path();
         let mut child = cmd
             .spawn()
             .map_err(|e| tracing::warn!(error = %e, "cannot start tailnet helper"))
             .ok()?;
         tracing::info!(pid = child.id(), "tailnet helper started");
+        if let (Some(key), Some(mut stdin)) = (&auth_key, child.stdin.take()) {
+            // Dropping the handle closes the pipe, so the helper never waits for more input.
+            if let Err(e) = writeln!(stdin, "{key}") {
+                tracing::warn!(error = %e, "could not hand the auth key to the tailnet helper");
+            }
+        }
         let stdout = child.stdout.take()?;
         let worker = std::thread::Builder::new()
             .name("desk-tailnet".to_string())
             .spawn(move || {
-                let status = supervise(stdout, port, take_over, &state_dir, &control);
+                let status = supervise(stdout, port, take_over, &record, &control);
                 tracing::info!(?status, "official Tailscale hand-over outcome");
                 if matches!(status, TakeoverStatus::TookOver | TakeoverStatus::NotNeeded) {
                     // The key is single-use; the node state in `state_dir` keeps the login.
@@ -178,47 +193,9 @@ impl TailnetGuard {
     }
 }
 
-/// Replaces the folder's ACL with full control for SYSTEM and Administrators only (inherited
-/// by files created later, such as `authkey.txt`). Well-known SIDs keep it language-neutral.
-pub(crate) fn restrict_to_admins(dir: &Path) -> DeskResult<()> {
-    let out = desk_paths::hidden_command(DeskPaths::system_tool("icacls.exe"))
-        .arg(dir)
-        .args([
-            "/inheritance:r",
-            "/grant:r",
-            "*S-1-5-18:(OI)(CI)F",
-            "*S-1-5-32-544:(OI)(CI)F",
-        ])
-        .output()?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        Err(DeskError::Service(format!(
-            "icacls failed: {}",
-            String::from_utf8_lossy(&out.stdout).trim()
-        )))
-    }
-}
-
-/// Replaces a single file's ACL with full control for SYSTEM and Administrators only.
-pub(crate) fn restrict_file_to_admins(file: &Path) -> DeskResult<()> {
-    let out = desk_paths::hidden_command(DeskPaths::system_tool("icacls.exe"))
-        .arg(file)
-        .args([
-            "/inheritance:r",
-            "/grant:r",
-            "*S-1-5-18:F",
-            "*S-1-5-32-544:F",
-        ])
-        .output()?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        Err(DeskError::Service(format!(
-            "icacls file failed: {}",
-            String::from_utf8_lossy(&out.stdout).trim()
-        )))
-    }
+/// Limits `dir` to the current user and SYSTEM (portable, non-service runs).
+fn restrict_to_current_user(dir: &Path) -> DeskResult<()> {
+    desk_paths::restrict_to_user(dir, &desk_ipc::current_user_sid()?)
 }
 
 /// Waits for helper reports (needs_auth, listening, etc.) and executes the hand-over once listening.
@@ -226,7 +203,7 @@ fn supervise(
     stdout: ChildStdout,
     port: u16,
     take_over: bool,
-    state_dir: &Path,
+    record: &Path,
     control: &Control,
 ) -> TakeoverStatus {
     let mut last_status = TakeoverStatus::Unverified;
@@ -241,8 +218,7 @@ fn supervise(
         if report.status == "listening" {
             let ips = report.ips.clone();
             let verify = move || desk_transport::helper_online("listening", &ips, port);
-            last_status =
-                takeover::take_over(&ScTailscale, take_over, verify, &record_path(state_dir));
+            last_status = takeover::take_over(&ScTailscale, take_over, verify, record);
             if last_status == TakeoverStatus::NeedsAdmin {
                 control.set_takeover_needs_admin(true);
             }
@@ -252,14 +228,9 @@ fn supervise(
     last_status
 }
 
-fn record_path(state_dir: &Path) -> PathBuf {
-    state_dir.join(RECORD_FILE)
-}
-
 /// Restores an official Tailscale client that this agent took over (called on shutdown / uninstall).
 pub fn restore_official(paths: &DeskPaths) -> bool {
-    let record = record_path(&paths.system_dir().join("tailscale"));
-    match takeover::restore(&ScTailscale, &record) {
+    match takeover::restore(&ScTailscale, &paths.takeover_record_path()) {
         Ok(restored) => restored,
         Err(e) => {
             tracing::warn!(error = %e, "could not restore official Tailscale");

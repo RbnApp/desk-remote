@@ -40,6 +40,29 @@ pub enum IpcMessage {
     Shutdown,
 }
 
+impl IpcMessage {
+    /// Variant name only. Log this instead of `{:?}`: the full value of a message such as
+    /// `PairingCode` is a secret and must never reach a log (DAPP-103 L-03).
+    #[must_use]
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::HelperHello { .. } => "HelperHello",
+            Self::Wire(_) => "Wire",
+            Self::PairingCodeRequest => "PairingCodeRequest",
+            Self::PairingCode { .. } => "PairingCode",
+            Self::Viewers { .. } => "Viewers",
+            Self::DesktopLocked { .. } => "DesktopLocked",
+            Self::NoDisplay => "NoDisplay",
+            Self::AgentInfoRequest => "AgentInfoRequest",
+            Self::AgentInfo(_) => "AgentInfo",
+            Self::DisconnectAllRequest => "DisconnectAllRequest",
+            Self::SetViewOnly { .. } => "SetViewOnly",
+            Self::FileIncoming { .. } => "FileIncoming",
+            Self::Shutdown => "Shutdown",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,5 +124,15 @@ mod tests {
             assert_eq!(decoded, Some((original, frame.len())));
         }
         Ok(())
+    }
+
+    #[test]
+    fn kind_never_carries_the_secret() {
+        let msg = IpcMessage::PairingCode {
+            code: "ABCD-2345".to_string(),
+            ttl_secs: 60,
+        };
+        assert_eq!(msg.kind(), "PairingCode");
+        assert!(!msg.kind().contains("2345"));
     }
 }
