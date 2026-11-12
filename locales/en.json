@@ -420,7 +420,9 @@
       "nothing": "None of these can be sent.",
       "skipped": "{n} item(s) will be skipped.",
       "too_large": "Too large — at most {mb} MB can be sent.",
-      "folder": "Folders can't be sent. Pick files instead."
+      "folder": "Folders can't be sent. Pick files instead.",
+      "network": "Network paths can't be sent. Copy the file to this PC first.",
+      "missing": "This item no longer exists."
     },
     "list": {
       "title": "Transfers",

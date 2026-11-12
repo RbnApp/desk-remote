@@ -41,7 +41,6 @@ pub struct Limits {
 
 struct Inner {
     limit_mb: u64,
-    shell_menu: bool,
     next_id: u64,
     cancels: HashMap<String, Arc<AtomicBool>>,
 }
@@ -52,7 +51,6 @@ impl DemoTransfer {
     pub fn new() -> Self {
         Self(Mutex::new(Inner {
             limit_mb: DEFAULT_LIMIT_MB,
-            shell_menu: true,
             next_id: 1,
             cancels: HashMap::new(),
         }))
@@ -108,17 +106,6 @@ pub fn transfer_set_limit(
     }
     state.lock().limit_mb = max_upload_mb;
     Ok(())
-}
-
-#[tauri::command]
-pub fn shell_menu_status(state: State<'_, DemoTransfer>) -> bool {
-    state.lock().shell_menu
-}
-
-#[tauri::command]
-pub fn shell_menu_set(state: State<'_, DemoTransfer>, enabled: bool) -> bool {
-    state.lock().shell_menu = enabled;
-    enabled
 }
 
 /// Error a demo file ends with, chosen by its name (`None` = success).
@@ -237,15 +224,33 @@ pub fn transfer_answer(
     std::thread::spawn(move || run_send(&app, &transfer_id, &file, MAX_LIMIT_MB, &cancel));
 }
 
-/// Test hook: the Explorer context menu asks the panel to pick a PC for these files.
+/// Test hook: the Explorer context menu asks the panel to pick a PC for these files. Same payload
+/// as the real `transfer://pick` (`paths` + classified `items`); `problems` adds a folder, a
+/// network path and a missing file so every refusal message can be reached.
 #[tauri::command]
 pub fn demo_transfer_pick(app: AppHandle, folder: bool) {
-    let paths: Vec<&str> = if folder {
-        vec![PICK_FILES[3].0]
-    } else {
-        PICK_FILES.iter().take(3).map(|(p, _)| *p).collect()
-    };
-    let _ = app.emit("transfer://pick", serde_json::json!({ "paths": paths }));
+    let mut items: Vec<(&str, &str)> = PICK_FILES
+        .iter()
+        .take(3)
+        .map(|(p, _)| (*p, "file"))
+        .collect();
+    if folder {
+        items = vec![
+            (PICK_FILES[3].0, "folder"),
+            (PICK_FILES[0].0, "file"),
+            (r"\\fileserver\share\Budget.xlsx", "network"),
+            (r"C:\Users\demo\Documents\Deleted.docx", "missing"),
+        ];
+    }
+    let paths: Vec<&str> = items.iter().map(|(p, _)| *p).collect();
+    let items: Vec<_> = items
+        .iter()
+        .map(|(path, kind)| serde_json::json!({ "path": path, "kind": kind }))
+        .collect();
+    let _ = app.emit(
+        "transfer://pick",
+        serde_json::json!({ "paths": paths, "items": items }),
+    );
 }
 
 /// Test hook: a remote device offers a file to this PC.

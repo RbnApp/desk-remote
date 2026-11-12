@@ -8,9 +8,9 @@ mod commands;
 pub mod incoming;
 #[cfg(feature = "demo")]
 mod incoming_demo;
+mod shell_menu;
 #[cfg(feature = "demo")]
 mod transfer_demo;
-mod shell_menu;
 
 use commands::AppState;
 use desk_config::{ConfigManager, PanelConfig};
@@ -119,8 +119,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         transfer_demo::transfer_send,
         transfer_demo::transfer_cancel,
         transfer_demo::transfer_answer,
-        transfer_demo::shell_menu_status,
-        transfer_demo::shell_menu_set,
         transfer_demo::demo_transfer_pick,
         transfer_demo::demo_transfer_offer,
     ]);

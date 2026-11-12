@@ -420,7 +420,9 @@
       "nothing": "Bunların hiçbiri gönderilemez.",
       "skipped": "{n} öğe atlanacak.",
       "too_large": "Çok büyük — en çok {mb} MB gönderilebilir.",
-      "folder": "Klasör gönderilemez, dosya seç."
+      "folder": "Klasör gönderilemez, dosya seç.",
+      "network": "Ağ yolu gönderilemez, önce dosyayı bu PC'ye kopyala.",
+      "missing": "Bu öğe artık yok."
     },
     "list": {
       "title": "Aktarımlar",

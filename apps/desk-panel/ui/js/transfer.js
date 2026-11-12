@@ -2,12 +2,11 @@
 // Commands/events follow the DAPP-85/87 contract: transfer_*, shell_menu_*, transfer://pick|progress|done
 // (+ transfer://offer and transfer_inspect / transfer_pick_files / transfer_answer, see the report).
 
-import { S, $, esc, ic, invoke, t, toast } from "./core.js";
+import { S, $, closeModal, esc, ic, invoke, modalEl, openModal, setModalButton, t, toast } from "./core.js";
 import { dropWindowPin, surfaceWindow } from "./incoming.js";
 
 const MIB = 1024 * 1024;
 const OFFER_TIMEOUT_S = 30;
-const TICK_MS = 1000;
 const DONE_LINGER_MS = 12000;
 const DEFAULT_LIMIT_MB = 100;
 const MIN_LIMIT_MB = 1;
@@ -22,13 +21,14 @@ export const tx = {
   limitBad: false,
   menu: null,
   menuAvailable: true,
+  menuStale: false,
   pick: null,
   offer: null,
   items: new Map(),
 };
 
-let offerLeft = 0;
-let returnFocus = null;
+const PICK_KEY = "tx-pick";
+const OFFER_KEY = "tx-offer";
 
 // ---------- helpers ----------
 
@@ -41,23 +41,11 @@ export function humanSize(bytes) {
 
 const baseName = (path) => String(path).split(/[\\/]/).pop();
 const errText = (code) => t(`transfer.err.${KNOWN_ERRORS.includes(code) ? code : "unknown"}`);
+/** Why a picked item cannot be sent ("" = it can). `kind` is file|folder|network|missing. */
 const blockReason = (entry) => {
-  if (entry.is_dir) return "folder";
+  if (entry.kind !== "file") return entry.kind;
   return entry.size > tx.limitMb * MIB ? "too_large" : "";
 };
-
-function lockPage(on) {
-  $("#app").inert = on || Boolean($("#modal").innerHTML);
-}
-
-function remember() {
-  returnFocus = document.activeElement;
-}
-
-function restoreFocus() {
-  if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
-  returnFocus = null;
-}
 
 // ---------- settings state ----------
 
@@ -70,8 +58,9 @@ export async function loadTransferState() {
   }
   try {
     const status = await invoke("shell_menu_status");
-    tx.menu = typeof status === "boolean" ? status : Boolean(status?.enabled);
-    tx.menuAvailable = true;
+    tx.menu = Boolean(status.enabled);
+    tx.menuStale = Boolean(status.stale);
+    tx.menuAvailable = status.supported;
   } catch {
     tx.menuAvailable = false;
   }
@@ -119,8 +108,9 @@ async function saveLimit(input) {
 
 async function saveMenu(input) {
   try {
-    const result = await invoke("shell_menu_set", { enabled: input.checked });
-    tx.menu = typeof result === "boolean" ? result : input.checked;
+    const status = await invoke("shell_menu_set", { enabled: input.checked });
+    tx.menu = Boolean(status.enabled);
+    tx.menuStale = Boolean(status.stale);
   } catch {
     input.checked = Boolean(tx.menu);
     toast(t("transfer.set.menu_failed"));
@@ -130,12 +120,16 @@ async function saveMenu(input) {
 
 // ---------- PC picker ----------
 
-async function inspect(paths) {
+/** Size and name come from transfer_inspect; `kind` comes from Explorer (pick event) or is derived. */
+async function inspect(paths, items) {
+  const kinds = new Map((items ?? []).map((i) => [i.path, i.kind]));
+  let info;
   try {
-    return await invoke("transfer_inspect", { paths });
+    info = await invoke("transfer_inspect", { paths });
   } catch {
-    return paths.map((path) => ({ path, name: baseName(path), size: 0, is_dir: false }));
+    info = paths.map((path) => ({ path, name: baseName(path), size: 0, is_dir: false }));
   }
+  return info.map((e) => ({ ...e, kind: kinds.get(e.path) ?? (e.is_dir ? "folder" : "file") }));
 }
 
 async function freshPcs() {
@@ -152,9 +146,9 @@ const reachable = (pc) => pc.status === "online" || pc.status === "warning";
 function fileRow(entry) {
   const reason = blockReason(entry);
   const note = reason
-    ? `<span class="badge warning">${ic("alert")}${reason === "folder" ? t("transfer.pick.folder") : t("transfer.pick.too_large", { mb: tx.limitMb })}</span>`
+    ? `<span class="badge warning">${ic("alert")}${t(`transfer.pick.${reason}`, { mb: tx.limitMb })}</span>`
     : "";
-  return `<li class="frow ${reason ? "blocked" : ""}"><span class="fname" title="${esc(entry.path)}">${esc(entry.name)}</span><span class="fsize">${entry.is_dir ? "" : humanSize(entry.size)}</span>${note}</li>`;
+  return `<li class="frow ${reason ? "blocked" : ""}"><span class="fname" title="${esc(entry.path)}">${esc(entry.name)}</span><span class="fsize">${entry.kind === "file" ? humanSize(entry.size) : ""}</span>${note}</li>`;
 }
 
 function pcOption(pc, selected) {
@@ -188,42 +182,45 @@ function pickFooterState() {
 
 function paintPickFooter() {
   const { ready, hint } = pickFooterState();
-  const send = $("#txSend");
-  send.toggleAttribute("disabled", !ready);
-  send.setAttribute("aria-disabled", String(!ready));
-  $("#txHint").textContent = hint;
+  setModalButton(PICK_KEY, "txSend", ready);
+  modalEl(PICK_KEY).querySelector("#txHint").textContent = hint;
 }
 
-function pickHtml() {
-  const { entries } = tx.pick;
-  return `<div class="modal-back"><div class="dialog wide" role="dialog" aria-modal="true" aria-labelledby="txTitleDlg">
-    <div class="dlg-head"><div class="ico">${ic("send")}</div><div><h2 id="txTitleDlg">${t("transfer.pick.title")}</h2></div></div>
-    <section aria-label="${esc(t("transfer.pick.files"))}"><ul class="flist">${entries.map(fileRow).join("")}</ul></section>
+function pickBody() {
+  return `<section aria-label="${esc(t("transfer.pick.files"))}"><ul class="flist">${tx.pick.entries.map(fileRow).join("")}</ul></section>
     <div class="search">${ic("search")}<label class="sr" for="txq">${t("transfer.pick.search")}</label><input id="txq" class="input" type="search" autocomplete="off" placeholder="${esc(t("transfer.pick.search_ph"))}"></div>
     <div class="pclist" id="txPcs" role="radiogroup" aria-label="${esc(t("transfer.pick.pcs"))}">${pcListHtml()}</div>
-    <p class="hint" id="txHint" role="status"></p>
-    <div class="dlg-act"><button class="btn" data-act="tx-pick-cancel" id="txCancel">${t("transfer.pick.cancel")}</button>
-      <button class="btn primary" data-act="tx-pick-send" id="txSend" disabled aria-disabled="true">${ic("send")}${t("transfer.pick.send")}</button></div></div></div>`;
+    <p class="hint" id="txHint" role="status"></p>`;
 }
 
-export async function openPick(paths, target = "") {
+/** `payload`: {paths, items:[{path, kind}]} from transfer://pick / shell_pick_take(), or just paths. */
+export async function openPick(payload, target = "") {
+  const paths = Array.isArray(payload) ? payload : (payload?.paths ?? []);
   if (!paths.length || tx.pick) return;
   await Promise.all([loadTransferState(), freshPcs()]);
-  const entries = await inspect(paths);
-  remember();
+  const entries = await inspect(paths, payload?.items);
   tx.pick = { entries, query: "", target: reachable(S.pcs.find((p) => p.id === target) ?? {}) ? target : "" };
-  $("#xmodal").innerHTML = pickHtml();
-  lockPage(true);
+  openModal({
+    key: PICK_KEY,
+    icon: "send",
+    wide: true,
+    title: t("transfer.pick.title"),
+    body: pickBody(),
+    buttons: [
+      { act: "tx-pick-cancel", id: "txCancel", label: t("transfer.pick.cancel") },
+      { act: "tx-pick-send", id: "txSend", cls: "primary", icon: "send", disabled: true, label: t("transfer.pick.send") },
+    ],
+    focus: "#txq",
+    onEscape: closePick,
+    onEnter: () => pickFooterState().ready && sendPick(),
+    onClose: dropWindowPin,
+  });
   paintPickFooter();
-  $("#txq").focus({ preventScroll: true });
 }
 
 function closePick() {
   tx.pick = null;
-  $("#xmodal").innerHTML = "";
-  lockPage(false);
-  dropWindowPin();
-  restoreFocus();
+  closeModal(PICK_KEY);
 }
 
 async function sendPick() {
@@ -332,40 +329,37 @@ function dismiss(id) {
 
 // ---------- receive-side consent ----------
 
-function offerHtml(offer) {
-  return `<div class="modal-back top"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="ofTitle" aria-describedby="ofBody">
-    <div class="dlg-head"><div class="ico">${ic("send")}</div><div><h2 id="ofTitle">${t("transfer.offer.title", { name: esc(offer.peer_name) })}</h2></div></div>
-    <p class="hint" id="ofBody">${t("transfer.offer.body")}</p>
-    <dl class="kv"><dt>${t("transfer.offer.file")}</dt><dd>${esc(offer.name)}</dd><dt>${t("transfer.offer.size")}</dt><dd>${humanSize(offer.size)}</dd></dl>
-    <div class="cd" aria-hidden="true"><i id="ofBar"></i></div>
-    <p class="hint" id="ofText">${t("transfer.offer.countdown", { s: offerLeft })}</p>
-    <div class="dlg-act"><button class="btn danger" data-act="tx-reject" id="ofReject">${ic("x")}${t("transfer.offer.reject")}</button>
-      <button class="btn primary" data-act="tx-accept">${ic("check")}${t("transfer.offer.accept")}</button></div></div></div>`;
-}
-
 function openOffer(offer) {
   if (tx.offer) {
     invoke("transfer_answer", { transferId: offer.transfer_id, accept: false, name: offer.name }).catch(() => {});
     return;
   }
   tx.offer = offer;
-  offerLeft = OFFER_TIMEOUT_S;
-  remember();
-  $("#offer").innerHTML = offerHtml(offer);
-  lockPage(true);
+  openModal({
+    key: OFFER_KEY,
+    role: "alertdialog",
+    icon: "send",
+    title: t("transfer.offer.title", { name: esc(offer.peer_name) }),
+    body: `<p class="hint">${t("transfer.offer.body")}</p>
+      <dl class="kv"><dt>${t("transfer.offer.file")}</dt><dd>${esc(offer.name)}</dd><dt>${t("transfer.offer.size")}</dt><dd>${humanSize(offer.size)}</dd></dl>`,
+    countdown: { seconds: OFFER_TIMEOUT_S, text: (s) => t("transfer.offer.countdown", { s }), onExpire: () => answerOffer(false) },
+    buttons: [
+      { act: "tx-reject", id: "ofReject", cls: "danger", icon: "x", label: t("transfer.offer.reject") },
+      { act: "tx-accept", cls: "primary", icon: "check", label: t("transfer.offer.accept") },
+    ],
+    // The safest answer owns the initial focus: an accidental Enter must not accept a file.
+    focus: "#ofReject",
+    onEscape: () => answerOffer(false),
+    onClose: () => !tx.pick && dropWindowPin(),
+  });
   surfaceWindow();
-  // The safest answer owns the initial focus: an accidental Enter must not accept a file.
-  $("#ofReject").focus({ preventScroll: true });
 }
 
 async function answerOffer(accept) {
   const offer = tx.offer;
   if (!offer) return;
   tx.offer = null;
-  $("#offer").innerHTML = "";
-  lockPage(Boolean(tx.pick));
-  if (!tx.pick) dropWindowPin();
-  restoreFocus();
+  closeModal(OFFER_KEY);
   try {
     await invoke("transfer_answer", { transferId: offer.transfer_id, accept, name: offer.name });
     if (accept) addItem(offer.transfer_id, { name: offer.name, total: offer.size, peer: offer.peer_name, dir: "in" });
@@ -374,22 +368,12 @@ async function answerOffer(accept) {
   }
 }
 
-function tick() {
-  if (!tx.offer) return;
-  offerLeft -= 1;
-  if (offerLeft <= 0) return answerOffer(false);
-  const text = $("#ofText");
-  if (text) text.textContent = t("transfer.offer.countdown", { s: offerLeft });
-  const bar = $("#ofBar");
-  if (bar) bar.style.width = `${Math.round((offerLeft / OFFER_TIMEOUT_S) * 100)}%`;
-}
-
 // ---------- wiring ----------
 
 export const transferActions = {
   "tx-card": (el) => pickFilesFor(el.dataset.id),
   "tx-pick-cancel": () => closePick(),
-  "tx-pick-send": () => !$("#txSend").disabled && sendPick(),
+  "tx-pick-send": () => pickFooterState().ready && sendPick(),
   "tx-cancel": (el) => invoke("transfer_cancel", { transferId: el.dataset.id }).catch(() => toast(t("error.unknown"))),
   "tx-dismiss": (el) => dismiss(el.dataset.id),
   "tx-accept": () => answerOffer(true),
@@ -402,7 +386,7 @@ export const transferActions = {
 document.addEventListener("input", (e) => {
   if (e.target.id === "txq" && tx.pick) {
     tx.pick.query = e.target.value;
-    $("#txPcs").innerHTML = pcListHtml();
+    modalEl(PICK_KEY).querySelector("#txPcs").innerHTML = pcListHtml();
     paintPickFooter();
   }
 });
@@ -419,40 +403,20 @@ document.addEventListener("change", (e) => {
   }
 });
 
-/** Escape cancels/rejects, Tab stays inside the topmost dialog. */
-document.addEventListener("keydown", (e) => {
-  const host = tx.offer ? "#offer" : tx.pick ? "#xmodal" : "";
-  if (!host) return;
-  if (e.key === "Escape") {
-    e.preventDefault();
-    if (tx.offer) answerOffer(false);
-    else closePick();
-  } else if (e.key === "Tab") {
-    const items = [...document.querySelectorAll(`${host} button:not([disabled]), ${host} input:not([disabled])`)];
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  } else if (e.key === "Enter" && tx.pick && e.target.id === "txq") {
-    e.preventDefault();
-    if (!$("#txSend").disabled) sendPick();
-  }
-});
-
 export async function startTransfer() {
   const { listen } = window.__TAURI__.event;
   await listen("transfer://pick", async (e) => {
     await surfaceWindow();
-    openPick(e.payload?.paths ?? []);
+    openPick(e.payload);
   });
   await listen("transfer://progress", (e) => onProgress(e.payload));
   await listen("transfer://done", (e) => onDone(e.payload));
   await listen("transfer://offer", (e) => openOffer(e.payload));
-  setInterval(tick, TICK_MS);
   await loadTransferState();
+  // A pick that arrived while the panel was still starting; claiming also switches to live events.
+  const early = await invoke("shell_pick_take").catch(() => null);
+  if (early?.paths?.length) {
+    await surfaceWindow();
+    openPick(early);
+  }
 }
