@@ -1,6 +1,7 @@
 //! Tauri commands: the only bridge between the web UI and Rust.
 
-use crate::backend::{Backend, Candidate, InputEvent, PcInfo, SessionEvent, ViewerSession};
+use crate::backend::{Backend, Candidate, InputEvent, PcInfo, SessionEvent};
+use crate::sessions::{SessionInfo, Sessions};
 use desk_config::{ConfigManager, PairedPc, PanelConfig};
 use desk_theme::{ResolvedTheme, ThemeMode};
 use desk_transport::TailscaleDetector;
@@ -18,7 +19,7 @@ pub struct AppState {
     pub backend: Arc<dyn Backend>,
     pub config_path: PathBuf,
     pub config: Mutex<PanelConfig>,
-    pub session: Mutex<Option<Box<dyn ViewerSession>>>,
+    pub sessions: Arc<Sessions>,
     #[cfg_attr(feature = "demo", allow(dead_code))]
     pub incoming: Arc<crate::incoming::IncomingManager>,
     pub picks: Arc<crate::shell_menu::PickCollector>,
@@ -203,7 +204,8 @@ pub async fn viewer_connect(
     pc_id: String,
     events: Channel<InvokeResponseBody>,
 ) -> Result<(), String> {
-    viewer_disconnect(state.clone());
+    // Only this PC's old session is replaced; the other open PCs keep streaming.
+    state.sessions.close(&pc_id);
     let pc = lock(&state.config)
         .paired_pcs
         .iter()
@@ -251,29 +253,46 @@ pub async fn viewer_connect(
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.code().to_string())?;
-    *lock(&state.session) = Some(session);
+    state.sessions.insert(&pc_id, session);
     Ok(())
 }
 
+/// Leaves the session of `pc_id` (the tab was closed).
 #[tauri::command]
-pub fn viewer_disconnect(state: State<'_, AppState>) {
-    if let Some(session) = lock(&state.session).take() {
-        session.close();
-    }
+pub fn viewer_disconnect(state: State<'_, AppState>, pc_id: String) {
+    state.sessions.close(&pc_id);
+}
+
+/// Input for the session of `pc_id` only; dropped while that session is paused.
+#[tauri::command]
+pub fn viewer_input(state: State<'_, AppState>, pc_id: String, event: InputEvent) {
+    state.sessions.input(&pc_id, &event);
 }
 
 #[tauri::command]
-pub fn viewer_input(state: State<'_, AppState>, event: InputEvent) {
-    if let Some(session) = lock(&state.session).as_ref() {
-        session.send_input(&event);
+pub fn viewer_request_keyframe(state: State<'_, AppState>, pc_id: String) {
+    state.sessions.request_keyframe(&pc_id);
+}
+
+/// Background tabs pause their video (`active = false`); the link, pairing and input path stay
+/// open. Resuming brings a keyframe at once. The error value is `no_session`.
+#[tauri::command]
+pub fn viewer_set_active(
+    state: State<'_, AppState>,
+    pc_id: String,
+    active: bool,
+) -> Result<(), String> {
+    if state.sessions.set_active(&pc_id, active) {
+        Ok(())
+    } else {
+        Err("no_session".to_string())
     }
 }
 
+/// Open sessions, to restore the tab bar after a reload.
 #[tauri::command]
-pub fn viewer_request_keyframe(state: State<'_, AppState>) {
-    if let Some(session) = lock(&state.session).as_ref() {
-        session.request_keyframe();
-    }
+pub fn viewer_sessions(state: State<'_, AppState>) -> Vec<SessionInfo> {
+    state.sessions.list()
 }
 
 #[tauri::command]

@@ -67,8 +67,8 @@ struct State {
     probes: HashMap<String, Probe>,
     neighbours: Vec<Neighbour>,
     paired: Vec<PairedPc>,
-    /// Device and token of the PC being watched; it is not probed meanwhile.
-    watching: Option<(String, u64)>,
+    /// Device -> token of every PC being watched; those are not probed meanwhile.
+    watching: HashMap<String, u64>,
     next_token: u64,
 }
 
@@ -168,15 +168,9 @@ impl Inner {
         let (paired, watching) = {
             let mut st = lock(&self.state);
             st.neighbours = found;
-            (
-                st.paired.clone(),
-                st.watching.as_ref().map(|(id, _)| id.clone()),
-            )
+            (st.paired.clone(), st.watching.clone())
         };
-        for pc in paired
-            .iter()
-            .filter(|pc| watching.as_deref() != Some(&pc.id))
-        {
+        for pc in paired.iter().filter(|pc| !watching.contains_key(&pc.id)) {
             let result = self.probe(pc);
             self.record(&pc.id, result);
         }
@@ -295,12 +289,11 @@ impl Backend for TransportBackend {
         if changed {
             st.paired = paired.to_vec();
         }
-        let watching = st.watching.as_ref().map(|(id, _)| id.clone());
         let rows = paired
             .iter()
             .map(|pc| {
                 let probe = st.probes.get(&pc.id);
-                let live = watching.as_deref() == Some(pc.id.as_str());
+                let live = st.watching.contains_key(&pc.id);
                 let status = match probe {
                     _ if live => PcStatus::Online,
                     Some(p) => p.status,
@@ -409,12 +402,14 @@ impl Backend for TransportBackend {
         let token = {
             let mut st = lock(&self.inner.state);
             st.next_token += 1;
-            st.watching = Some((pc.id.clone(), st.next_token));
+            let token = st.next_token;
+            st.watching.insert(pc.id.clone(), token);
             st.next_token
         };
         let live = Arc::new(Live {
             writer: Mutex::new(writer),
             stop: AtomicBool::new(false),
+            active: AtomicBool::new(true),
             keys: Mutex::new(InputTranslator::default()),
         });
         let spawned = spawn_reader(
@@ -438,6 +433,8 @@ impl Backend for TransportBackend {
 struct Live {
     writer: Mutex<SessionWriter>,
     stop: AtomicBool,
+    /// The video is wanted (`false` while the tab is in the background).
+    active: AtomicBool,
     keys: Mutex<InputTranslator>,
 }
 
@@ -470,6 +467,24 @@ impl ViewerSession for Handle {
 
     fn request_keyframe(&self) {
         self.0.send(&Message::RequestKeyframe);
+    }
+
+    /// The host stops capturing and encoding when its last viewer leaves, so a paused tab
+    /// costs no bandwidth; joining again makes it send the config and a keyframe.
+    fn set_active(&self, active: bool) {
+        if self.0.active.swap(active, Ordering::Relaxed) == active {
+            return;
+        }
+        if active {
+            self.0.send(&Message::ViewerJoin);
+            self.0.send(&Message::RequestKeyframe);
+        } else {
+            self.0.send(&Message::ViewerLeave);
+        }
+    }
+
+    fn is_open(&self) -> bool {
+        !self.0.stop.load(Ordering::Relaxed)
     }
 
     fn close(&self) {
@@ -519,6 +534,10 @@ fn spawn_reader(
                     Ok(Message::Notice { kind }) => sink(SessionEvent::Notice {
                         kind: notice_code(kind),
                     }),
+                    // Frames already in flight when the tab was paused are not shown.
+                    Ok(msg) if !live.active.load(Ordering::Relaxed) => {
+                        tracing::trace!(?msg, "dropped while paused");
+                    }
                     Ok(msg) => stream.handle(msg, &sink),
                     Err(e) => {
                         if !live.stop.load(Ordering::Relaxed) {
@@ -531,8 +550,8 @@ fn spawn_reader(
             live.shutdown();
             {
                 let mut st = lock(&inner.state);
-                if st.watching.as_ref().is_some_and(|(_, t)| *t == token) {
-                    st.watching = None;
+                if st.watching.get(&device_id) == Some(&token) {
+                    st.watching.remove(&device_id);
                 }
             }
             inner.nudge();

@@ -8,6 +8,7 @@ mod commands;
 pub mod incoming;
 #[cfg(feature = "demo")]
 mod incoming_demo;
+mod sessions;
 mod shell_menu;
 #[cfg(not(feature = "demo"))]
 mod transfer;
@@ -48,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         backend: backend::select(),
         config_path,
         config: Mutex::new(panel_config),
-        session: Mutex::new(None),
+        sessions: Arc::default(),
         incoming,
         picks: Arc::clone(&picks),
         #[cfg(not(feature = "demo"))]
@@ -105,6 +106,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         commands::viewer_disconnect,
         commands::viewer_input,
         commands::viewer_request_keyframe,
+        commands::viewer_set_active,
+        commands::viewer_sessions,
         commands::tailscale_status,
         commands::tailscale_connect,
         commands::demo_drop,
@@ -146,6 +149,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         commands::viewer_disconnect,
         commands::viewer_input,
         commands::viewer_request_keyframe,
+        commands::viewer_set_active,
+        commands::viewer_sessions,
         commands::tailscale_status,
         commands::tailscale_connect,
         commands::demo_drop,

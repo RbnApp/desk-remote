@@ -146,6 +146,11 @@ pub trait ViewerSession: Send {
     fn send_input(&self, event: &InputEvent);
     /// Asks the host for a fresh keyframe (`RequestKeyframe`).
     fn request_keyframe(&self);
+    /// Pauses (`false`, `ViewerLeave`) or resumes (`true`, `ViewerJoin` + keyframe) the video
+    /// while the link, the pairing and the input path stay open.
+    fn set_active(&self, active: bool);
+    /// The link is still up.
+    fn is_open(&self) -> bool;
     /// Leaves the session (`ViewerLeave`).
     fn close(&self);
 }

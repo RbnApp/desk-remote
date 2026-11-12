@@ -8,6 +8,7 @@ use super::{
     ViewerSession,
 };
 use desk_config::PairedPc;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -45,9 +46,25 @@ const FAKE_PCS: &[FakePc] = &[
 pub struct DemoBackend {
     pair_counter: AtomicU32,
     fail_connects: AtomicU32,
-    active_stop: Mutex<Option<Arc<AtomicBool>>>,
-    active_sink: Mutex<Option<EventSink>>,
+    /// Live sessions by PC id (several PCs can be open at once).
+    live: Mutex<HashMap<String, LiveDemo>>,
     fail_with: Mutex<Option<PairError>>,
+}
+
+/// Control handles and sink of one running demo stream.
+struct LiveDemo {
+    flags: Arc<Flags>,
+    sink: EventSink,
+}
+
+/// Switches shared by a demo session handle and its stream thread.
+#[derive(Default)]
+struct Flags {
+    stop: AtomicBool,
+    /// Background tab: no frames are produced.
+    paused: AtomicBool,
+    /// Resumed: start over at the first keyframe.
+    restart: AtomicBool,
 }
 
 impl DemoBackend {
@@ -55,8 +72,7 @@ impl DemoBackend {
         Self {
             pair_counter: AtomicU32::new(0),
             fail_connects: AtomicU32::new(0),
-            active_stop: Mutex::new(None),
-            active_sink: Mutex::new(None),
+            live: Mutex::new(HashMap::new()),
             fail_with: Mutex::new(None),
         }
     }
@@ -132,21 +148,22 @@ impl Backend for DemoBackend {
         }
         let units = split_access_units(SAMPLE);
         let codec = codec_string(&units).ok_or(PairError::Network)?;
-        let stop = Arc::new(AtomicBool::new(false));
-        if let Ok(mut slot) = self.active_stop.lock() {
-            if let Some(previous) = slot.replace(Arc::clone(&stop)) {
-                previous.store(true, Ordering::Relaxed);
+        let flags = Arc::new(Flags::default());
+        if let Ok(mut live) = self.live.lock() {
+            let entry = LiveDemo {
+                flags: Arc::clone(&flags),
+                sink: Arc::clone(&sink),
+            };
+            if let Some(previous) = live.insert(pc.id.clone(), entry) {
+                previous.flags.stop.store(true, Ordering::Relaxed);
             }
         }
-        if let Ok(mut slot) = self.active_sink.lock() {
-            *slot = Some(Arc::clone(&sink));
-        }
-        let thread_stop = Arc::clone(&stop);
+        let thread_flags = Arc::clone(&flags);
         std::thread::Builder::new()
             .name("demo-session".to_string())
-            .spawn(move || stream(&units, &codec, &sink, &thread_stop))
+            .spawn(move || stream(&units, &codec, &sink, &thread_flags))
             .map_err(|_| PairError::Network)?;
-        Ok(Box::new(DemoSession { stop }))
+        Ok(Box::new(DemoSession { flags }))
     }
 
     fn is_demo(&self) -> bool {
@@ -159,15 +176,12 @@ impl Backend for DemoBackend {
             "view_only_on" => "view_only_on",
             _ => "view_only_off",
         };
-        if let Some(sink) = self.active_sink.lock().ok().and_then(|slot| slot.clone()) {
-            sink(SessionEvent::Notice { kind });
+        let Ok(live) = self.live.lock() else { return };
+        for entry in live.values() {
+            (entry.sink)(SessionEvent::Notice { kind });
             if kind == "disconnected_by_host" {
                 // The host closes the link right after announcing it.
-                if let Ok(slot) = self.active_stop.lock() {
-                    if let Some(stop) = slot.as_ref() {
-                        stop.store(true, Ordering::Relaxed);
-                    }
-                }
+                entry.flags.stop.store(true, Ordering::Relaxed);
             }
         }
     }
@@ -186,16 +200,16 @@ impl Backend for DemoBackend {
     fn simulate_drop(&self) {
         self.fail_connects
             .store(FAILED_ATTEMPTS_AFTER_DROP, Ordering::Relaxed);
-        if let Ok(slot) = self.active_stop.lock() {
-            if let Some(stop) = slot.as_ref() {
-                stop.store(true, Ordering::Relaxed);
+        if let Ok(live) = self.live.lock() {
+            for entry in live.values() {
+                entry.flags.stop.store(true, Ordering::Relaxed);
             }
         }
     }
 }
 
 struct DemoSession {
-    stop: Arc<AtomicBool>,
+    flags: Arc<Flags>,
 }
 
 impl ViewerSession for DemoSession {
@@ -217,8 +231,19 @@ impl ViewerSession for DemoSession {
         tracing::debug!("demo session keyframe request (the sample loops on keyframes anyway)");
     }
 
+    fn set_active(&self, active: bool) {
+        if active {
+            self.flags.restart.store(true, Ordering::Relaxed);
+        }
+        self.flags.paused.store(!active, Ordering::Relaxed);
+    }
+
+    fn is_open(&self) -> bool {
+        !self.flags.stop.load(Ordering::Relaxed)
+    }
+
     fn close(&self) {
-        self.stop.store(true, Ordering::Relaxed);
+        self.flags.stop.store(true, Ordering::Relaxed);
     }
 }
 
@@ -228,7 +253,7 @@ struct AccessUnit {
     data: Vec<u8>,
 }
 
-fn stream(units: &[AccessUnit], codec: &str, sink: &EventSink, stop: &AtomicBool) {
+fn stream(units: &[AccessUnit], codec: &str, sink: &EventSink, flags: &Flags) {
     sink(SessionEvent::Config {
         codec: codec.to_string(),
         fps: FPS,
@@ -241,8 +266,17 @@ fn stream(units: &[AccessUnit], codec: &str, sink: &EventSink, stop: &AtomicBool
     let mut last_rtt = Instant::now();
     'outer: loop {
         for unit in units {
-            if stop.load(Ordering::Relaxed) {
+            if flags.stop.load(Ordering::Relaxed) {
                 break 'outer;
+            }
+            if flags.paused.load(Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(20));
+                next = Instant::now();
+                continue 'outer;
+            }
+            if flags.restart.swap(false, Ordering::Relaxed) && !unit.keyframe {
+                // Resumed in the middle of the loop: the picture must start on a keyframe.
+                continue 'outer;
             }
             sink(SessionEvent::Frame {
                 ts_us,
@@ -296,6 +330,7 @@ fn codec_string(units: &[AccessUnit]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
 
     #[test]
@@ -304,6 +339,67 @@ mod tests {
         assert!(units.len() > 30);
         assert!(units[0].keyframe);
         assert!(codec_string(&units).is_some_and(|c| c.starts_with("avc1.")));
+    }
+
+    /// Counts frames per session and remembers whether the last one was a keyframe.
+    fn counting_sink() -> (EventSink, Arc<AtomicU32>, Arc<AtomicBool>) {
+        let (frames, last_key) = (
+            Arc::new(AtomicU32::new(0)),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let (f, k) = (Arc::clone(&frames), Arc::clone(&last_key));
+        let sink: EventSink = Arc::new(move |e| {
+            if let SessionEvent::Frame { keyframe, .. } = e {
+                if f.fetch_add(1, Ordering::Relaxed) == 0 {
+                    k.store(keyframe, Ordering::Relaxed);
+                }
+            }
+        });
+        (sink, frames, last_key)
+    }
+
+    #[test]
+    fn sessions_run_side_by_side_and_pause_independently() {
+        let backend = DemoBackend::new();
+        let pc = |id: &str| PairedPc {
+            id: id.to_string(),
+            name: id.to_string(),
+            address: None,
+        };
+        let (sink_a, frames_a, _) = counting_sink();
+        let (sink_b, frames_b, _) = counting_sink();
+        let a = backend.connect(&pc("demo-1"), sink_a).unwrap();
+        let b = backend.connect(&pc("demo-5"), sink_b).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(frames_a.load(Ordering::Relaxed) > 0 && frames_b.load(Ordering::Relaxed) > 0);
+        assert!(a.is_open() && b.is_open(), "b must not close a");
+
+        a.set_active(false);
+        std::thread::sleep(Duration::from_millis(100));
+        let (paused_at, b_at) = (
+            frames_a.load(Ordering::Relaxed),
+            frames_b.load(Ordering::Relaxed),
+        );
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(frames_a.load(Ordering::Relaxed), paused_at, "a is paused");
+        assert!(frames_b.load(Ordering::Relaxed) > b_at, "b keeps streaming");
+
+        let (sink_c, frames_c, first_is_key) = counting_sink();
+        let c = backend.connect(&pc("demo-1"), sink_c).unwrap();
+        assert!(!a.is_open(), "reconnecting demo-1 replaces only demo-1");
+        assert!(b.is_open());
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(frames_c.load(Ordering::Relaxed) > 0);
+        assert!(first_is_key.load(Ordering::Relaxed));
+
+        c.set_active(false);
+        std::thread::sleep(Duration::from_millis(150));
+        let before = frames_c.load(Ordering::Relaxed);
+        c.set_active(true);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(frames_c.load(Ordering::Relaxed) > before, "resumed");
+        b.close();
+        c.close();
     }
 
     #[test]
