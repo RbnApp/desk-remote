@@ -10,3 +10,14 @@ workspace = true
 
 [dependencies]
 desk-error = { workspace = true }
+desk-paths = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+fastrand = "2.5"
+chacha20poly1305 = "0.10"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+

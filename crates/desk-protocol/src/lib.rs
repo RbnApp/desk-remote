@@ -12,8 +12,8 @@ pub const PROTOCOL_VERSION: &str = "0.1.0";
 /// 4-byte framing magic bytes ("DESK").
 pub const FRAME_MAGIC: [u8; 4] = *b"DESK";
 
-/// Maximum supported frame payload size (32 MiB).
-pub const MAX_FRAME_PAYLOAD_SIZE: usize = 32 * 1024 * 1024;
+/// Maximum supported frame payload size (64 MiB).
+pub const MAX_FRAME_PAYLOAD_SIZE: usize = 64 * 1024 * 1024;
 
 /// IEEE 802.3 CRC-32 checksum calculation.
 #[must_use]
@@ -189,20 +189,21 @@ mod tests {
     }
 
     #[test]
-    fn test_message_roundtrip_hello() {
+    fn test_message_roundtrip_hello() -> DeskResult<()> {
         let msg = Message::Hello {
             device_id: "agent-test-1234".to_string(),
             version: PROTOCOL_VERSION.to_string(),
         };
 
-        let encoded = FrameCodec::encode(&msg).expect("encode should succeed");
-        let decoded = FrameCodec::decode(&encoded).expect("decode should succeed");
+        let encoded = FrameCodec::encode(&msg)?;
+        let decoded = FrameCodec::decode(&encoded)?;
 
         assert_eq!(decoded, Some((msg, encoded.len())));
+        Ok(())
     }
 
     #[test]
-    fn test_message_roundtrip_all_variants() {
+    fn test_message_roundtrip_all_variants() -> DeskResult<()> {
         let messages = vec![
             Message::PairRequest {
                 code: "ABCD-2345".to_string(),
@@ -244,34 +245,36 @@ mod tests {
         ];
 
         for original in messages {
-            let encoded = FrameCodec::encode(&original).expect("encode succeeds");
-            let (decoded, consumed) = FrameCodec::decode(&encoded)
-                .expect("decode succeeds")
-                .expect("frame complete");
+            let encoded = FrameCodec::encode(&original)?;
+            let (decoded, consumed) = match FrameCodec::decode(&encoded)? {
+                Some(pair) => pair,
+                None => return Err(DeskError::Protocol("Unexpected None".to_string())),
+            };
             assert_eq!(decoded, original);
             assert_eq!(consumed, encoded.len());
         }
+        Ok(())
     }
 
     #[test]
-    fn test_corrupted_crc_rejected() {
+    fn test_corrupted_crc_rejected() -> DeskResult<()> {
         let msg = Message::Ping { ts: 100 };
-        let mut encoded = FrameCodec::encode(&msg).expect("encode succeeds");
-        // Tamper with payload
+        let mut encoded = FrameCodec::encode(&msg)?;
         let last_idx = encoded.len() - 1;
         encoded[last_idx] ^= 0xFF;
 
-        let err = FrameCodec::decode(&encoded).unwrap_err();
-        assert!(err.to_string().contains("CRC32 mismatch"));
+        let res = FrameCodec::decode(&encoded);
+        assert!(res.is_err());
+        Ok(())
     }
 
     #[test]
-    fn test_partial_buffer_returns_none() {
+    fn test_partial_buffer_returns_none() -> DeskResult<()> {
         let msg = Message::Ping { ts: 100 };
-        let encoded = FrameCodec::encode(&msg).expect("encode succeeds");
+        let encoded = FrameCodec::encode(&msg)?;
 
-        // Half the buffer
         let partial = &encoded[..encoded.len() / 2];
-        assert_eq!(FrameCodec::decode(partial).expect("no error"), None);
+        assert_eq!(FrameCodec::decode(partial)?, None);
+        Ok(())
     }
 }

@@ -23,6 +23,8 @@ All AI agents and human contributors working on this repository MUST strictly fo
 7. **Public & MIT License Standard**: The repository is public. All code, comments, documentation, and commit messages MUST be written in English. User-facing text must be externalized via `desk-i18n` (English source + Turkish localization).
 8. **Version Control**: Version is strictly pinned to `0.1.0` (read from the root [VERSION](VERSION) file). Do not bump versions or publish releases without explicit owner direction.
 9. **Single-Source Theme**: Colors come only from `design/tokens/themes.json` via `desk-theme` (palettes `ink` default and `petrol`; modes system/light/dark, chosen in settings). Hardcoded color literals in UI code are rejected by the Hardcoded Color Gate. See [Theme System](docs/architecture/theme.md).
+10. **Permitted Non-Rust Subsystem (`apps/desk-tailnet-helper`)**: The embedded Tailscale networking helper is implemented in Go as the sole permitted architectural exception to the pure-Rust codebase. Rationale: Tailscale's userspace networking engine (`tsnet`) is natively implemented in Go, allowing zero-driver, non-root userspace tailnet connectivity on Windows without requiring C FFI or kernel Wintun drivers. The helper communicates with the native Rust core exclusively via loopback TCP bridge sockets managed by `desk-transport`.
+
 
 ---
 
