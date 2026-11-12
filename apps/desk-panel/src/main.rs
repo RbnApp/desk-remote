@@ -6,6 +6,8 @@
 mod backend;
 mod commands;
 pub mod incoming;
+#[cfg(feature = "demo")]
+mod incoming_demo;
 
 use commands::AppState;
 use desk_config::{ConfigManager, PanelConfig};
@@ -34,33 +36,69 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         incoming,
     };
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(state)
-        .invoke_handler(tauri::generate_handler![
-            commands::app_info,
-            commands::get_catalog,
-            commands::get_settings,
-            commands::update_settings,
-            commands::get_theme,
-            commands::palette_previews,
-            commands::list_pcs,
-            commands::discover_pcs,
-            commands::pair_pc,
-            commands::viewer_connect,
-            commands::viewer_disconnect,
-            commands::viewer_input,
-            commands::viewer_request_keyframe,
-            commands::tailscale_status,
-            commands::tailscale_connect,
-            commands::demo_drop,
-            commands::incoming_get_state,
-            commands::incoming_set_enabled,
-            commands::incoming_new_code,
-            commands::incoming_answer,
-            commands::incoming_disconnect,
-            commands::incoming_set_mode,
-        ])
-        .run(tauri::generate_context!())?;
+        .manage(state);
+    #[cfg(feature = "demo")]
+    let builder = builder.manage(incoming_demo::DemoIncoming::new());
+
+    #[cfg(feature = "demo")]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        commands::app_info,
+        commands::get_catalog,
+        commands::get_settings,
+        commands::update_settings,
+        commands::get_theme,
+        commands::palette_previews,
+        commands::list_pcs,
+        commands::discover_pcs,
+        commands::pair_pc,
+        commands::viewer_connect,
+        commands::viewer_disconnect,
+        commands::viewer_input,
+        commands::viewer_request_keyframe,
+        commands::tailscale_status,
+        commands::tailscale_connect,
+        commands::demo_drop,
+        commands::demo_notice,
+        commands::demo_connect_failure,
+        incoming_demo::incoming_get_state,
+        incoming_demo::incoming_set_enabled,
+        incoming_demo::incoming_new_code,
+        incoming_demo::incoming_answer,
+        incoming_demo::incoming_disconnect,
+        incoming_demo::incoming_set_mode,
+        incoming_demo::demo_incoming_request,
+        incoming_demo::demo_incoming_peer_left,
+    ]);
+    #[cfg(not(feature = "demo"))]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        commands::app_info,
+        commands::get_catalog,
+        commands::get_settings,
+        commands::update_settings,
+        commands::get_theme,
+        commands::palette_previews,
+        commands::list_pcs,
+        commands::discover_pcs,
+        commands::pair_pc,
+        commands::viewer_connect,
+        commands::viewer_disconnect,
+        commands::viewer_input,
+        commands::viewer_request_keyframe,
+        commands::tailscale_status,
+        commands::tailscale_connect,
+        commands::demo_drop,
+        commands::demo_notice,
+        commands::demo_connect_failure,
+        commands::incoming_get_state,
+        commands::incoming_set_enabled,
+        commands::incoming_new_code,
+        commands::incoming_answer,
+        commands::incoming_disconnect,
+        commands::incoming_set_mode,
+    ]);
+
+    builder.run(tauri::generate_context!())?;
     Ok(())
 }

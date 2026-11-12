@@ -12,6 +12,7 @@
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column}
 body{font-family:var(--font);font-size:var(--fs-md);line-height:1.45;background:var(--background);color:var(--text);-webkit-font-smoothing:antialiased}
 button,input,select{font:inherit;color:inherit}
 h1,h2,h3,p{margin:0}
@@ -22,7 +23,7 @@ svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-widt
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 /* ===== Uygulama iskeleti ===== */
-.app{display:grid;grid-template-columns:var(--side) 1fr;height:100vh}
+.app{display:grid;grid-template-columns:var(--side) 1fr;grid-template-rows:minmax(0,1fr);flex:1;min-height:0}
 .app.immersive{grid-template-columns:1fr}
 .app.immersive .side{display:none}
 .side{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:var(--s4) var(--s3);gap:var(--s5)}
@@ -37,7 +38,7 @@ svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-widt
 .nav .count{margin-left:auto;font-size:var(--fs-xs);color:var(--text-muted);font-variant-numeric:tabular-nums}
 .side-foot{margin-top:auto;display:flex;flex-direction:column;gap:var(--s2);padding:var(--s3);border:1px solid var(--border);border-radius:var(--r-md);font-size:var(--fs-xs);color:var(--text-muted)}
 .side-foot b{color:var(--text);font-weight:600;display:flex;align-items:center;gap:var(--s2);font-size:var(--fs-sm)}
-.main{display:flex;flex-direction:column;min-width:0;height:100vh}
+.main{display:flex;flex-direction:column;min-width:0;height:100%;min-height:0}
 .head{display:flex;align-items:center;gap:var(--s4);padding:var(--s4) var(--s6);border-bottom:1px solid var(--border);background:var(--background);min-height:68px}
 .head h1{font-size:var(--fs-xl);font-weight:700}
 .head .sub{color:var(--text-muted);font-size:var(--fs-sm)}
@@ -192,7 +193,7 @@ table.rows{width:100%;border-collapse:separate;border-spacing:0;background:var(-
 .actions{display:flex;gap:var(--s2);align-items:center;justify-content:flex-end}
 
 /* ===== Canlı ekran görüntüleyici ===== */
-.viewer{display:flex;flex-direction:column;height:100vh;background:var(--background)}
+.viewer{display:flex;flex-direction:column;height:100%;background:var(--background)}
 .vbar{height:var(--bar);flex:none;display:flex;align-items:center;gap:var(--s3);padding:0 var(--s3);background:var(--surface);border-bottom:1px solid var(--border);transition:transform var(--t),opacity var(--t)}
 .vbar .vname{font-weight:700;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .vbar .sep{width:1px;height:20px;background:var(--border)}
@@ -246,3 +247,37 @@ table.rows{width:100%;border-collapse:separate;border-spacing:0;background:var(-
 .sec .divider{height:1px;background:var(--border);margin:var(--s2) 0}
 .vbar .dec{font-size:var(--fs-xs);color:var(--text-muted);font-weight:600}
 .pv .dots i.s{background:var(--success)}.pv .dots i.w{background:var(--warning)}.pv .dots i.d{background:var(--danger)}.pv .dots i.a{background:var(--accent)}
+
+/* ===== This PC: incoming connections (DAPP-82) ===== */
+.split{display:flex;align-items:center;justify-content:space-between;gap:var(--s4)}
+.codebig{font-family:var(--mono);font-size:calc(var(--fs-2xl) * 1.5);font-weight:700;letter-spacing:.2em;text-align:center;padding:var(--s4);background:var(--surface-alt);border:1px solid var(--border);border-radius:var(--r-md);user-select:all}
+.addrs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--s2)}
+.addr{display:flex;align-items:center;justify-content:space-between;gap:var(--s3);width:100%;height:var(--ctl);padding:0 var(--s3);border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);cursor:pointer;font-family:var(--mono);font-size:var(--fs-sm);color:var(--text)}
+.addr:hover{background:var(--surface-hover)}
+.addr svg{color:var(--text-muted)}
+.sw.locked{opacity:.75;cursor:not-allowed}
+.pill.host{border-color:var(--warning);color:var(--warning);background:var(--warning-bg)}
+
+/* Session band: pinned above the whole app while this PC is watched */
+#band:empty{display:none}
+.band{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s3);padding:var(--s2) var(--s4);min-height:var(--bar);border-bottom:2px solid var(--warning);background:var(--warning-bg);color:var(--warning)}
+.band.ctl{border-bottom-color:var(--danger);background:var(--danger-bg);color:var(--danger)}
+.band .bt{color:var(--text);font-size:var(--fs-md)}
+.band .bt b{font-weight:700}
+.band .bm{font-weight:700}
+.band .spacer{flex:1}
+.band .btn.danger{background:var(--surface)}
+
+/* Approval dialog */
+.modal-back{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:var(--s4);background:color-mix(in srgb,var(--background) 72%,transparent);backdrop-filter:blur(3px)}
+.dialog{width:min(480px,100%);max-height:100%;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--s5);display:flex;flex-direction:column;gap:var(--s4)}
+.dlg-head{display:flex;gap:var(--s3);align-items:flex-start}
+.dlg-head h2{font-size:var(--fs-lg);margin-bottom:var(--s2)}
+.dlg-head .ico{width:44px;height:44px;flex:none;border-radius:var(--r-md);background:var(--surface-alt);border:1px solid var(--border);display:grid;place-items:center;color:var(--primary)}
+.chk{display:flex;align-items:center;gap:var(--s2);font-size:var(--fs-sm);font-weight:600;cursor:pointer}
+.chk input{width:18px;height:18px;margin:0;accent-color:var(--primary)}
+.chk input:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
+.cd{height:4px;border-radius:2px;background:var(--surface-pressed);overflow:hidden}
+.cd i{display:block;height:100%;width:100%;background:var(--warning);transition:width 1s linear}
+.dlg-act{display:flex;flex-wrap:wrap;gap:var(--s2);justify-content:flex-end}
+.dlg-act .btn.danger{margin-right:auto}

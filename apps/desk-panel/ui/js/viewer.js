@@ -16,6 +16,7 @@ const V = {
   pc: null,
   phase: "connecting", // connecting | live | lost | failed | unsupported
   control: false,
+  hostViewOnly: false,
   fs: false,
   fps: 0,
   rtt: 0,
@@ -43,7 +44,7 @@ function toolbar() {
     ? `<span class="stat ${cls}" id="stLat"><span>${t("view.latency")}</span><b>${ms}</b>ms<span class="sr">${t(`view.lat.${cls}`)}</span></span>
        <span class="stat" id="stFps"><b>${V.fps}</b>fps</span>
        <span class="dec">${V.hardware ? t("view.decoder.hw") : t("view.decoder.sw")}</span><span class="sep"></span>
-       <label class="sw" title="${esc(V.control ? t("view.mode.control_hint") : t("view.mode.view_hint"))}"><input type="checkbox" id="ctl" ${V.control ? "checked" : ""} role="switch"><span class="tr"></span><span class="pill ${V.control ? "ctl" : ""}">${ic(V.control ? "pointer" : "eye")}<span>${V.control ? t("view.mode.control") : t("view.mode.view")}</span></span><span class="sr">${t("view.control.toggle")}</span></label>`
+       ${V.hostViewOnly ? `<span class="pill host" id="hostNote">${ic("alert")}<span>${t("view.hostviewonly.pill")}</span></span>` : ""}<label class="sw ${V.hostViewOnly ? "locked" : ""}" title="${esc(V.hostViewOnly ? t("view.hostviewonly.tip", { name: V.pc.name }) : V.control ? t("view.mode.control_hint") : t("view.mode.view_hint"))}"><input type="checkbox" id="ctl" ${V.control ? "checked" : ""} ${V.hostViewOnly ? 'aria-disabled="true" aria-describedby="hostNote"' : ""} role="switch"><span class="tr"></span><span class="pill ${V.control ? "ctl" : ""}">${ic(V.control ? "pointer" : "eye")}<span>${V.control ? t("view.mode.control") : t("view.mode.view")}</span></span><span class="sr">${t("view.control.toggle")}</span></label>`
     : "";
   const demo = S.info.demo ? `<button class="btn sm" data-act="demo-drop">${ic("wifi-off")}<span class="opt">${t("view.demo.drop")}</span></button>` : "";
   return `<button class="btn sm" data-act="disconnect">${ic("power")}<span class="opt">${t("view.disconnect")}</span><span class="sr">${t("view.disconnect")}</span></button>
@@ -66,7 +67,15 @@ function overlay() {
       return overlayCard("load", ic("arc", "spin"), t("view.connecting.title", { name }), t("view.connecting.body"), "");
     case "lost":
       return overlayCard("bad", ic("wifi-off"), t("view.lost.title"), t("view.lost.body", { name, n: V.retry, max: MAX_RETRY }), retry + back);
+    case "ended":
+      return overlayCard("bad", ic("power"), t("view.ended.title", { name }), t("view.ended.body"), back);
     case "failed":
+      if (V.reason === "denied") {
+        return overlayCard("bad", ic("x"), t("view.denied.title", { name }), t("view.denied.body"), retry + back);
+      }
+      if (V.reason === "no_answer") {
+        return overlayCard("bad", ic("clock"), t("view.noanswer.title", { name }), t("view.noanswer.body"), retry + back);
+      }
       if (V.reason === "unpaired") {
         return overlayCard("bad", ic("alert"), t("view.lost.unpaired_title"), t("view.lost.unpaired_body", { name }), back);
       }
@@ -98,7 +107,7 @@ function renderViewer() {
      <div class="stage" id="stage"><div class="screen viewonly" id="screen"><canvas id="remote" tabindex="0" width="1280" height="720" aria-label="${esc(V.pc.name)}"></canvas></div><div id="overlay"></div></div></main>`,
     `app immersive${V.fs ? " fs" : ""}`,
   );
-  attachInput($("#remote"), sendInput, () => V.control && V.phase === "live");
+  attachInput($("#remote"), sendInput, () => V.control && !V.hostViewOnly && V.phase === "live");
   paint();
 }
 
@@ -155,10 +164,35 @@ async function handleMessage(message) {
     case "rtt":
       V.rtt = message.ms;
       break;
+    case "notice":
+      onHostNotice(message.kind);
+      break;
     case "closed":
       if (V.phase === "live" || V.phase === "connecting") enterLost();
       break;
     default:
+  }
+}
+
+function onHostNotice(kind) {
+  const name = V.pc.name;
+  if (kind === "view_only_on") {
+    V.hostViewOnly = true;
+    V.control = false;
+    paint();
+    toast(t("view.toast.host_viewonly_on", { name }));
+  } else if (kind === "view_only_off") {
+    V.hostViewOnly = false;
+    paint();
+    toast(t("view.toast.host_viewonly_off"));
+  } else if (kind === "disconnected_by_host") {
+    V.token += 1;
+    clearTimeout(V.retryTimer);
+    V.pipeline?.close();
+    V.pipeline = null;
+    V.phase = "ended";
+    paint();
+    $("#overlay [data-act]")?.focus({ preventScroll: true });
   }
 }
 
@@ -181,7 +215,7 @@ async function attempt() {
     await startSession();
   } catch (reason) {
     V.reason = typeof reason === "string" ? reason : "";
-    if (V.reason === "unpaired") {
+    if (V.reason === "unpaired" || V.reason === "denied" || V.reason === "no_answer") {
       V.token += 1;
       V.phase = "failed";
       paint();
@@ -215,7 +249,7 @@ function enterLost(retry = 1) {
 export function openViewer(pcId) {
   const pc = S.pcs.find((p) => p.id === pcId);
   if (!pc || pc.status === "offline" || pc.status === "connecting") return;
-  Object.assign(V, { pc, control: false, fps: 0, rtt: 0, decodeMs: 0, hardware: null, retry: 1 });
+  Object.assign(V, { pc, control: false, hostViewOnly: false, fps: 0, rtt: 0, decodeMs: 0, hardware: null, retry: 1 });
   S.screen = "viewer";
   renderViewer();
   attempt();
@@ -243,6 +277,12 @@ export function retryNow() {
 }
 
 export function setControl(on) {
+  if (V.hostViewOnly) {
+    paint();
+    toast(t("view.hostviewonly.tip", { name: V.pc.name }));
+    $("#ctl")?.focus({ preventScroll: true });
+    return;
+  }
   V.control = on;
   paint();
   toast(on ? t("view.toast.control") : t("view.toast.viewonly"));

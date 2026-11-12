@@ -19,6 +19,7 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub config: Mutex<PanelConfig>,
     pub session: Mutex<Option<Box<dyn ViewerSession>>>,
+    #[cfg_attr(feature = "demo", allow(dead_code))]
     pub incoming: Arc<crate::incoming::IncomingManager>,
 }
 
@@ -201,6 +202,9 @@ pub async fn viewer_connect(
             SessionEvent::Rtt { ms } => {
                 InvokeResponseBody::Json(serde_json::json!({"type":"rtt","ms":ms}).to_string())
             }
+            SessionEvent::Notice { kind } => InvokeResponseBody::Json(
+                serde_json::json!({"type":"notice","kind":kind}).to_string(),
+            ),
             SessionEvent::Closed => {
                 InvokeResponseBody::Json(serde_json::json!({"type":"closed"}).to_string())
             }
@@ -276,11 +280,15 @@ pub fn demo_drop(state: State<'_, AppState>) {
 
 // ----------------- Incoming Connections (AnyDesk style) -----------------
 
+// The demo build serves these from `incoming_demo`.
+#[cfg(not(feature = "demo"))]
 #[tauri::command]
 pub fn incoming_get_state(state: State<'_, AppState>) -> crate::incoming::IncomingState {
     state.incoming.get_state()
 }
 
+// The demo build serves these from `incoming_demo`.
+#[cfg(not(feature = "demo"))]
 #[tauri::command]
 pub fn incoming_set_enabled(
     app: tauri::AppHandle,
@@ -290,6 +298,8 @@ pub fn incoming_set_enabled(
     state.incoming.set_enabled(app, enabled)
 }
 
+// The demo build serves these from `incoming_demo`.
+#[cfg(not(feature = "demo"))]
 #[tauri::command]
 pub fn incoming_new_code(
     state: State<'_, AppState>,
@@ -297,6 +307,8 @@ pub fn incoming_new_code(
     state.incoming.new_code()
 }
 
+// The demo build serves these from `incoming_demo`.
+#[cfg(not(feature = "demo"))]
 #[tauri::command]
 pub fn incoming_answer(
     state: State<'_, AppState>,
@@ -313,14 +325,30 @@ pub fn incoming_answer(
     state.incoming.answer(&req_id, &decision, allow)
 }
 
+// The demo build serves these from `incoming_demo`.
+#[cfg(not(feature = "demo"))]
 #[tauri::command]
 pub fn incoming_disconnect(state: State<'_, AppState>) -> Result<(), String> {
     state.incoming.disconnect()
 }
 
+// The demo build serves these from `incoming_demo`.
+#[cfg(not(feature = "demo"))]
 #[tauri::command]
 pub fn incoming_set_mode(state: State<'_, AppState>, mode: String) -> Result<(), String> {
     state.incoming.set_mode(&mode)
+}
+
+/// Test hook of the demo backend; a no-op elsewhere.
+#[tauri::command]
+pub fn demo_notice(state: State<'_, AppState>, kind: String) {
+    state.backend.simulate_notice(&kind);
+}
+
+/// Test hook of the demo backend; a no-op elsewhere.
+#[tauri::command]
+pub fn demo_connect_failure(state: State<'_, AppState>, code: String) {
+    state.backend.simulate_connect_failure(&code);
 }
 
 #[cfg(test)]

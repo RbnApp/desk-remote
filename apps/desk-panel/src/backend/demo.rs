@@ -46,6 +46,8 @@ pub struct DemoBackend {
     pair_counter: AtomicU32,
     fail_connects: AtomicU32,
     active_stop: Mutex<Option<Arc<AtomicBool>>>,
+    active_sink: Mutex<Option<EventSink>>,
+    fail_with: Mutex<Option<PairError>>,
 }
 
 impl DemoBackend {
@@ -54,6 +56,8 @@ impl DemoBackend {
             pair_counter: AtomicU32::new(0),
             fail_connects: AtomicU32::new(0),
             active_stop: Mutex::new(None),
+            active_sink: Mutex::new(None),
+            fail_with: Mutex::new(None),
         }
     }
 }
@@ -114,6 +118,9 @@ impl Backend for DemoBackend {
 
     fn connect(&self, pc: &PairedPc, sink: EventSink) -> Result<Box<dyn ViewerSession>, PairError> {
         let pc_id = pc.id.as_str();
+        if let Some(error) = self.fail_with.lock().ok().and_then(|mut slot| slot.take()) {
+            return Err(error);
+        }
         if self.fail_connects.load(Ordering::Relaxed) > 0 {
             self.fail_connects.fetch_sub(1, Ordering::Relaxed);
             return Err(PairError::Network);
@@ -131,6 +138,9 @@ impl Backend for DemoBackend {
                 previous.store(true, Ordering::Relaxed);
             }
         }
+        if let Ok(mut slot) = self.active_sink.lock() {
+            *slot = Some(Arc::clone(&sink));
+        }
         let thread_stop = Arc::clone(&stop);
         std::thread::Builder::new()
             .name("demo-session".to_string())
@@ -141,6 +151,36 @@ impl Backend for DemoBackend {
 
     fn is_demo(&self) -> bool {
         true
+    }
+
+    fn simulate_notice(&self, kind: &str) {
+        let kind = match kind {
+            "disconnected_by_host" => "disconnected_by_host",
+            "view_only_on" => "view_only_on",
+            _ => "view_only_off",
+        };
+        if let Some(sink) = self.active_sink.lock().ok().and_then(|slot| slot.clone()) {
+            sink(SessionEvent::Notice { kind });
+            if kind == "disconnected_by_host" {
+                // The host closes the link right after announcing it.
+                if let Ok(slot) = self.active_stop.lock() {
+                    if let Some(stop) = slot.as_ref() {
+                        stop.store(true, Ordering::Relaxed);
+                    }
+                }
+            }
+        }
+    }
+
+    fn simulate_connect_failure(&self, code: &str) {
+        let error = match code {
+            "denied" => PairError::Denied,
+            "no_answer" => PairError::NoAnswer,
+            _ => PairError::Network,
+        };
+        if let Ok(mut slot) = self.fail_with.lock() {
+            *slot = Some(error);
+        }
     }
 
     fn simulate_drop(&self) {

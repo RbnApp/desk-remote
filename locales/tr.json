@@ -213,7 +213,9 @@
     },
     "toast": {
       "control": "Kontrol açıldı — fare ve klavye uzak PC'ye gidiyor",
-      "viewonly": "Yalnız izleme moduna dönüldü"
+      "viewonly": "Yalnız izleme moduna dönüldü",
+      "host_viewonly_on": "{name} kontrolü kapattı — yalnız izleme",
+      "host_viewonly_off": "Kontrole yeniden izin verildi"
     },
     "connecting": {
       "title": "{name} bağlanıyor…",
@@ -235,6 +237,22 @@
     "demo": {
       "title": "Demo kontrolleri",
       "drop": "Bağlantıyı kopar"
+    },
+    "ended": {
+      "title": "{name} bağlantıyı kesti",
+      "body": "O PC'deki kullanıcı bağlantını sonlandırdı."
+    },
+    "denied": {
+      "title": "{name} bağlantıyı reddetti",
+      "body": "O PC'deki kullanıcı isteği reddetti. Tekrar deneyebilirsin."
+    },
+    "noanswer": {
+      "title": "{name} yanıt vermedi",
+      "body": "İstek zamanında onaylanmadı. Ekrana bakmasını isteyip tekrar dene."
+    },
+    "hostviewonly": {
+      "pill": "Yalnız izleme (o PC'de ayarlı)",
+      "tip": "{name} PC'sindeki kullanıcı yalnız izlemeye izin veriyor; girdi kapalı."
     }
   },
   "set": {
@@ -319,5 +337,70 @@
   },
   "common": {
     "close": "Kapat"
+  },
+  "incoming": {
+    "nav": "Bu PC",
+    "on_short": "Açık",
+    "title": "Bu PC'ye bağlantı",
+    "sub": "Desk-Remote kurulu başka cihazların bu PC'ye bağlanmasına izin ver.",
+    "loading": "Yükleniyor…",
+    "unavailable": "Bu sürüm henüz bağlantı kabul edemiyor.",
+    "toggle": "Bağlantı kabul et",
+    "on": "Açık",
+    "off": "Kapalı",
+    "off_hint": "Açarsan uygulama açıkken başka cihazlar bu PC'ye bağlanabilir.",
+    "on_hint": "Desk-Remote açıkken başka cihazlar bağlanma isteği gönderebilir. Her isteği sen onaylarsın.",
+    "pc_name": "Bu PC'nin adı",
+    "live": {
+      "hint": "Üstteki banttan sonlandırabilirsin."
+    },
+    "code": {
+      "title": "Bağlanma kodu",
+      "hint": "Bu kodu diğer cihazda gir. Her kod bir kez geçerli.",
+      "expires": "{s} sn sonra yeni kod",
+      "new": "Yeni kod",
+      "copy": "Kodu kopyala",
+      "copied": "Kod kopyalandı"
+    },
+    "addr": {
+      "title": "Adresler",
+      "sub": "Diğer cihaz bu adreslerden birine de bağlanabilir.",
+      "hint": "Kopyalamak için tıkla",
+      "copied": "Adres kopyalandı",
+      "none": "Ağ adresi bulunamadı."
+    },
+    "mode": {
+      "view": "Yalnız izleme",
+      "control": "Kontrol"
+    },
+    "dialog": {
+      "title": "{name} bu PC'ye bağlanmak istiyor",
+      "body": "İzin verdiğin kişi ekranını görebilir. Yalnız tanıdığın cihazlara izin ver.",
+      "fingerprint": "Parmak izi",
+      "known": "Tanınan cihaz",
+      "unknown": "Yeni cihaz",
+      "always": "Bu cihaza her zaman izin ver",
+      "countdown": "{s} sn içinde yanıt vermezsen Reddet sayılır.",
+      "view": "Yalnız izle",
+      "control": "Kontrole izin ver",
+      "reject": "Reddet"
+    },
+    "band": {
+      "title": "Bu PC izleniyor",
+      "give": "Kontrolü ver",
+      "take": "Kontrolü geri al",
+      "disconnect": "Bağlantıyı kes"
+    },
+    "ended": {
+      "host": "Bağlantıyı sonlandırdın.",
+      "peer": "Karşı cihaz ayrıldı.",
+      "timeout": "Bağlantı zaman aşımına uğradı.",
+      "rejected": "İstek reddedildi."
+    },
+    "demo": {
+      "title": "Demo kontrolleri",
+      "new": "Yeni cihaz taklit et",
+      "known": "Tanınan cihaz taklit et"
+    }
   }
 }
