@@ -256,6 +256,12 @@
     }
   },
   "set": {
+    "tabs": {
+      "label": "Ayar bölümleri",
+      "appearance": "Görünüm",
+      "transfer": "Dosya aktarımı",
+      "connection": "Bağlantı"
+    },
     "title": "Ayarlar",
     "sub": "Görünüm, dil ve bağlantı",
     "palette": {

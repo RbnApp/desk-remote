@@ -13,6 +13,8 @@ const SIDEBAR_POLL_MS = 20000;
 
 let pollTimer = null;
 let farmKey = "";
+let tab = "appearance";
+const TABS = ["appearance", "transfer", "connection"];
 
 /** Saves a settings patch through Rust (desk-config) and re-applies theme/language. */
 export async function saveSettings(patch) {
@@ -89,12 +91,19 @@ function renderSettings() {
     { v: "tr", l: "Türkçe" },
     { v: "en", l: "English" },
   ];
-  const body = `
+  const panels = {
+    appearance: () => `
     <section class="sec"><div><h2>${t("set.palette.title")}</h2><p class="hint">${t("set.palette.hint")}</p></div><div class="pal" role="radiogroup" aria-label="${t("set.palette.title")}">${cards}</div></section>
     <section class="sec"><div><h2>${t("set.mode.title")}</h2><p class="hint">${t("set.mode.hint")}</p></div>${Seg("mode", t("set.mode.title"), modes, S.settings.mode)}</section>
-    <section class="sec"><div><h2>${t("set.lang.title")}</h2><p class="hint">${t("set.lang.hint")}</p></div>${Seg("lang", t("set.lang.title"), langs, S.settings.language)}</section>
-    ${transferSettings()}
-    ${tailscaleSection()}`;
+    <section class="sec"><div><h2>${t("set.lang.title")}</h2><p class="hint">${t("set.lang.hint")}</p></div>${Seg("lang", t("set.lang.title"), langs, S.settings.language)}</section>`,
+    transfer: transferSettings,
+    connection: tailscaleSection,
+  };
+  const tabs = TABS.map(
+    (id) => `<button role="tab" id="stab-${id}" aria-selected="${id === tab}" aria-controls="spanel" tabindex="${id === tab ? 0 : -1}" data-stab="${id}">${t(`set.tabs.${id}`)}</button>`,
+  ).join("");
+  const body = `<div class="stabs" role="tablist" aria-label="${esc(t("set.tabs.label"))}">${tabs}</div>
+    <div id="spanel" role="tabpanel" aria-labelledby="stab-${tab}">${panels[tab]()}</div>`;
   mountApp(Shell(body, "settings", head));
 }
 
@@ -169,3 +178,23 @@ export function startSidebarPolling() {
 }
 
 screens.settings = renderSettings;
+
+function selectTab(id, focus) {
+  tab = id;
+  render();
+  if (focus) $(`#stab-${id}`)?.focus();
+}
+
+document.addEventListener("click", (e) => {
+  const el = e.target.closest?.("[data-stab]");
+  if (el) selectTab(el.dataset.stab, false);
+});
+
+document.addEventListener("keydown", (e) => {
+  const el = e.target.closest?.("[data-stab]");
+  const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+  if (!el || (!step && e.key !== "Home" && e.key !== "End")) return;
+  e.preventDefault();
+  const i = e.key === "Home" ? 0 : e.key === "End" ? TABS.length - 1 : (TABS.indexOf(el.dataset.stab) + step + TABS.length) % TABS.length;
+  selectTab(TABS[i], true);
+});

@@ -71,7 +71,7 @@ export function PcCard(pc) {
 
 export function PcRow(pc) {
   const warn = pc.warn ? `<div class="sub2" style="color:var(--warning)">${warnText(pc)}</div>` : "";
-  return `<tr><td><div class="name" title="${esc(pc.name)}">${esc(pc.name)}</div>${warn}</td><td>${Badge(pc.status)}</td><td class="sub2">${lastSeen(pc)}${latency(pc)}</td><td class="act">${SendBtn(pc, true)}${ConnectBtn(pc, true)}</td></tr>`;
+  return `<tr><td><div class="name" title="${esc(pc.name)}">${esc(pc.name)}</div>${warn}</td><td>${Badge(pc.status)}</td><td class="sub2">${lastSeen(pc)}${latency(pc)}</td><td class="act"><div class="btn-group">${SendBtn(pc, true)}${ConnectBtn(pc, true)}</div></td></tr>`;
 }
 
 export function StateBlock(icon, title, body, buttons) {
