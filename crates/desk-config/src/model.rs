@@ -32,6 +32,8 @@ pub struct PanelConfig {
     pub language: String,
     /// PC list layout ("cards" default, "rows").
     pub list_view: String,
+    /// Explorer right-click entry "Send with Desk-Remote" (current user only).
+    pub shell_menu: bool,
     /// PCs paired with this panel.
     pub paired_pcs: Vec<PairedPc>,
 }
@@ -46,6 +48,7 @@ impl Default for PanelConfig {
             minimize_to_tray: true,
             language: "auto".to_string(),
             list_view: "cards".to_string(),
+            shell_menu: true,
             paired_pcs: Vec::new(),
         }
     }

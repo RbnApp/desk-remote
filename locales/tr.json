@@ -402,5 +402,8 @@
       "new": "Yeni cihaz taklit et",
       "known": "Tanınan cihaz taklit et"
     }
+  },
+  "shell_menu": {
+    "send": "Desk-Remote ile gönder"
   }
 }
