@@ -186,6 +186,13 @@ impl Backend for DemoBackend {
         }
     }
 
+    fn simulate_status(&self, online: bool) {
+        let Ok(live) = self.live.lock() else { return };
+        for entry in live.values() {
+            (entry.sink)(SessionEvent::Status { online });
+        }
+    }
+
     fn simulate_connect_failure(&self, code: &str) {
         let error = match code {
             "denied" => PairError::Denied,

@@ -45,6 +45,7 @@ class Viewer {
     this.phase = "connecting"; // connecting | live | lost | failed | ended | unsupported
     this.control = false;
     this.hostViewOnly = false;
+    this.screenUnavailable = false;
     this.active = true;
     this.fps = 0;
     this.rtt = 0;
@@ -89,13 +90,14 @@ class Viewer {
 
   /** Dot state shown on the tab. */
   get tabState() {
+    if (this.screenUnavailable) return "lost";
     if (this.phase === "live") return "online";
     return this.phase === "connecting" ? "connecting" : "lost";
   }
 
   toolbar() {
-    const live = this.phase === "live";
-    const badge = Badge(live ? "online" : this.phase === "connecting" ? "connecting" : "offline");
+    const live = this.phase === "live" && !this.screenUnavailable;
+    const badge = Badge(this.screenUnavailable ? "warning" : live ? "online" : this.phase === "connecting" ? "connecting" : "offline");
     const ms = this.latencyMs;
     const cls = latencyClass(ms);
     const note = `hostNote-${this.uid}`;
@@ -106,7 +108,9 @@ class Viewer {
        <span class="dec">${this.hardware ? t("view.decoder.hw") : t("view.decoder.sw")}</span><span class="sep"></span>
        ${this.hostViewOnly ? `<span class="pill host" id="${note}">${ic("alert")}<span>${t("view.hostviewonly.pill")}</span></span>` : ""}<label class="sw ${this.hostViewOnly ? "locked" : ""}" title="${esc(this.hostViewOnly ? t("view.hostviewonly.tip", { name: this.pc.name }) : this.control ? t("view.mode.control_hint") : t("view.mode.view_hint"))}"><input type="checkbox" data-ctl ${this.control ? "checked" : ""} ${this.hostViewOnly ? `aria-disabled="true" aria-describedby="${note}"` : ""} role="switch"><span class="tr"></span><span class="pill ${this.control ? "ctl" : ""}">${ic(this.control ? "pointer" : "eye")}<span>${this.control ? t("view.mode.control") : t("view.mode.view")}</span></span><span class="sr">${t("view.control.toggle")}</span></label>`
       : "";
-    const demo = S.info.demo ? `<button class="btn sm" data-act="demo-drop">${ic("wifi-off")}<span class="opt">${t("view.demo.drop")}</span></button>` : "";
+    const demo = S.info.demo
+      ? `<button class="btn sm" data-act="demo-drop">${ic("wifi-off")}<span class="opt">${t("view.demo.drop")}</span></button><button class="btn sm" data-act="demo-toggle-screen">${ic("alert")}<span class="opt">Ekran</span></button>`
+      : "";
     return `<button class="btn sm" data-act="disconnect">${ic("power")}<span class="opt">${t("view.disconnect")}</span><span class="sr">${t("view.disconnect")}</span></button>
     <span class="sep"></span><span class="vname" title="${esc(this.pc.name)}">${esc(this.pc.name)}</span>${badge}<span class="spacer"></span>
     ${liveParts}${demo}
@@ -117,6 +121,9 @@ class Viewer {
     const name = esc(this.pc.name);
     const back = `<button class="btn" data-act="disconnect">${t("tabs.close_session")}</button>`;
     const retry = `<button class="btn primary" data-act="v-retry">${ic("refresh")}${t("view.lost.retry")}</button>`;
+    if (this.screenUnavailable) {
+      return overlayCard("bad", ic("alert"), t("view.screen_unavailable.title"), t("view.screen_unavailable.body", { name }), back);
+    }
     switch (this.phase) {
       case "connecting":
         return overlayCard("load", ic("arc", "spin"), t("view.connecting.title", { name }), t("view.connecting.body"), "");
@@ -186,6 +193,7 @@ class Viewer {
     this.pipeline?.close();
     this.pipeline = new VideoPipeline(this.canvas, {
       onFirstFrame: () => {
+        this.screenUnavailable = false;
         this.phase = "live";
         this.retry = 1;
         this.paint();
@@ -222,6 +230,9 @@ class Viewer {
       case "rtt":
         this.rtt = message.ms;
         break;
+      case "status":
+        this.onStatus(message.online);
+        break;
       case "notice":
         this.onHostNotice(message.kind);
         break;
@@ -230,6 +241,11 @@ class Viewer {
         break;
       default:
     }
+  }
+
+  onStatus(online) {
+    this.screenUnavailable = !online;
+    this.paint();
   }
 
   onHostNotice(kind) {
@@ -477,6 +493,10 @@ export const viewerActions = {
   fs: () => toggleFullscreen(),
   "v-retry": (el) => paneViewer(el)?.retryNow(),
   "demo-drop": (el) => invoke("demo_drop").catch(() => {}),
+  "demo-toggle-screen": (el) => {
+    const v = paneViewer(el);
+    if (v) invoke("demo_status", { online: v.screenUnavailable }).catch(() => {});
+  },
 };
 
 export const setControlFrom = (el) => paneViewer(el)?.setControl(el.checked);

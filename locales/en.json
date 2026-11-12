@@ -217,6 +217,10 @@
       "host_viewonly_on": "{name} turned control off — watch only",
       "host_viewonly_off": "Control is allowed again"
     },
+    "screen_unavailable": {
+      "title": "Screen is currently unavailable",
+      "body": "Remote desktop helper is not connected or screen capture is unavailable. The screen will resume once the helper is ready."
+    },
     "connecting": {
       "title": "Connecting to {name}…",
       "body": "Setting up a secure session."

@@ -236,6 +236,9 @@ pub async fn viewer_connect(
             SessionEvent::Rtt { ms } => {
                 InvokeResponseBody::Json(serde_json::json!({"type":"rtt","ms":ms}).to_string())
             }
+            SessionEvent::Status { online } => InvokeResponseBody::Json(
+                serde_json::json!({"type":"status","online":online}).to_string(),
+            ),
             SessionEvent::Notice { kind } => InvokeResponseBody::Json(
                 serde_json::json!({"type":"notice","kind":kind}).to_string(),
             ),
@@ -523,6 +526,12 @@ pub fn transfer_answer(
 #[tauri::command]
 pub fn demo_notice(state: State<'_, AppState>, kind: String) {
     state.backend.simulate_notice(&kind);
+}
+
+/// Test hook of the demo backend; a no-op elsewhere.
+#[tauri::command]
+pub fn demo_status(state: State<'_, AppState>, online: bool) {
+    state.backend.simulate_status(online);
 }
 
 /// Test hook of the demo backend; a no-op elsewhere.

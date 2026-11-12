@@ -85,7 +85,7 @@ struct State {
 
 impl State {
     fn available(&self) -> bool {
-        !(self.session_locked || self.helper_locked || self.no_display)
+        self.helper.is_some() && !(self.session_locked || self.helper_locked || self.no_display)
     }
 
     fn status(&self) -> Message {
@@ -720,19 +720,26 @@ impl Hub {
     /// A helper connected: replay the viewer state it missed (helper restarts keep viewers).
     pub fn attach_helper(&self, conn: IpcConnection) -> u64 {
         let token = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let (joined, list) = {
+        let (joined, list, changed, status) = {
             let mut st = lock(&self.state);
+            let before = st.available();
             st.helper = Some((token, conn.clone()));
             st.helper_locked = false;
             st.no_display = false;
             let list = st.joined_ids();
-            (list.len(), list)
+            let changed = st.available() != before;
+            let status = st.status();
+            (list.len(), list, changed, status)
         };
         for _ in 0..joined {
             let _ = conn.send(&IpcMessage::Wire(Message::ViewerJoin));
         }
         let _ = conn.send(&IpcMessage::Viewers { device_ids: list });
         tracing::info!(viewers = joined, "session helper attached");
+        if changed {
+            tracing::info!(available = true, "desktop availability changed");
+            lock(&self.state).broadcast(&status);
+        }
         self.push_agent_info();
         token
     }
@@ -741,8 +748,16 @@ impl Hub {
     pub fn detach_helper(&self, token: u64) {
         let mut st = lock(&self.state);
         if matches!(&st.helper, Some((t, _)) if *t == token) {
+            let before = st.available();
             st.helper = None;
             tracing::info!("session helper detached");
+            if st.available() != before {
+                let status = st.status();
+                tracing::info!(available = false, "desktop availability changed");
+                st.broadcast(&status);
+                drop(st);
+                self.push_agent_info();
+            }
         }
     }
 
@@ -863,12 +878,85 @@ mod tests {
         })
     }
 
+    /// Hub with a joined viewer and a connected helper pipe; returns the helper's end.
+    fn hub_with_helper() -> DeskResult<(Hub, ViewerId, Receiver<Message>, IpcConnection)> {
+        use desk_ipc::{pipe_access_sddl, IpcClient, IpcServer};
+        use std::time::Duration;
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let name = format!(
+            r"\\.\pipe\DeskRemote-hub-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::SeqCst)
+        );
+        let server = IpcServer::bind(&name, &pipe_access_sddl(&desk_ipc::current_user_sid()?))?;
+        let client = std::thread::spawn({
+            let name = name.clone();
+            move || IpcClient::connect(&name, Duration::from_secs(5))
+        });
+        let service_end = server
+            .accept(Duration::from_secs(5))?
+            .ok_or_else(|| desk_error::DeskError::Ipc("no client".to_string()))?;
+        let helper_end = client
+            .join()
+            .map_err(|_| desk_error::DeskError::Ipc("client thread".to_string()))??;
+        let hub = hub()?;
+        hub.attach_helper(service_end);
+        let (id, rx) = hub.register_viewer("A");
+        hub.viewer_join(id);
+        Ok((hub, id, rx, helper_end))
+    }
+
+    #[test]
+    fn without_a_helper_hub_reports_online_false_and_recovers_when_attached() -> DeskResult<()> {
+        use desk_ipc::{pipe_access_sddl, IpcClient, IpcServer};
+        use std::time::Duration;
+        let hub = hub()?;
+        let (id, rx) = hub.register_viewer("V1");
+        hub.viewer_join(id);
+        // Initially without a helper: available = false
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Message::Status { online: false, .. })
+        ));
+
+        // When helper attaches: broadcast status online: true
+        static NEXT_B2: AtomicU64 = AtomicU64::new(5000);
+        let name = format!(
+            r"\\.\pipe\DeskRemote-hub-test-{}-{}",
+            std::process::id(),
+            NEXT_B2.fetch_add(1, Ordering::SeqCst)
+        );
+        let server = IpcServer::bind(&name, &pipe_access_sddl(&desk_ipc::current_user_sid()?))?;
+        let client = std::thread::spawn({
+            let name = name.clone();
+            move || IpcClient::connect(&name, Duration::from_secs(5))
+        });
+        let service_end = server
+            .accept(Duration::from_secs(5))?
+            .ok_or_else(|| desk_error::DeskError::Ipc("no client".to_string()))?;
+        let _helper_end = client
+            .join()
+            .map_err(|_| desk_error::DeskError::Ipc("client thread".to_string()))??;
+        let token = hub.attach_helper(service_end);
+
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Message::Status { online: true, .. })
+        ));
+
+        // When helper detaches: broadcast status online: false
+        hub.detach_helper(token);
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Message::Status { online: false, .. })
+        ));
+        Ok(())
+    }
+
     #[test]
     fn frames_reach_only_joined_viewers() -> DeskResult<()> {
-        let hub = hub()?;
-        let (a, rx_a) = hub.register_viewer("A");
+        let (hub, _a, rx_a, _helper) = hub_with_helper()?;
         let (_b, rx_b) = hub.register_viewer("B");
-        hub.viewer_join(a);
         // join queues the availability status first
         assert!(matches!(
             rx_a.try_recv(),
@@ -883,7 +971,7 @@ mod tests {
 
     #[test]
     fn late_viewer_gets_the_cached_config_first() -> DeskResult<()> {
-        let hub = hub()?;
+        let (hub, _id, _rx, _helper) = hub_with_helper()?;
         hub.on_helper_message(IpcMessage::Wire(Message::VideoConfig {
             codec: "h264".to_string(),
             width: 1920,
@@ -896,14 +984,16 @@ mod tests {
             rx.try_recv(),
             Ok(Message::VideoConfig { width: 1920, .. })
         ));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Message::Status { online: true, .. })
+        ));
         Ok(())
     }
 
     #[test]
     fn lock_is_reported_to_viewers_and_cleared_on_unlock() -> DeskResult<()> {
-        let hub = hub()?;
-        let (id, rx) = hub.register_viewer("A");
-        hub.viewer_join(id);
+        let (hub, _id, rx, _helper) = hub_with_helper()?;
         let _ = rx.try_recv();
         hub.set_session_locked(true);
         assert!(matches!(
@@ -948,34 +1038,6 @@ mod tests {
             scancode: 30,
             down: true,
         })
-    }
-
-    /// Hub with a joined viewer and a connected helper pipe; returns the helper's end.
-    fn hub_with_helper() -> DeskResult<(Hub, ViewerId, Receiver<Message>, IpcConnection)> {
-        use desk_ipc::{pipe_access_sddl, IpcClient, IpcServer};
-        use std::time::Duration;
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let name = format!(
-            r"\\.\pipe\DeskRemote-hub-test-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::SeqCst)
-        );
-        let server = IpcServer::bind(&name, &pipe_access_sddl(&desk_ipc::current_user_sid()?))?;
-        let client = std::thread::spawn({
-            let name = name.clone();
-            move || IpcClient::connect(&name, Duration::from_secs(5))
-        });
-        let service_end = server
-            .accept(Duration::from_secs(5))?
-            .ok_or_else(|| desk_error::DeskError::Ipc("no client".to_string()))?;
-        let helper_end = client
-            .join()
-            .map_err(|_| desk_error::DeskError::Ipc("client thread".to_string()))??;
-        let hub = hub()?;
-        hub.attach_helper(service_end);
-        let (id, rx) = hub.register_viewer("A");
-        hub.viewer_join(id);
-        Ok((hub, id, rx, helper_end))
     }
 
     fn drain(conn: &IpcConnection) -> Vec<IpcMessage> {
