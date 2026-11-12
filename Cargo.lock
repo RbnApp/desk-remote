@@ -145,6 +145,8 @@ name = "desk-protocol"
 version = "0.1.0"
 dependencies = [
  "desk-error",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
