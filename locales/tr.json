@@ -3,12 +3,28 @@
     "name": "Desk-Remote",
     "description": "Düşük ek yüklü, kendi sunucunda çalışan uzak masaüstü"
   },
+  "nav": {
+    "pcs": "PC'ler",
+    "settings": "Ayarlar",
+    "main": "Ana gezinme"
+  },
+  "net": {
+    "label": "Bağlantı",
+    "lan": "Yerel ağ",
+    "lan_ok": "Kullanılabilir",
+    "tailscale": "Tailscale",
+    "on": "Bağlı",
+    "off": "Bağlı değil",
+    "missing": "Kurulu değil",
+    "checking": "Denetleniyor…"
+  },
   "status": {
     "online": "Çevrimiçi",
     "offline": "Çevrimdışı",
     "connecting": "Bağlanıyor",
     "connected": "Bağlandı",
-    "disconnected": "Bağlantı kesildi"
+    "disconnected": "Bağlantı kesildi",
+    "warning": "Uyarı"
   },
   "theme": {
     "system": "Sistem",
@@ -21,5 +37,220 @@
     "unknown": "Bilinmeyen bir hata oluştu",
     "connection_failed": "Uzak makineye bağlanılamadı",
     "timeout": "İşlem zaman aşımına uğradı"
+  },
+  "last": {
+    "now": "Şimdi etkin",
+    "min": "{n} dk önce",
+    "hour": "{n} sa önce",
+    "day": "{n} gün önce",
+    "label": "Son görülme"
+  },
+  "warn": {
+    "latency": "Yüksek gecikme",
+    "agent": "Aracı güncel değil"
+  },
+  "list": {
+    "title": "PC'ler",
+    "sub": "{n} PC · {on} çevrimiçi",
+    "add": "PC ekle",
+    "search": "PC ara",
+    "search_ph": "PC adı ara…",
+    "filter": {
+      "all": "Tümü",
+      "label": "Duruma göre süz"
+    },
+    "view": {
+      "cards": "Kart görünümü",
+      "rows": "Satır görünümü",
+      "label": "Görünüm"
+    },
+    "col": {
+      "name": "PC",
+      "status": "Durum",
+      "last": "Son görülme",
+      "action": "İşlem"
+    },
+    "connect": "Bağlan",
+    "connecting": "Bağlanıyor…",
+    "unavailable": "Çevrimdışı",
+    "unavailable_hint": "Çevrimdışı PC'ye bağlanılamaz",
+    "offline_thumb": "Önizleme yok",
+    "empty": {
+      "title": "Henüz PC eklenmedi",
+      "body": "İzlemek istediğin PC'de Desk-Remote Aracı'nı aç, ekranda görünen kodu buraya gir.",
+      "cta": "İlk PC'yi ekle"
+    },
+    "none": {
+      "title": "Eşleşen PC yok",
+      "body": "Arama ya da süzgeci değiştirmeyi dene.",
+      "clear": "Süzgeci temizle"
+    },
+    "err": {
+      "title": "Liste yüklenemedi",
+      "body": "PC listesi yüklenemedi. Bağlantını kontrol edip tekrar dene.",
+      "retry": "Tekrar dene",
+      "settings": "Bağlantı ayarları"
+    },
+    "loading": "PC'ler yükleniyor"
+  },
+  "pair": {
+    "title": "PC ekle",
+    "sub": "Tek kullanımlık kodla eşleştir",
+    "back": "Listeye dön",
+    "form": {
+      "title": "Eşleştirme kodu"
+    },
+    "code": {
+      "label": "PC'de görünen kod",
+      "hint": "8 karakter. Kod 10 dakika geçerlidir ve yalnız bir kez kullanılır."
+    },
+    "name": {
+      "label": "PC adı (isteğe bağlı)",
+      "ph": "ör. Ofis-Muhasebe-02",
+      "hint": "Boş bırakırsan PC'nin kendi adı kullanılır."
+    },
+    "submit": "Eşleştir",
+    "verifying": "Kod doğrulanıyor…",
+    "how": {
+      "title": "Nasıl eşleştirilir?",
+      "step1": {
+        "title": "PC'de aracıyı aç",
+        "body": "Uzak PC'de Desk-Remote Aracı'nı başlat."
+      },
+      "step2": {
+        "title": "Kodu göster",
+        "body": "Aracıda “Eşleştirme kodu göster”e tıkla; 8 karakterli kod görünür."
+      },
+      "step3": {
+        "title": "Kodu buraya gir",
+        "body": "Kodu soldaki alana yaz ya da yapıştır."
+      }
+    },
+    "err": {
+      "invalid": {
+        "title": "Kod geçersiz",
+        "detail": "Kodu kontrol et. Harf ve rakamları PC ekranındaki gibi gir."
+      },
+      "expired": {
+        "title": "Kodun süresi dolmuş",
+        "detail": "PC'de “Yeni kod göster”e tıkla ve yeni kodu gir."
+      },
+      "used": {
+        "title": "Kod daha önce kullanılmış",
+        "detail": "Her kod yalnız bir kez geçerli. PC'de yeni bir kod oluştur."
+      },
+      "network": {
+        "title": "PC'ye ulaşılamadı",
+        "detail": "Bağlantını (yerel ağ ya da Tailscale) kontrol edip tekrar dene."
+      }
+    },
+    "ok": {
+      "title": "PC eşleştirildi",
+      "body": "{name} artık listende. İstersen hemen bağlanabilirsin.",
+      "connect": "Hemen bağlan",
+      "another": "Başka PC ekle"
+    },
+    "demo": "Demo kaynak: ABCD-2345 başarılı · EXPR-0000 süresi dolmuş · USED-1111 kullanılmış · NETW-0000 ağ hatası · diğerleri geçersiz"
+  },
+  "view": {
+    "disconnect": "Bağlantıyı kes",
+    "back": "Listeye dön",
+    "fullscreen": "Tam ekran",
+    "exit_fullscreen": "Tam ekrandan çık",
+    "quality": "Kalite",
+    "q": {
+      "auto": "Otomatik",
+      "high": "Yüksek",
+      "balanced": "Dengeli",
+      "low": "Düşük bant"
+    },
+    "fps": "{n} fps",
+    "latency": "Gecikme",
+    "lat": {
+      "good": "iyi",
+      "mid": "orta",
+      "bad": "yavaş"
+    },
+    "decoder": {
+      "hw": "Donanım çözücü",
+      "sw": "Yazılım çözücü"
+    },
+    "mode": {
+      "view": "Yalnız izle",
+      "control": "Kontrol açık",
+      "view_hint": "Girdi gönderilmiyor",
+      "control_hint": "Fare ve klavye uzak PC'ye gider"
+    },
+    "control": {
+      "toggle": "Kontrolü aç"
+    },
+    "toast": {
+      "control": "Kontrol açıldı — fare ve klavye uzak PC'ye gidiyor",
+      "viewonly": "Yalnız izleme moduna dönüldü"
+    },
+    "connecting": {
+      "title": "{name} bağlanıyor…",
+      "body": "Güvenli oturum kuruluyor."
+    },
+    "lost": {
+      "title": "Bağlantı koptu",
+      "body": "{name} yanıt vermiyor. Yeniden bağlanılıyor ({n}/{max})…",
+      "retry": "Şimdi dene",
+      "fail_title": "Bağlanılamadı",
+      "fail_body": "{name} {max} denemede de yanıt vermedi. PC kapalı ya da ağdan kopmuş olabilir."
+    },
+    "unsupported": {
+      "title": "Bu sistem H.264 çözemiyor",
+      "body": "WebView ne donanım ne de yazılım H.264 çözümü sunuyor."
+    },
+    "demo": {
+      "title": "Demo kontrolleri",
+      "drop": "Bağlantıyı kopar"
+    }
+  },
+  "set": {
+    "title": "Ayarlar",
+    "sub": "Görünüm, dil ve bağlantı",
+    "palette": {
+      "title": "Palet",
+      "hint": "Renk ailesini seç. Seçim hemen uygulanır."
+    },
+    "mode": {
+      "title": "Görünüm",
+      "hint": "Sistem seçilirse Windows'un açık/koyu ayarı izlenir."
+    },
+    "lang": {
+      "title": "Dil",
+      "hint": "Arayüz dili.",
+      "auto": "Otomatik"
+    },
+    "tailscale": {
+      "title": "Bağlantı",
+      "hint": "Panel, yerel ağındaki PC'lere doğrudan; başka yerdekilere Tailscale üzerinden ulaşır. Kendi sunucuna gerek yok.",
+      "status": "Tailscale durumu",
+      "on": "Bağlı",
+      "off": "Bağlı değil",
+      "missing": "Bu PC'de Tailscale kurulu değil.",
+      "install": "Tailscale'i indir",
+      "connect": "Tailscale ile bağlan",
+      "connecting": "Tarayıcıda girişin tamamlanması bekleniyor…",
+      "connect_hint": "Tarayıcında bir giriş sayfası açılır. Girişi bitirince bu durum “bağlı”ya döner.",
+      "failed": "Giriş başlatılamadı. Tekrar dene.",
+      "address": "Tailscale adresi",
+      "key": {
+        "title": "Farm PC'ler için anahtar",
+        "hint": "Ekranı olmayan farm PC'ler tek kullanımlık anahtarla ağına katılabilir. Anahtarı Tailscale yönetim sayfasında oluştur (“One-off”u aç), aşağıya yapıştır ve komutu farm PC'de çalıştır.",
+        "open": "Anahtar oluştur",
+        "label": "Tek kullanımlık anahtar",
+        "ph": "tskey-auth-…",
+        "command": "Farm PC için komut",
+        "copy": "Komutu kopyala",
+        "copied": "Komut kopyalandı"
+      }
+    },
+    "saved": "Ayarlar kaydedildi"
+  },
+  "common": {
+    "close": "Kapat"
   }
 }

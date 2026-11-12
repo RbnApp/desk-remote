@@ -23,6 +23,9 @@
 # dependencies not shared by any other crates, would be ignored, as the target
 # list here is effectively saying which targets you are building for.
 targets = [
+    # Desk-Remote ships on Windows only, so Linux/macOS-only dependencies
+    # (zbus, gtk, ...) pulled in by Tauri plugins are out of scope.
+    "x86_64-pc-windows-msvc",
     # The triple can be any string, but only the target triples built in to
     # rustc (as of 1.40) can be checked against actual config expressions
     #"x86_64-unknown-linux-musl",
@@ -108,6 +111,13 @@ confidence-threshold = 0.8
 # Allow 1 or more licenses on a per-crate basis, so that particular licenses
 # aren't accepted for every possible crate as with the normal allow list
 exceptions = [
+    # MPL-2.0 is file-level copyleft; these crates are used unmodified and only
+    # arrive through Tauri (HTML/CSS handling) and `dirs`. No global allowance.
+    { allow = ["MPL-2.0"], crate = "cssparser" },
+    { allow = ["MPL-2.0"], crate = "cssparser-macros" },
+    { allow = ["MPL-2.0"], crate = "dtoa-short" },
+    { allow = ["MPL-2.0"], crate = "option-ext" },
+    { allow = ["MPL-2.0"], crate = "selectors" },
     # Each entry is the crate and version constraint, and its specific allow
     # list
     #{ allow = ["Zlib"], crate = "adler32" },

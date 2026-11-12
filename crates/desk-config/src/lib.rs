@@ -8,7 +8,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 
-pub use model::{PanelConfig, RelayConfig, ServiceConfig};
+pub use model::{PairedPc, PanelConfig, RelayConfig, ServiceConfig};
 
 /// Writes string content to a file atomically via a temporary swap file.
 pub fn write_atomic(path: &Path, content: &str) -> DeskResult<()> {

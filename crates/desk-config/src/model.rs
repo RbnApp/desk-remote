@@ -2,8 +2,18 @@
 
 use serde::{Deserialize, Serialize};
 
+/// A remote PC that completed pairing with this panel.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PairedPc {
+    /// Stable identifier of the paired PC.
+    pub id: String,
+    /// Display name chosen at pairing time.
+    pub name: String,
+}
+
 /// Management panel configuration schema.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct PanelConfig {
     /// Active theme palette ("ink" default, "petrol").
     pub palette: String,
@@ -15,6 +25,12 @@ pub struct PanelConfig {
     pub autostart: bool,
     /// Minimize to system tray instead of closing.
     pub minimize_to_tray: bool,
+    /// UI language ("auto" follows the OS, "en", "tr").
+    pub language: String,
+    /// PC list layout ("cards" default, "rows").
+    pub list_view: String,
+    /// PCs paired with this panel.
+    pub paired_pcs: Vec<PairedPc>,
 }
 
 impl Default for PanelConfig {
@@ -25,6 +41,9 @@ impl Default for PanelConfig {
             device_name: "Desk-Operator".to_string(),
             autostart: true,
             minimize_to_tray: true,
+            language: "auto".to_string(),
+            list_view: "cards".to_string(),
+            paired_pcs: Vec::new(),
         }
     }
 }
@@ -37,6 +56,12 @@ impl PanelConfig {
         }
         if self.mode != "system" && self.mode != "light" && self.mode != "dark" {
             self.mode = "system".to_string();
+        }
+        if !matches!(self.language.as_str(), "auto" | "en" | "tr") {
+            self.language = "auto".to_string();
+        }
+        if self.list_view != "cards" && self.list_view != "rows" {
+            self.list_view = "cards".to_string();
         }
     }
 }

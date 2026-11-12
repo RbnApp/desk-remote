@@ -4,14 +4,29 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [lints]
 workspace = true
+
+[features]
+# Test-only synthetic backend (fake PCs, pairing codes and an H.264 sample stream).
+# Never part of a shipped build; see src/backend/demo.rs.
+demo = []
 
 [dependencies]
 desk-config = { workspace = true }
 desk-error = { workspace = true }
 desk-i18n = { workspace = true }
 desk-logger = { workspace = true }
+desk-paths = { workspace = true }
 desk-theme = { workspace = true }
+desk-version = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 tracing = { workspace = true }
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }

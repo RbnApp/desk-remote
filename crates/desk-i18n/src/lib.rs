@@ -91,6 +91,35 @@ pub fn translate(key: &str, locale: Locale) -> String {
     key.to_string()
 }
 
+fn merge_into(base: &mut Value, overlay: Value) {
+    match (base, overlay) {
+        (Value::Object(b), Value::Object(o)) => {
+            for (k, v) in o {
+                match b.get_mut(&k) {
+                    Some(slot) => merge_into(slot, v),
+                    None => {
+                        b.insert(k, v);
+                    }
+                }
+            }
+        }
+        (slot, v) => *slot = v,
+    }
+}
+
+/// Returns the complete nested catalog for a locale, with English filling any missing key.
+///
+/// UI shells that cannot call [`translate`] per key (for example a WebView) load this once.
+pub fn catalog(locale: Locale) -> Value {
+    let mut merged: Value = serde_json::from_str(EN_JSON).unwrap_or(Value::Null);
+    if locale == Locale::Tr {
+        if let Ok(tr) = serde_json::from_str::<Value>(TR_JSON) {
+            merge_into(&mut merged, tr);
+        }
+    }
+    merged
+}
+
 /// Translates a key using the active global locale.
 pub fn t(key: &str) -> String {
     translate(key, current_locale())
@@ -111,6 +140,21 @@ mod tests {
         // Missing key returns the key itself
         assert_eq!(translate("nonexistent.key", Locale::En), "nonexistent.key");
         assert_eq!(translate("nonexistent.key", Locale::Tr), "nonexistent.key");
+    }
+
+    #[test]
+    fn test_catalog_is_complete_for_both_locales() {
+        for locale in [Locale::En, Locale::Tr] {
+            let cat = catalog(locale);
+            assert_eq!(
+                lookup_nested(&cat, "status.online"),
+                Some(translate("status.online", locale))
+            );
+        }
+        assert_eq!(
+            lookup_nested(&catalog(Locale::Tr), "app.name"),
+            Some("Desk-Remote".to_string())
+        );
     }
 
     #[test]
