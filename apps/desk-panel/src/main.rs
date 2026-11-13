@@ -15,6 +15,7 @@ mod tailnet;
 mod transfer;
 #[cfg(feature = "demo")]
 mod transfer_demo;
+mod window_state;
 
 use commands::AppState;
 use desk_config::{ConfigManager, PanelConfig};
@@ -81,7 +82,9 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
                 }
             }
         })
+        .on_window_event(window_state::watcher())
         .setup(move |app| {
+            window_state::restore(app);
             if let Some(paths) = shell_menu::parse_send_args(&args) {
                 picks.push(app.handle(), paths);
             }

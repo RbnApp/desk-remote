@@ -9,8 +9,8 @@ use std::io::Write;
 use std::path::Path;
 
 pub use model::{
-    clamp_upload_mb, PairedPc, PanelConfig, RelayConfig, ServiceConfig, DEFAULT_MAX_UPLOAD_MB,
-    MAX_UPLOAD_MB_CEILING,
+    clamp_upload_mb, PairedPc, PanelConfig, RelayConfig, ServiceConfig, WindowState,
+    DEFAULT_MAX_UPLOAD_MB, MAX_UPLOAD_MB_CEILING,
 };
 
 /// Writes string content to a file atomically via a temporary swap file.
