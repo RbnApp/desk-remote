@@ -27,6 +27,7 @@ desk-session-helper = { path = "../desk-session-helper", version = "0.1.0" }
 desk-theme = { workspace = true }
 desk-transfer = { workspace = true }
 desk-transport = { workspace = true }
+desk-update = { workspace = true }
 desk-version = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

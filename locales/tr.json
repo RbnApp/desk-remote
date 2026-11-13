@@ -289,7 +289,8 @@
       "label": "Ayar bölümleri",
       "appearance": "Görünüm",
       "transfer": "Dosya aktarımı",
-      "connection": "Bağlantı"
+      "connection": "Bağlantı",
+      "updates": "Güncelleme"
     },
     "title": "Ayarlar",
     "sub": "Görünüm, dil ve bağlantı",
@@ -573,5 +574,33 @@
       "connecting": "bağlanıyor",
       "lost": "koptu"
     }
+  },
+  "upd": {
+    "title": "Panel güncellemesi",
+    "hint": "Desk-Remote yeni sürümü GitHub'dan arar. Yalnız bu panel güncellenir; her PC kendi ajanını kendi günceller.",
+    "version": "Kurulu sürüm",
+    "latest": "En yeni sürüm",
+    "last": "Son kontrol",
+    "never": "Henüz kontrol edilmedi",
+    "status": "Durum",
+    "state": {
+      "idle": "Güncel",
+      "checking": "Kontrol ediliyor…",
+      "available": "Yeni sürüm var",
+      "downloading": "İndiriliyor…",
+      "ready": "Kuruluma hazır",
+      "waiting": "Hazır — bağlantılarınız bitince kurulur",
+      "installing": "Kuruluyor — panel yeniden açılır",
+      "failed": "Güncellenemedi"
+    },
+    "check": "Şimdi kontrol et",
+    "apply": "Güncelle",
+    "apply_waiting": "Bekleniyor…",
+    "auto": "Açılışta otomatik güncelle",
+    "auto_hint": "Açıkken panel her açılışında yeni sürümü arar ve kurar. Açık bir uzak bağlantı asla kesilmez.",
+    "on": "Açık",
+    "off": "Kapalı",
+    "failed_hint": "Bu PC'de hiçbir şey değişmedi. İnternet bağlantısını kontrol edip tekrar deneyin.",
+    "progress": "İndirme ilerlemesi"
   }
 }

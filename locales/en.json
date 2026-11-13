@@ -289,7 +289,8 @@
       "label": "Settings sections",
       "appearance": "Appearance",
       "transfer": "File transfer",
-      "connection": "Connection"
+      "connection": "Connection",
+      "updates": "Updates"
     },
     "title": "Settings",
     "sub": "Appearance, language and connection",
@@ -573,5 +574,33 @@
       "connecting": "connecting",
       "lost": "disconnected"
     }
+  },
+  "upd": {
+    "title": "Panel updates",
+    "hint": "Desk-Remote looks for a new version on GitHub. Only this panel is updated; every PC updates its own agent.",
+    "version": "Installed version",
+    "latest": "Newest version",
+    "last": "Last check",
+    "never": "Not checked yet",
+    "status": "Status",
+    "state": {
+      "idle": "Up to date",
+      "checking": "Checking…",
+      "available": "New version available",
+      "downloading": "Downloading…",
+      "ready": "Ready to install",
+      "waiting": "Ready — waits until your connections end",
+      "installing": "Installing — the panel restarts",
+      "failed": "Couldn't update"
+    },
+    "check": "Check now",
+    "apply": "Update",
+    "apply_waiting": "Waiting…",
+    "auto": "Update automatically at start",
+    "auto_hint": "When on, the panel looks for a new version every time it opens and installs it. An open remote connection is never interrupted.",
+    "on": "On",
+    "off": "Off",
+    "failed_hint": "Nothing was changed on this PC. Check the internet connection and try again.",
+    "progress": "Download progress"
   }
 }

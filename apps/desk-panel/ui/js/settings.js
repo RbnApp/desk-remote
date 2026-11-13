@@ -3,6 +3,7 @@
 import { S, $, esc, ic, invoke, mountApp, refocus, render, screens, t, toast } from "./core.js";
 import { Seg, Shell } from "./components.js";
 import { transferSettings } from "./transfer.js";
+import { updateSettings } from "./update.js";
 import { applyTheme, loadCatalog } from "./theme.js";
 
 const POLL_MS = 2000;
@@ -11,7 +12,7 @@ const SIDEBAR_POLL_MS = 20000;
 
 let pollTimer = null;
 let tab = "appearance";
-const TABS = ["appearance", "transfer", "connection"];
+const TABS = ["appearance", "transfer", "connection", "updates"];
 
 /** Saves a settings patch through Rust (desk-config) and re-applies theme/language. */
 export async function saveSettings(patch) {
@@ -21,6 +22,7 @@ export async function saveSettings(patch) {
     language: patch.language ?? null,
     listView: patch.list_view ?? null,
     idleMinutes: patch.idle_minutes ?? null,
+    autoUpdate: patch.auto_update ?? null,
   });
   if (patch.language !== undefined) await loadCatalog();
   await applyTheme();
@@ -95,6 +97,7 @@ function renderSettings() {
     <section class="sec"><div><h2>${t("set.lang.title")}</h2><p class="hint">${t("set.lang.hint")}</p></div>${Seg("lang", t("set.lang.title"), langs, S.settings.language)}</section>`,
     transfer: transferSettings,
     connection: () => idleSection() + tailscaleSection(),
+    updates: updateSettings,
   };
   const tabs = TABS.map(
     (id) => `<button role="tab" id="stab-${id}" aria-selected="${id === tab}" aria-controls="spanel" tabindex="${id === tab ? 0 : -1}" data-stab="${id}">${t(`set.tabs.${id}`)}</button>`,

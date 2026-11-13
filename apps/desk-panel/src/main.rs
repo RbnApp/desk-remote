@@ -16,6 +16,7 @@ mod tailnet;
 mod transfer;
 #[cfg(feature = "demo")]
 mod transfer_demo;
+mod update;
 mod window_state;
 
 use commands::AppState;
@@ -53,11 +54,24 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     let picks = PickCollector::new();
     let (menu_enabled, menu_language) = (panel_config.shell_menu, panel_config.language.clone());
 
+    let sessions = Arc::<sessions::Sessions>::default();
+    let updates = Arc::new(
+        update::UpdateManager::new(
+            panel_config.update_feed_url.clone(),
+            Arc::clone(&sessions),
+            Arc::clone(&incoming),
+        )
+        .ok_or("the running version is not a version")?,
+    );
+    let auto_update = panel_config.auto_update;
+    let setup_updates = Arc::clone(&updates);
+
     let state = AppState {
         backend: backend::select(),
         config_path,
         config: Mutex::new(panel_config),
-        sessions: Arc::default(),
+        sessions,
+        updates,
         incoming,
         picks: Arc::clone(&picks),
         #[cfg(not(feature = "demo"))]
@@ -92,6 +106,10 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
             std::thread::spawn(move || shell_menu::sync(menu_enabled, &menu_language));
             #[cfg(not(feature = "demo"))]
             tailnet::start_if_signed_in();
+            setup_updates.attach(app.handle().clone());
+            if auto_update {
+                setup_updates.run(app.handle().clone(), true);
+            }
             Ok(())
         })
         .manage(state);
@@ -107,6 +125,9 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
         commands::get_settings,
         commands::update_settings,
         commands::get_theme,
+        commands::update_state,
+        commands::update_check,
+        commands::update_apply,
         commands::shell_menu_status,
         commands::shell_menu_set,
         commands::shell_pick_take,
@@ -156,6 +177,9 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
         commands::get_settings,
         commands::update_settings,
         commands::get_theme,
+        commands::update_state,
+        commands::update_check,
+        commands::update_apply,
         commands::shell_menu_status,
         commands::shell_menu_set,
         commands::shell_pick_take,

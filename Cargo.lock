@@ -956,6 +956,7 @@ dependencies = [
  "desk-theme",
  "desk-transfer",
  "desk-transport",
+ "desk-update",
  "desk-version",
  "serde",
  "serde_json",

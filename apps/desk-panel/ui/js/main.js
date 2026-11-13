@@ -17,6 +17,7 @@ import {
   startSidebarPolling,
 } from "./settings.js";
 import { armHideAll, focusedViewer, openViewer, setControlFrom, toggleFullscreen, viewerActions, workspace } from "./viewer.js";
+import { startUpdate, updateActions } from "./update.js";
 import { startTabs, tabActions } from "./tabs.js";
 
 const actions = {
@@ -45,6 +46,7 @@ const actions = {
   ...tabActions,
   ...incomingActions,
   ...transferActions,
+  ...updateActions,
 };
 
 document.addEventListener("click", (e) => {
@@ -71,6 +73,10 @@ document.addEventListener("change", async (e) => {
     await onSettingChange(name, value);
   } else if (name === "idle") {
     await onIdleChange(value);
+  } else if (id === "autoUpdate") {
+    await saveSettings({ auto_update: checked });
+    render();
+    refocus("#autoUpdate");
   } else if (id === "incEnabled") {
     setIncomingEnabled(checked);
   } else if (e.target.dataset.ctl !== undefined) {
@@ -125,6 +131,7 @@ async function boot() {
     startIncoming();
     startTransfer();
     startTabs();
+    startUpdate();
   } finally {
     await appWindow().show();
   }

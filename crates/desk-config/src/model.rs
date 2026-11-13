@@ -109,6 +109,11 @@ pub struct PanelConfig {
     /// Minutes without input after which a remote session closes by itself; `0` = never
     /// (see [`clamp_idle_minutes`]).
     pub idle_minutes: u32,
+    /// Look for a new panel version at start and install it by itself (the Updates tab switch).
+    pub auto_update: bool,
+    /// Replaces the GitHub "latest release" feed the panel updates from (a URL that returns the
+    /// same JSON). For tests against a local release source; `None` in production.
+    pub update_feed_url: Option<String>,
     /// Last window rectangle and maximized flag; `None` until the first close (large centered start).
     pub window: Option<WindowState>,
     /// PCs paired with this panel.
@@ -128,6 +133,8 @@ impl Default for PanelConfig {
             shell_menu: true,
             max_upload_mb: DEFAULT_MAX_UPLOAD_MB,
             idle_minutes: DEFAULT_IDLE_MINUTES,
+            auto_update: true,
+            update_feed_url: None,
             window: None,
             paired_pcs: Vec::new(),
         }

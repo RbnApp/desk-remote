@@ -22,6 +22,7 @@ pub struct AppState {
     #[cfg_attr(feature = "demo", allow(dead_code))]
     pub incoming: Arc<crate::incoming::IncomingManager>,
     pub picks: Arc<crate::shell_menu::PickCollector>,
+    pub updates: Arc<crate::update::UpdateManager>,
     #[cfg(not(feature = "demo"))]
     pub transfers: Arc<crate::transfer::TransferManager>,
 }
@@ -92,6 +93,7 @@ pub fn update_settings(
     language: Option<String>,
     list_view: Option<String>,
     idle_minutes: Option<u32>,
+    auto_update: Option<bool>,
 ) -> Result<PanelConfig, String> {
     let mut cfg = lock(&state.config);
     if let Some(v) = palette {
@@ -109,9 +111,30 @@ pub fn update_settings(
     if let Some(v) = idle_minutes {
         cfg.idle_minutes = v;
     }
+    if let Some(v) = auto_update {
+        cfg.auto_update = v;
+    }
     cfg.sanitize();
     ConfigManager::save(&state.config_path, &*cfg).map_err(|e| e.to_string())?;
     Ok(cfg.clone())
+}
+
+/// Update state for the Updates tab.
+#[tauri::command]
+pub fn update_state(state: State<'_, AppState>) -> crate::update::UpdateInfo {
+    state.updates.state()
+}
+
+/// "Check now": looks for a newer panel release without installing anything.
+#[tauri::command]
+pub fn update_check(app: tauri::AppHandle, state: State<'_, AppState>) {
+    state.updates.run(app, false);
+}
+
+/// "Update": downloads, verifies and installs the offered release (waits for open connections).
+#[tauri::command]
+pub fn update_apply(app: tauri::AppHandle, state: State<'_, AppState>) {
+    state.updates.run(app, true);
 }
 
 /// Explorer right-click entry state for the settings switch.
