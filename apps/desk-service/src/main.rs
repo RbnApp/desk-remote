@@ -152,7 +152,8 @@ fn run(args: &Args) -> DeskResult<()> {
             if args.auto_elevate {
                 // Double-click start has no service: come back after a restart or sign-in.
                 if let (Ok(exe), Some(dir)) = (DeskPaths::current_exe(), args.data_dir.as_ref()) {
-                    if let Err(e) = desk_service_core::register_portable_autostart(&exe, dir) {
+                    if let Err(e) = desk_service_core::register_portable_autostart(&paths, &exe, dir)
+                    {
                         tracing::warn!(error = %e, "the logon start was not registered");
                     }
                 }

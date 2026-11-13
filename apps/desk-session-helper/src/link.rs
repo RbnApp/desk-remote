@@ -297,7 +297,13 @@ impl Session {
                 shared.update(|ui| ui.pending_notice = Some(peer_notice(kind, &peer_name, &detail)))
             }
             IpcMessage::UpdateResult { outcome, version } => {
-                shared.update(|ui| ui.pending_notice = Some(update_notice(outcome, &version)));
+                shared.update(|ui| {
+                    // Settings shows the answer itself; otherwise a balloon tells the user.
+                    if !crate::settings::is_open() {
+                        ui.pending_notice = Some(update_notice(outcome, &version));
+                    }
+                    ui.update_result = Some((outcome, version));
+                });
             }
             IpcMessage::Shutdown => return false,
             other => tracing::debug!(kind = other.kind(), "ignored service message"),

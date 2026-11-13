@@ -108,9 +108,7 @@ fn serve_viewer(
         ));
     }
     tracing::info!(%peer, device = %device_id, "viewer authenticated");
-    let host_pc_name = std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .unwrap_or_else(|_| "Desk-PC".to_string());
+    let host_pc_name = hub.control().device_name();
     session.send(&Message::Hello {
         device_id: hub.identity().device_id(),
         version: desk_version::CURRENT.to_string(),

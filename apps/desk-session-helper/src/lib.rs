@@ -15,6 +15,7 @@ mod dialog;
 mod inbox;
 mod link;
 mod menu;
+mod settings;
 mod state;
 mod ui;
 mod viewers;

@@ -18,8 +18,8 @@ mod message;
 #[cfg(windows)]
 mod pipe;
 
-pub use info::{AgentInfo, PairedPeerInfo, TailnetState};
-pub use message::{IpcMessage, PeerActivityKind, UpdateOutcome};
+pub use info::{AgentInfo, AgentSettings, PairedPeerInfo, ServiceStart, TailnetState};
+pub use message::{IpcMessage, PeerActivityKind, SettingChange, UpdateOutcome};
 #[cfg(windows)]
 pub use pipe::{
     current_user_sid, pipe_access_sddl, user_sid_of_token, ExpectedClient, IpcClient,

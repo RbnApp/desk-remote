@@ -1,6 +1,6 @@
 //! State shared between the IPC worker and the tray UI thread.
 
-use desk_ipc::{AgentInfo, IpcConnection};
+use desk_ipc::{AgentInfo, IpcConnection, UpdateOutcome};
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -36,6 +36,8 @@ pub struct UiState {
     pub service_online: bool,
     /// Latest snapshot pushed by the service (tray menu and About window).
     pub info: Option<AgentInfo>,
+    /// Answer to the last "check now" click (shown in Settings instead of a balloon).
+    pub update_result: Option<(UpdateOutcome, String)>,
     /// Balloon to show on the next UI wake-up (taken by [`Shared::take_notice`]).
     pub pending_notice: Option<Notice>,
 }

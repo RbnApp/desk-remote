@@ -89,7 +89,10 @@ pub(crate) fn start(
         .name("desk-update".to_string())
         .spawn(move || {
             while !ctx.stop.load(Ordering::SeqCst) && !ctx.applied.load(Ordering::SeqCst) {
-                ctx.cycle(false);
+                // "Update automatically" off: no periodic check; the manual one still works.
+                if ctx.hub.control().auto_update() {
+                    ctx.cycle(false);
+                }
                 if !ctx.sleep(desk_update::AGENT_CHECK_INTERVAL) {
                     break;
                 }
@@ -111,6 +114,12 @@ impl Context {
             left -= step;
         }
         true
+    }
+
+    /// Remembers the finished check and lets an open Settings window show it.
+    fn checked(&self, latest: &str) {
+        self.hub.control().record_update_check(latest);
+        self.hub.push_agent_info();
     }
 
     /// Tells the tray what happened (only a click gets an answer).
@@ -142,6 +151,7 @@ impl Context {
         let (release, path) = match self.updater.check_and_download() {
             Ok(UpdateStatus::Ready { release, path }) => (release, path),
             Ok(_) => {
+                self.checked(desk_version::CURRENT);
                 self.answer(manual, UpdateOutcome::UpToDate, desk_version::CURRENT);
                 return;
             }
@@ -152,6 +162,7 @@ impl Context {
             }
         };
         let version = release.version.to_string();
+        self.checked(&version);
         if self.hub.joined_count() > 0 {
             tracing::info!(%version, "update ready, waiting for the viewers to leave");
             self.answer(manual, UpdateOutcome::Deferred, &version);

@@ -42,8 +42,13 @@ pub use host::{
 pub use hub::{ConsentEvent, Hub};
 pub use launch::{active_console_session, LaunchMode};
 pub use role::{host_allowed, host_allowed_for_role, HostRole};
-pub use scm::{install, run_dispatcher, stop_service, uninstall, SERVICE_NAME};
-pub use startup::{portable_run_command, register_portable_autostart};
+pub use scm::{
+    install, run_dispatcher, set_start_type, start_type, stop_service, uninstall, SERVICE_NAME,
+};
+pub use startup::{
+    logon_command, portable_run_command, register_portable_autostart, remove_logon_start,
+    set_logon_command, set_logon_start,
+};
 pub use tailnet::{
     ensure_helper_extracted, ensure_panel_helper_extracted, helper_executable_path,
     restore_official,

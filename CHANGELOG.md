@@ -8,6 +8,7 @@ only when the owner asks for a build. See [release flow](docs/architecture/relea
 **New**
 - The session helper is its own program, `DeskRemote-Session.exe`; Task Manager lists it as "Desk-Remote Session Helper" instead of a second "Agent".
 - The Connection tab shows devices online and the total number of tailnet devices separately.
+- The tray menu has a Settings window (device name, language, sign-in start, service start, auto-update, unattended access, view-only, upload limit, paired panels); changes are accepted only from the signed-in user's session helper.
 
 **Changed**
 - The agent program is now `DeskRemote-Agent.exe` (was `DeskRemote-Ajan.exe`); an upgrade carries an existing install over to the new name.

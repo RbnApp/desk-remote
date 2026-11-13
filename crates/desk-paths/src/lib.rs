@@ -13,6 +13,9 @@ pub const APP_ICON_RESOURCE_ID: u16 = 1;
 /// Subcommand that turns the agent executable into the per-session helper process.
 pub const HELPER_SUBCOMMAND: &str = "helper";
 
+/// File name of the agent executable.
+pub const AGENT_EXE_NAME: &str = "DeskRemote-Agent.exe";
+
 /// File name of the session helper executable that ships next to the agent executable.
 pub const SESSION_HELPER_EXE_NAME: &str = "DeskRemote-Session.exe";
 
@@ -162,6 +165,11 @@ impl DeskPaths {
     /// User configuration file path (`<AppData>/DeskRemote/panel.json`).
     pub fn panel_config_path(&self) -> PathBuf {
         self.user_root.join("panel.json")
+    }
+
+    /// Per-user tray helper preferences (`<AppData>/DeskRemote/helper.json`).
+    pub fn helper_config_path(&self) -> PathBuf {
+        self.user_root.join("helper.json")
     }
 
     /// Relay configuration file path (`<ProgramData>/DeskRemote/relay.json`).

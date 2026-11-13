@@ -35,13 +35,13 @@ const ID_DISCONNECT_ALL: usize = 6;
 const ID_VIEW_ONLY: usize = 7;
 const ID_ABOUT: usize = 8;
 const ID_QUIT: usize = 9;
-const ID_UPDATE: usize = 10;
+const ID_SETTINGS: usize = 10;
 /// First id of the "paired panels" entries; entry `i` is `ID_PAIRED_BASE + i`.
 const ID_PAIRED_BASE: usize = 100;
 /// Most paired panels the submenu lists.
 const PAIRED_MAX: usize = 50;
 
-fn send(msg: &IpcMessage) {
+pub(crate) fn send(msg: &IpcMessage) {
     if let Some(conn) = shared().and_then(|s| s.conn()) {
         let _ = conn.send(msg);
     }
@@ -166,7 +166,7 @@ fn separator(menu: windows::Win32::UI::WindowsAndMessaging::HMENU) {
 }
 
 /// Name shown for a paired panel (its last announced name, else a short device id).
-fn peer_label(peer: &PairedPeerInfo) -> String {
+pub(crate) fn peer_label(peer: &PairedPeerInfo) -> String {
     if peer.name.is_empty() {
         let short: String = peer.device_id.chars().take(14).collect();
         t("tray.paired_unnamed").replace("{id}", &short)
@@ -201,7 +201,7 @@ fn append_paired(menu: windows::Win32::UI::WindowsAndMessaging::HMENU, info: Opt
 }
 
 /// Asks the PC's user to confirm, then tells the service to forget the panel.
-fn confirm_and_unpair(hwnd: HWND, peer: &PairedPeerInfo) {
+pub(crate) fn confirm_and_unpair(hwnd: HWND, peer: &PairedPeerInfo) {
     let body = wide(&t("tray.paired_remove_body").replace("{name}", &peer_label(peer)));
     let title = wide(&t("tray.paired_remove_title"));
     // SAFETY: both strings are NUL-terminated and outlive the call; `hwnd` is our window.
@@ -280,13 +280,7 @@ pub fn show(hwnd: HWND) {
             false,
             false,
         );
-        append(
-            menu,
-            ID_UPDATE,
-            &t("tray.update_check"),
-            ui.service_online,
-            false,
-        );
+        append(menu, ID_SETTINGS, &t("tray.settings"), true, false);
         append(menu, ID_ABOUT, &t("tray.about"), true, false);
         // Portable and installed-service mode share this one entry (and one code path).
         append(menu, ID_QUIT, &t("tray.quit"), true, false);
@@ -339,7 +333,7 @@ fn run(hwnd: HWND, picked: usize, info: Option<&AgentInfo>) {
         ID_VIEW_ONLY => send(&IpcMessage::SetViewOnly {
             enabled: !info.is_some_and(|i| i.view_only),
         }),
-        ID_UPDATE => send(&IpcMessage::UpdateRequest),
+        ID_SETTINGS => crate::settings::show(),
         ID_ABOUT => crate::about::show(),
         // Console agent: stopped directly. Installed service: only the tray icon goes; this helper
         // keeps capturing and injecting, so the supervisor has nothing to restart (DAPP-110).

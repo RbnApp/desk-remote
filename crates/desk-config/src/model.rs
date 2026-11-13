@@ -70,6 +70,16 @@ pub fn clean_pc_alias(raw: &str) -> Option<String> {
     (!name.is_empty()).then(|| name.to_string())
 }
 
+/// Longest device name the agent announces to panels, in characters.
+pub const MAX_DEVICE_NAME_CHARS: usize = MAX_PC_ALIAS_CHARS;
+
+/// Normalizes a device name typed in the agent settings: control characters dropped, trimmed, cut
+/// to [`MAX_DEVICE_NAME_CHARS`]; `None` when nothing is left (a blank name is never saved).
+#[must_use]
+pub fn clean_device_name(raw: &str) -> Option<String> {
+    clean_pc_alias(raw)
+}
+
 /// Where the panel window was last left, in physical pixels (DAPP-108).
 ///
 /// The rectangle is the normal (not maximized) one, so un-maximizing after a restart returns to it.
@@ -187,6 +197,11 @@ pub struct ServiceConfig {
     /// Replaces the GitHub "latest release" feed the agent updates from (a URL that returns
     /// the same JSON). For tests against a local release source; `None` in production.
     pub update_feed_url: Option<String>,
+    /// Name this PC announces to panels; empty means the Windows computer name.
+    pub device_name: String,
+    /// Look for a new agent version by itself and install it (the Settings > Updates switch).
+    /// The manual check works either way.
+    pub auto_update: bool,
 }
 
 impl Default for ServiceConfig {
@@ -204,6 +219,28 @@ impl Default for ServiceConfig {
             capture_max_height: 1080,
             max_upload_mb: DEFAULT_MAX_UPLOAD_MB,
             update_feed_url: None,
+            device_name: String::new(),
+            auto_update: true,
+        }
+    }
+}
+
+/// Per-user preferences of the agent's tray helper (`<AppData>/DeskRemote/helper.json`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct HelperConfig {
+    /// The portable agent starts at sign-in (its `Run` entry exists). Off survives a restart of
+    /// the agent, which would otherwise register itself again.
+    pub logon_start: bool,
+    /// The `Run` command that was removed when `logon_start` went off, to put it back unchanged.
+    pub logon_command: String,
+}
+
+impl Default for HelperConfig {
+    fn default() -> Self {
+        Self {
+            logon_start: true,
+            logon_command: String::new(),
         }
     }
 }

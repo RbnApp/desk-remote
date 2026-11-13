@@ -39,6 +39,7 @@ const TRAY_CLASS: PCWSTR = w!("DeskRemoteTrayWindow");
 const TRAY_ID: u32 = 1;
 
 static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
+static PATHS: OnceLock<DeskPaths> = OnceLock::new();
 static THEME: OnceLock<Mutex<ResolvedTheme>> = OnceLock::new();
 static WAS_VIEWED: AtomicBool = AtomicBool::new(false);
 /// The user closed the tray: the icon stays gone for this helper's life while capture, input and
@@ -86,6 +87,19 @@ pub(crate) fn request_show_code() -> bool {
 
 pub(crate) fn shared() -> Option<&'static Arc<Shared>> {
     SHARED.get()
+}
+
+/// Folders this helper reads and writes its per-user settings in.
+pub(crate) fn paths() -> Option<&'static DeskPaths> {
+    PATHS.get()
+}
+
+/// Applies the language choice (`en`, `tr`) to this process and wakes the windows and the tray.
+pub(crate) fn apply_language(locale: Locale) {
+    set_locale(locale);
+    if let Some(s) = shared() {
+        notify(s);
+    }
 }
 
 pub(crate) fn wide(text: &str) -> Vec<u16> {
@@ -328,6 +342,7 @@ unsafe extern "system" fn tray_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
             tray_update(hwnd, ui.viewers.len(), view_only, balloon.as_ref());
             crate::code::refresh();
             crate::viewers::refresh();
+            crate::settings::refresh();
             LRESULT(0)
         }
         WM_SHOW_CODE => {
@@ -397,7 +412,11 @@ pub(crate) fn draw_text(
     flags: windows::Win32::Graphics::Gdi::DRAW_TEXT_FORMAT,
 ) {
     let mut buf: Vec<u16> = text.encode_utf16().collect();
-    // SAFETY: valid DC and buffer.
+    // An empty slice hands DrawTextW a dangling pointer it still reads: nothing to draw anyway.
+    if buf.is_empty() {
+        return;
+    }
+    // SAFETY: valid DC and non-empty buffer.
     unsafe { DrawTextW(hdc, &mut buf, &mut rect, flags) };
 }
 
@@ -445,6 +464,7 @@ fn create_windows(shared: &Arc<Shared>) -> windows::core::Result<()> {
 pub fn run(shared: Arc<Shared>, paths: &DeskPaths) -> windows::core::Result<()> {
     let theme = load_theme_and_locale(paths);
     let _ = THEME.set(Mutex::new(theme));
+    let _ = PATHS.set(paths.clone());
     let _ = SHARED.set(Arc::clone(&shared));
     create_windows(&shared)?;
     let mut msg = MSG::default();
@@ -487,6 +507,27 @@ pub fn quit(shared: &Shared) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An empty string once reached `DrawTextW` as a dangling pointer and killed the helper
+    /// inside USER32 (the Settings text box, emptied with Backspace).
+    #[test]
+    fn empty_text_draws_and_measures_without_crashing() {
+        use windows::Win32::Graphics::Gdi::{CreateCompatibleDC, DeleteDC, DT_LEFT, DT_SINGLELINE};
+        // SAFETY: a memory DC made and deleted inside the test.
+        let hdc = unsafe { CreateCompatibleDC(None) };
+        let rect = RECT {
+            left: 0,
+            top: 0,
+            right: 100,
+            bottom: 20,
+        };
+        draw_text(hdc, "", rect, DT_LEFT | DT_SINGLELINE);
+        let (w, h) = crate::dialog::measure_for_test(hdc, "");
+        assert_eq!(w, 0);
+        assert!(h > 0);
+        // SAFETY: the DC created above.
+        let _ = unsafe { DeleteDC(hdc) };
+    }
 
     #[test]
     fn explorer_selects_the_received_file_even_with_spaces() {

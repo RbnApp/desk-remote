@@ -91,6 +91,11 @@ impl TransferState {
         self.max_upload_mb.store(mb, Ordering::SeqCst);
     }
 
+    /// Upload limit in force, in MB.
+    pub fn max_upload_mb(&self) -> u32 {
+        self.max_upload_mb.load(Ordering::SeqCst)
+    }
+
     /// Folder an attended host stores received files in.
     pub fn set_received_dir(&self, dir: PathBuf) {
         *lock(&self.received_dir) = dir;

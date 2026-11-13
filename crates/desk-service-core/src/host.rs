@@ -10,6 +10,7 @@ use crate::tracker::SessionEvent;
 use desk_config::{ConfigManager, ServiceConfig};
 use desk_crypto::{DeviceIdentity, PairingManager, TrustStore};
 use desk_error::{DeskError, DeskResult};
+use desk_ipc::SettingChange;
 use desk_paths::DeskPaths;
 use desk_transport::{LanAnnouncer, Listener};
 use std::path::PathBuf;
@@ -102,6 +103,33 @@ pub struct ServiceHost {
     portable: bool,
 }
 
+/// Writes an accepted Settings change to `service.json` (and the service start type to the
+/// SCM). Only this SYSTEM process can write there: the user's helper just asks.
+fn settings_saver(path: PathBuf) -> impl Fn(&SettingChange) -> bool {
+    move |change| {
+        if let SettingChange::ServiceStart(start) = change {
+            return match crate::scm::set_start_type(*start) {
+                Ok(()) => true,
+                Err(e) => {
+                    tracing::warn!(error = %e, "cannot change the service start type");
+                    false
+                }
+            };
+        }
+        let saved = ConfigManager::update::<ServiceConfig, _>(&path, |cfg| match change {
+            SettingChange::DeviceName(name) => cfg.device_name.clone_from(name),
+            SettingChange::AutoUpdate(on) => cfg.auto_update = *on,
+            SettingChange::AllowUnattended(on) => cfg.allow_unattended = *on,
+            SettingChange::MaxUploadMb(mb) => cfg.max_upload_mb = *mb,
+            SettingChange::ServiceStart(_) => {}
+        });
+        if let Err(e) = &saved {
+            tracing::warn!(error = %e, "cannot save the setting");
+        }
+        saved.is_ok()
+    }
+}
+
 impl ServiceHost {
     /// Loads identity and trust, binds the viewer port and starts the worker threads.
     pub fn start(opts: HostOptions) -> DeskResult<Self> {
@@ -132,6 +160,13 @@ impl ServiceHost {
 
         hub.transfers()
             .set_max_upload_mb(desk_config::clamp_upload_mb(svc.max_upload_mb));
+        hub.control()
+            .set_device_name(&desk_config::clean_device_name(&svc.device_name).unwrap_or_default());
+        hub.control().set_auto_update(svc.auto_update);
+        hub.control()
+            .set_service_mode(opts.mode == LaunchMode::SystemService);
+        hub.set_allow_unattended(svc.allow_unattended);
+        hub.set_settings_handler(Some(Arc::new(settings_saver(paths.service_config_path()))));
         hub.transfers().set_received_dir(paths.received_files_dir());
 
         let port = opts.port.unwrap_or(svc.control_port);

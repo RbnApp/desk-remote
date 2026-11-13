@@ -4,6 +4,7 @@ use crate::host::{HostOptions, ServiceHost};
 use crate::launch::LaunchMode;
 use crate::tracker::SessionEvent;
 use desk_error::{DeskError, DeskResult};
+use desk_ipc::ServiceStart;
 use desk_paths::DeskPaths;
 use std::ffi::OsString;
 use std::sync::mpsc::channel;
@@ -147,13 +148,13 @@ fn run_service() -> DeskResult<()> {
     Ok(())
 }
 
-/// The service definition: LocalSystem, automatic start, `run` entry point.
-fn service_info(service_exe: &std::path::Path) -> ServiceInfo {
+/// The service definition: LocalSystem, `run` entry point, the given start type.
+fn service_info(service_exe: &std::path::Path, start_type: ServiceStartType) -> ServiceInfo {
     ServiceInfo {
         name: OsString::from(SERVICE_NAME),
         display_name: OsString::from(desk_exe_identity::description("agent")),
         service_type: ServiceType::OWN_PROCESS,
-        start_type: ServiceStartType::AutoStart,
+        start_type,
         error_control: ServiceErrorControl::Normal,
         executable_path: service_exe.to_path_buf(),
         launch_arguments: vec![OsString::from("run")],
@@ -172,7 +173,7 @@ pub fn install(service_exe: &std::path::Path) -> DeskResult<()> {
         ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
     )
     .map_err(|e| svc_err("open service manager (administrator rights required)", e))?;
-    let info = service_info(service_exe);
+    let info = service_info(service_exe, ServiceStartType::AutoStart);
     let access = ServiceAccess::CHANGE_CONFIG | ServiceAccess::START | ServiceAccess::QUERY_STATUS;
     let service = match manager.open_service(SERVICE_NAME, access) {
         Ok(existing) => {
@@ -216,6 +217,48 @@ pub fn install(service_exe: &std::path::Path) -> DeskResult<()> {
             .map_err(|e| svc_err("start service", e))?;
     }
     Ok(())
+}
+
+/// How the installed service starts; `NotInstalled` when there is none (or it cannot be read).
+pub fn start_type() -> ServiceStart {
+    let Ok(manager) = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+    else {
+        return ServiceStart::NotInstalled;
+    };
+    let Ok(service) = manager.open_service(SERVICE_NAME, ServiceAccess::QUERY_CONFIG) else {
+        return ServiceStart::NotInstalled;
+    };
+    match service.query_config().map(|c| c.start_type) {
+        Ok(ServiceStartType::AutoStart) => ServiceStart::Automatic,
+        Ok(_) => ServiceStart::Manual,
+        Err(_) => ServiceStart::NotInstalled,
+    }
+}
+
+/// Sets how the service starts (Automatic keeps the delayed start of the install). Needs the
+/// rights of the service itself: only the running service calls it.
+pub fn set_start_type(start: ServiceStart) -> DeskResult<()> {
+    let (start_type, delayed) = match start {
+        ServiceStart::Automatic => (ServiceStartType::AutoStart, true),
+        ServiceStart::Manual => (ServiceStartType::OnDemand, false),
+        ServiceStart::NotInstalled => {
+            return Err(DeskError::Service(
+                "no start type for a missing service".to_string(),
+            ))
+        }
+    };
+    let exe = DeskPaths::current_exe()?;
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+        .map_err(|e| svc_err("open service manager", e))?;
+    let service = manager
+        .open_service(SERVICE_NAME, ServiceAccess::CHANGE_CONFIG)
+        .map_err(|e| svc_err("open service", e))?;
+    service
+        .change_config(&service_info(&exe, start_type))
+        .map_err(|e| svc_err("change start type", e))?;
+    service
+        .set_delayed_auto_start(delayed)
+        .map_err(|e| svc_err("set delayed auto-start", e))
 }
 
 /// Asks the Service Control Manager to stop the service (needs admin). `Ok` also when it is
@@ -276,7 +319,10 @@ mod tests {
 
     #[test]
     fn the_service_starts_automatically_as_a_run_entry() {
-        let info = service_info(std::path::Path::new(r"C:\Desk\DeskRemote-Agent.exe"));
+        let info = service_info(
+            std::path::Path::new(r"C:\Desk\DeskRemote-Agent.exe"),
+            ServiceStartType::AutoStart,
+        );
         assert_eq!(info.start_type, ServiceStartType::AutoStart);
         assert_eq!(info.launch_arguments, vec![OsString::from("run")]);
         assert!(info.account_name.is_none(), "LocalSystem");

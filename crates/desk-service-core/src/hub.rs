@@ -7,7 +7,9 @@
 use crate::control::Control;
 use crate::transfer::TransferState;
 use desk_crypto::{DeviceIdentity, PairingManager, PAIRING_CODE_TTL};
-use desk_ipc::{IpcConnection, IpcMessage, PairedPeerInfo, PeerActivityKind};
+use desk_ipc::{
+    IpcConnection, IpcMessage, PairedPeerInfo, PeerActivityKind, ServiceStart, SettingChange,
+};
 use desk_protocol::{Message, NoticeKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -77,6 +79,8 @@ struct State {
     /// SYSTEM helper that captures and drives the secure desktop (UAC prompt, lock screen).
     secure: Option<(u64, IpcConnection)>,
     last_config: Option<Message>,
+    /// Settings > Security: remote access ends while the screen is locked (nobody at the PC).
+    deny_unattended: bool,
     session_locked: bool,
     helper_locked: bool,
     no_display: bool,
@@ -89,12 +93,17 @@ impl State {
     fn available(&self) -> bool {
         // A locked screen or UAC prompt does not make the PC unavailable: the secure-desktop
         // helper shows it (DAPP-118), so the viewer's link never drops for it.
-        self.helper.is_some() && !self.no_display
+        self.helper.is_some() && !self.no_display && !self.unattended_denied()
+    }
+
+    /// The screen is locked and the user does not allow remote access in that state.
+    fn unattended_denied(&self) -> bool {
+        self.deny_unattended && self.session_locked
     }
 
     /// The user's desktop cannot be captured right now (lock screen, UAC prompt).
     fn secure_wanted(&self) -> bool {
-        self.session_locked || self.helper_locked
+        (self.session_locked && !self.deny_unattended) || self.helper_locked
     }
 
     /// The secure-desktop helper is the one the viewers watch and drive.
@@ -165,6 +174,8 @@ pub struct Hub {
     consent_listener: Mutex<Option<ConsentListener>>,
     /// Called when the tray asks for an update check (set by the agent's self-update).
     update_handler: Mutex<Option<UpdateHandler>>,
+    /// Saves an accepted setting (set by the host); `false` = it could not be saved or applied.
+    settings_handler: Mutex<Option<SettingsHandler>>,
     transfers: TransferState,
     /// Connection sessions of paired panels, so the tray balloon shows once per session (DAPP-119).
     sessions: Mutex<HashMap<String, PanelSession>>,
@@ -183,6 +194,9 @@ struct PanelSession {
 
 /// Reacts to a tray "check for updates" click; must return quickly (it runs on the IPC thread).
 pub type UpdateHandler = Arc<dyn Fn() + Send + Sync>;
+
+/// Saves one accepted Settings change (service config file, service start type).
+pub type SettingsHandler = Arc<dyn Fn(&SettingChange) -> bool + Send + Sync>;
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
@@ -209,6 +223,7 @@ impl Hub {
             consent_gate_enabled: consent_gate,
             consent_listener: Mutex::new(None),
             update_handler: Mutex::new(None),
+            settings_handler: Mutex::new(None),
             transfers: TransferState::default(),
             sessions: Mutex::new(HashMap::new()),
         }
@@ -254,6 +269,16 @@ impl Hub {
     }
 
     /// Registers what happens when the tray asks for an update check.
+    /// Registers what persists an accepted setting (the host owns the files and the SCM).
+    pub fn set_settings_handler(&self, handler: Option<SettingsHandler>) {
+        *lock(&self.settings_handler) = handler;
+    }
+
+    /// Applies Settings > Security "remote access while the screen is locked".
+    pub fn set_allow_unattended(&self, allow: bool) {
+        self.update_availability(|st| st.deny_unattended = !allow);
+    }
+
     pub fn set_update_handler(&self, handler: Option<UpdateHandler>) {
         *lock(&self.update_handler) = handler;
     }
@@ -860,9 +885,12 @@ impl Hub {
                     })
                     .collect()
             });
-            let info = self
+            let mut info = self
                 .control
                 .snapshot(&self.identity, viewers, unavailable, paired);
+            info.settings.allow_unattended = !lock(&self.state).deny_unattended;
+            info.settings.max_upload_mb = self.transfers.max_upload_mb();
+            info.settings.service_start = crate::scm::start_type();
             let _ = conn.send(&IpcMessage::AgentInfo(info));
         }
     }
@@ -947,7 +975,60 @@ impl Hub {
         if picture && lock(&self.state).secure_active() {
             return;
         }
+        // Settings come from the signed-in user's verified helper only (never the secure-desktop
+        // helper, never a viewer connection: those paths end in `on_helper_message`/the engine).
+        if let IpcMessage::ChangeSetting(change) = msg {
+            self.change_setting(&change);
+            return;
+        }
         self.on_helper_message(msg);
+    }
+
+    /// Validates, applies and saves one Settings change, then tells the tray the new values.
+    fn change_setting(&self, change: &SettingChange) {
+        let accepted = match change {
+            SettingChange::DeviceName(name) => {
+                if let Some(clean) = desk_config::clean_device_name(name) {
+                    self.control.set_device_name(&clean);
+                    // Saved under the cleaned name, not the raw text.
+                    self.persist_setting(&SettingChange::DeviceName(clean));
+                    return;
+                }
+                false
+            }
+            SettingChange::AutoUpdate(on) => {
+                self.control.set_auto_update(*on);
+                true
+            }
+            SettingChange::AllowUnattended(on) => {
+                self.set_allow_unattended(*on);
+                true
+            }
+            SettingChange::MaxUploadMb(mb) => {
+                let ok = (1..=desk_config::MAX_UPLOAD_MB_CEILING).contains(mb);
+                if ok {
+                    self.transfers.set_max_upload_mb(*mb);
+                }
+                ok
+            }
+            SettingChange::ServiceStart(start) => {
+                *start != ServiceStart::NotInstalled && self.control.service_mode()
+            }
+        };
+        if accepted {
+            self.persist_setting(change);
+        } else {
+            tracing::warn!("setting refused");
+            self.push_agent_info();
+        }
+    }
+
+    fn persist_setting(&self, change: &SettingChange) {
+        let handler = lock(&self.settings_handler).clone();
+        if !handler.map_or(true, |save| save(change)) {
+            tracing::warn!("setting could not be saved");
+        }
+        self.push_agent_info();
     }
 
     /// Handles one message coming from the helper.
@@ -1825,6 +1906,72 @@ mod tests {
         );
         hub.viewer_join(id);
         assert_eq!(hub.joined_count(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn settings_change_only_through_the_user_helper_path() -> DeskResult<()> {
+        let h = hub()?;
+        let before = h.control().device_name();
+        // The secure-desktop helper path ignores a Settings message.
+        h.on_helper_message(IpcMessage::ChangeSetting(SettingChange::DeviceName(
+            "Secure".to_string(),
+        )));
+        h.on_helper_message(IpcMessage::ChangeSetting(SettingChange::AutoUpdate(false)));
+        assert_eq!(h.control().device_name(), before);
+        assert!(h.control().auto_update());
+        // The verified user helper's message is applied.
+        h.on_user_helper_message(IpcMessage::ChangeSetting(SettingChange::DeviceName(
+            "  Office PC ".to_string(),
+        )));
+        h.on_user_helper_message(IpcMessage::ChangeSetting(SettingChange::AutoUpdate(false)));
+        assert_eq!(h.control().device_name(), "Office PC");
+        assert!(!h.control().auto_update());
+        Ok(())
+    }
+
+    #[test]
+    fn a_refused_setting_changes_nothing() -> DeskResult<()> {
+        let h = hub()?;
+        let name = h.control().device_name();
+        h.on_user_helper_message(IpcMessage::ChangeSetting(SettingChange::DeviceName(
+            "   ".to_string(),
+        )));
+        h.on_user_helper_message(IpcMessage::ChangeSetting(SettingChange::MaxUploadMb(0)));
+        // No service in this test: the start type cannot be changed.
+        h.on_user_helper_message(IpcMessage::ChangeSetting(SettingChange::ServiceStart(
+            ServiceStart::Manual,
+        )));
+        assert_eq!(h.control().device_name(), name);
+        assert_eq!(
+            h.transfers().max_upload_mb(),
+            desk_config::clamp_upload_mb(100)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unattended_off_makes_a_locked_pc_unavailable() -> DeskResult<()> {
+        let h = hub()?;
+        h.set_session_locked(true);
+        assert!(!lock(&h.state).unattended_denied());
+        assert!(
+            lock(&h.state).secure_wanted(),
+            "locked screens are served by default"
+        );
+        h.on_user_helper_message(IpcMessage::ChangeSetting(SettingChange::AllowUnattended(
+            false,
+        )));
+        assert!(lock(&h.state).unattended_denied());
+        assert!(
+            !lock(&h.state).secure_wanted(),
+            "no secure-desktop helper when it is not allowed"
+        );
+        h.set_session_locked(false);
+        assert!(
+            !lock(&h.state).unattended_denied(),
+            "an unlocked screen is always reachable"
+        );
         Ok(())
     }
 }

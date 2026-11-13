@@ -9,9 +9,10 @@ use std::io::Write;
 use std::path::Path;
 
 pub use model::{
-    clamp_idle_minutes, clamp_upload_mb, clean_pc_alias, PairedPc, PanelConfig, RelayConfig,
-    ServiceConfig, WindowState, DEFAULT_IDLE_MINUTES, DEFAULT_MAX_UPLOAD_MB, IDLE_MINUTES_CHOICES,
-    MAX_PC_ALIAS_CHARS, MAX_UPLOAD_MB_CEILING,
+    clamp_idle_minutes, clamp_upload_mb, clean_device_name, clean_pc_alias, HelperConfig, PairedPc,
+    PanelConfig, RelayConfig, ServiceConfig, WindowState, DEFAULT_IDLE_MINUTES,
+    DEFAULT_MAX_UPLOAD_MB, IDLE_MINUTES_CHOICES, MAX_DEVICE_NAME_CHARS, MAX_PC_ALIAS_CHARS,
+    MAX_UPLOAD_MB_CEILING,
 };
 
 /// Writes string content to a file atomically via a temporary swap file.
@@ -142,6 +143,28 @@ mod tests {
 
         assert_eq!(cfg.palette, "petrol");
         assert_eq!(cfg.mode, "dark");
+    }
+
+    #[test]
+    fn old_service_config_keeps_todays_behavior_for_the_new_keys() -> Result<(), serde_json::Error>
+    {
+        let old: ServiceConfig = serde_json::from_str(r#"{"allow_unattended":true}"#)?;
+        assert!(old.auto_update, "auto-update stays on without the key");
+        assert!(old.device_name.is_empty(), "no key = computer name");
+        let helper: HelperConfig = serde_json::from_str("{}")?;
+        assert!(helper.logon_start);
+        Ok(())
+    }
+
+    #[test]
+    fn device_name_is_trimmed_cut_and_never_blank() {
+        assert_eq!(clean_device_name("  Farm-01 ").as_deref(), Some("Farm-01"));
+        assert_eq!(clean_device_name("   "), None);
+        let long = "x".repeat(100);
+        assert_eq!(
+            clean_device_name(&long).map(|n| n.chars().count()),
+            Some(MAX_DEVICE_NAME_CHARS)
+        );
     }
 
     #[test]

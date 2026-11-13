@@ -389,4 +389,50 @@ mod tests {
         );
         assert!(starts <= 6, "restarts must back off, starts={starts}");
     }
+
+    /// Runs [`helper_link`] against a client (this test process) that sends a Settings change,
+    /// with `expected_pid` as the process the supervisor believes it started.
+    fn settings_sent_by_a_client(tag: &str, expected_pid: u32) -> Arc<Hub> {
+        let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|p| p.into_inner());
+        let name = format!(r"\\.\pipe\DeskRemote-test-{tag}-{}", std::process::id());
+        let sid = desk_ipc::current_user_sid().unwrap();
+        let server = IpcServer::bind(&name, &pipe_access_sddl(&sid)).unwrap();
+        let hub = Arc::new(Hub::new(
+            DeviceIdentity::generate().unwrap(),
+            PairingManager::new(),
+        ));
+        let stop = Arc::new(AtomicBool::new(false));
+        let expected = ExpectedHelper {
+            pid: expected_pid,
+            image: std::env::current_exe().unwrap(),
+            user_sid: sid,
+        };
+        let link = {
+            let (hub, stop) = (Arc::clone(&hub), Arc::clone(&stop));
+            std::thread::spawn(move || helper_link(&server, &hub, &stop, &expected))
+        };
+        let client = desk_ipc::IpcClient::connect(&name, Duration::from_secs(5)).unwrap();
+        let _ = client.send(&IpcMessage::ChangeSetting(
+            desk_ipc::SettingChange::DeviceName("Hijacked".to_string()),
+        ));
+        std::thread::sleep(Duration::from_millis(1500));
+        stop.store(true, Ordering::SeqCst);
+        link.join().unwrap();
+        hub
+    }
+
+    #[test]
+    fn settings_from_a_look_alike_process_are_rejected() {
+        // The client is not the helper the supervisor started: it is closed unanswered and
+        // its Settings request never reaches the hub.
+        let hub = settings_sent_by_a_client("settings-evil", std::process::id() + 1);
+        assert_ne!(hub.control().device_name(), "Hijacked");
+    }
+
+    #[test]
+    fn settings_from_the_verified_helper_are_applied() {
+        // Control for the test above: the same message from the expected process is accepted.
+        let hub = settings_sent_by_a_client("settings-good", std::process::id());
+        assert_eq!(hub.control().device_name(), "Hijacked");
+    }
 }

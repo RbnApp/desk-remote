@@ -1,6 +1,6 @@
 //! Typed messages exchanged over the service <-> helper pipe.
 
-use crate::info::AgentInfo;
+use crate::info::{AgentInfo, ServiceStart};
 use desk_protocol::Message;
 use serde::{Deserialize, Serialize};
 
@@ -53,8 +53,25 @@ pub enum IpcMessage {
         outcome: UpdateOutcome,
         version: String,
     },
+    /// Helper -> service: the user changed one value in the Settings window. Only the signed-in
+    /// user's verified helper may send it; a remote panel can never reach it.
+    ChangeSetting(SettingChange),
     /// Service -> helper: exit cleanly.
     Shutdown,
+}
+
+/// One value of the Settings window (see [`IpcMessage::ChangeSetting`]).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SettingChange {
+    /// Name announced to panels; blank is refused, the old name stays.
+    DeviceName(String),
+    AutoUpdate(bool),
+    /// Allow remote access while the screen is locked (nobody at the PC).
+    AllowUnattended(bool),
+    /// Largest accepted file in MB; outside `1..=1024` is refused.
+    MaxUploadMb(u32),
+    /// Windows service start type; the service refuses it outside service mode.
+    ServiceStart(ServiceStart),
 }
 
 /// What an update request led to (see [`IpcMessage::UpdateResult`]).
@@ -101,6 +118,7 @@ impl IpcMessage {
             Self::UnpairRequest { .. } => "UnpairRequest",
             Self::UpdateRequest => "UpdateRequest",
             Self::UpdateResult { .. } => "UpdateResult",
+            Self::ChangeSetting(_) => "ChangeSetting",
             Self::Shutdown => "Shutdown",
         }
     }
@@ -151,7 +169,21 @@ mod tests {
                     device_id: "desk-aaaa".to_string(),
                     name: "Laptop".to_string(),
                 }],
+                settings: crate::info::AgentSettings {
+                    device_name: "Farm PC".to_string(),
+                    auto_update: false,
+                    allow_unattended: false,
+                    max_upload_mb: 50,
+                    service_start: ServiceStart::Manual,
+                    latest_version: "0.1.3".to_string(),
+                    last_update_check: 1_700_000_000,
+                },
             }),
+            IpcMessage::ChangeSetting(SettingChange::DeviceName("Farm PC".to_string())),
+            IpcMessage::ChangeSetting(SettingChange::AutoUpdate(false)),
+            IpcMessage::ChangeSetting(SettingChange::AllowUnattended(false)),
+            IpcMessage::ChangeSetting(SettingChange::MaxUploadMb(50)),
+            IpcMessage::ChangeSetting(SettingChange::ServiceStart(ServiceStart::Manual)),
             IpcMessage::PeerActivity {
                 kind: PeerActivityKind::FileOffered,
                 peer_name: "Laptop".to_string(),
@@ -183,6 +215,17 @@ mod tests {
             let decoded: Option<(IpcMessage, usize)> = FrameCodec::decode_value(&frame)?;
             assert_eq!(decoded, Some((original, frame.len())));
         }
+        Ok(())
+    }
+
+    #[test]
+    fn an_old_snapshot_without_settings_reads_as_todays_behavior() -> Result<(), serde_json::Error>
+    {
+        let old = r#"{"pc_name":"A","local_ip":null,"port":1,"tailnet":"Off","tailnet_ips":[],
+            "device_id":"d","fingerprint":"f","viewers":0,"unavailable":false,"view_only":false}"#;
+        let info: AgentInfo = serde_json::from_str(old)?;
+        assert!(info.settings.auto_update && info.settings.allow_unattended);
+        assert_eq!(info.settings.service_start, ServiceStart::Automatic);
         Ok(())
     }
 

@@ -5,9 +5,10 @@
 //! the finished snapshot over IPC.
 
 use desk_crypto::DeviceIdentity;
-use desk_ipc::{AgentInfo, TailnetState};
+use desk_ipc::{AgentInfo, AgentSettings, TailnetState};
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Address advertised when the listener is bound to loopback only.
 const LOOPBACK_IP: &str = "127.0.0.1";
@@ -20,6 +21,16 @@ struct TailnetReport {
     takeover_needs_admin: bool,
 }
 
+/// Outcome of the latest update check, for the Settings window.
+#[derive(Default)]
+struct UpdateReport {
+    latest: String,
+    checked_at: u64,
+}
+
+/// Name used when the user set none and Windows reports none.
+const FALLBACK_NAME: &str = "Desk-PC";
+
 /// Runtime switches and facts shared by the hub, the host and the tailnet supervisor.
 #[derive(Default)]
 pub struct Control {
@@ -27,6 +38,13 @@ pub struct Control {
     port: AtomicU16,
     loopback_only: AtomicBool,
     tailnet: Mutex<TailnetReport>,
+    /// Name the user gave this PC; empty means the Windows computer name.
+    device_name: Mutex<String>,
+    /// Inverted on purpose: the default (`false`) is today's behavior, updates on.
+    manual_updates_only: AtomicBool,
+    /// This process is the installed Windows service (the start type can be changed).
+    service_mode: AtomicBool,
+    update: Mutex<UpdateReport>,
     /// Called (outside the lock) when the tailnet state changes, so the tray learns at once.
     on_tailnet_change: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
@@ -40,6 +58,54 @@ impl Control {
     pub fn configure(&self, port: u16, loopback_only: bool) {
         self.port.store(port, Ordering::SeqCst);
         self.loopback_only.store(loopback_only, Ordering::SeqCst);
+    }
+
+    /// The name announced to panels and shown in the tray: the user's choice, else the Windows
+    /// computer name.
+    #[must_use]
+    pub fn device_name(&self) -> String {
+        let custom = lock(&self.device_name).clone();
+        if !custom.is_empty() {
+            return custom;
+        }
+        std::env::var("COMPUTERNAME")
+            .or_else(|_| std::env::var("HOSTNAME"))
+            .unwrap_or_else(|_| FALLBACK_NAME.to_string())
+    }
+
+    /// Stores the name the user chose (`""` goes back to the computer name).
+    pub fn set_device_name(&self, name: &str) {
+        *lock(&self.device_name) = name.to_string();
+    }
+
+    /// Whether the agent looks for and installs updates by itself.
+    #[must_use]
+    pub fn auto_update(&self) -> bool {
+        !self.manual_updates_only.load(Ordering::SeqCst)
+    }
+
+    pub fn set_auto_update(&self, enabled: bool) {
+        self.manual_updates_only.store(!enabled, Ordering::SeqCst);
+    }
+
+    /// Marks this process as the installed Windows service.
+    pub fn set_service_mode(&self, service: bool) {
+        self.service_mode.store(service, Ordering::SeqCst);
+    }
+
+    #[must_use]
+    pub fn service_mode(&self) -> bool {
+        self.service_mode.load(Ordering::SeqCst)
+    }
+
+    /// Remembers that an update check just finished and which version is the newest.
+    pub fn record_update_check(&self, latest: &str) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let mut report = lock(&self.update);
+        report.latest = latest.to_string();
+        report.checked_at = now;
     }
 
     /// True while remote input is blocked. Always `false` after a service restart.
@@ -101,6 +167,19 @@ impl Control {
         report.takeover_needs_admin = needs_admin;
     }
 
+    /// The values this control owns; the hub adds the ones it owns (lock rule, upload limit,
+    /// service start type).
+    fn settings(&self) -> AgentSettings {
+        let report = lock(&self.update);
+        AgentSettings {
+            device_name: lock(&self.device_name).clone(),
+            auto_update: self.auto_update(),
+            latest_version: report.latest.clone(),
+            last_update_check: report.checked_at,
+            ..AgentSettings::default()
+        }
+    }
+
     /// Builds the snapshot for the tray menu.
     #[must_use]
     pub fn snapshot(
@@ -113,7 +192,7 @@ impl Control {
         let loopback = self.loopback_only.load(Ordering::SeqCst);
         let report = lock(&self.tailnet);
         AgentInfo {
-            pc_name: std::env::var("COMPUTERNAME").unwrap_or_default(),
+            pc_name: self.device_name(),
             local_ip: if loopback {
                 Some(LOOPBACK_IP.to_string())
             } else {
@@ -130,6 +209,7 @@ impl Control {
             unavailable,
             view_only: self.view_only(),
             paired,
+            settings: self.settings(),
         }
     }
 }
@@ -138,6 +218,29 @@ impl Control {
 mod tests {
     use super::*;
     use desk_error::DeskResult;
+
+    #[test]
+    fn device_name_is_the_users_choice_else_the_computer_name() {
+        let control = Control::default();
+        let default_name = control.device_name();
+        assert!(!default_name.is_empty());
+        control.set_device_name("Farm PC");
+        assert_eq!(control.device_name(), "Farm PC");
+        control.set_device_name("");
+        assert_eq!(control.device_name(), default_name);
+    }
+
+    #[test]
+    fn auto_update_is_on_until_switched_off() {
+        let control = Control::default();
+        assert!(control.auto_update());
+        control.set_auto_update(false);
+        assert!(!control.auto_update());
+        control.record_update_check("0.1.3");
+        let report = lock(&control.update);
+        assert_eq!(report.latest, "0.1.3");
+        assert!(report.checked_at > 0);
+    }
 
     #[test]
     fn view_only_reports_changes_and_starts_off() {

@@ -28,6 +28,51 @@ pub struct PairedPeerInfo {
     pub name: String,
 }
 
+/// How the Windows service that hosts this agent starts (Settings > General).
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ServiceStart {
+    /// Starts with Windows (the installed default).
+    #[default]
+    Automatic,
+    /// Starts only when someone starts it: the PC is not reachable after a restart.
+    Manual,
+    /// No service on this PC (portable / double-click agent).
+    NotInstalled,
+}
+
+/// What the Settings window shows and changes; the service owns every value.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentSettings {
+    /// Name set by the user; empty means the Windows computer name.
+    pub device_name: String,
+    /// The agent looks for updates and installs them by itself.
+    pub auto_update: bool,
+    /// Remote access also works while nobody is at the PC (locked screen).
+    pub allow_unattended: bool,
+    /// Largest file this PC accepts, in MB.
+    pub max_upload_mb: u32,
+    pub service_start: ServiceStart,
+    /// Newest version the last update check saw (empty until the first check finished).
+    pub latest_version: String,
+    /// When the last update check finished, seconds since the Unix epoch (`0` = none yet).
+    pub last_update_check: u64,
+}
+
+impl Default for AgentSettings {
+    /// Today's behavior, so a snapshot from an older service reads the same as before.
+    fn default() -> Self {
+        Self {
+            device_name: String::new(),
+            auto_update: true,
+            allow_unattended: true,
+            max_upload_mb: 100,
+            service_start: ServiceStart::Automatic,
+            latest_version: String::new(),
+            last_update_check: 0,
+        }
+    }
+}
+
 /// Snapshot of the agent for the tray menu and the About window.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentInfo {
@@ -60,4 +105,7 @@ pub struct AgentInfo {
     /// Panels paired with this PC (tray "Paired panels" list, DAPP-104).
     #[serde(default)]
     pub paired: Vec<PairedPeerInfo>,
+    /// Values of the Settings window (an older service sends none: defaults apply).
+    #[serde(default)]
+    pub settings: AgentSettings,
 }
