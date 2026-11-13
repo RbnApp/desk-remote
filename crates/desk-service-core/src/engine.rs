@@ -147,6 +147,7 @@ fn serve_viewer(
     }
     let result = bridge(&mut session, hub, stop, id, &rx, first);
     hub.remove_viewer(id);
+    hub.peer_link_closed(&device_id);
     result
 }
 

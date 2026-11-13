@@ -166,15 +166,19 @@ pub struct Hub {
     /// Called when the tray asks for an update check (set by the agent's self-update).
     update_handler: Mutex<Option<UpdateHandler>>,
     transfers: TransferState,
-    /// Panels whose first connection was already announced on the tray (DAPP-119).
-    announced: Mutex<Announced>,
+    /// Connection sessions of paired panels, so the tray balloon shows once per session (DAPP-119).
+    sessions: Mutex<HashMap<String, PanelSession>>,
 }
 
-/// Which panels the tray already announced; persisted in `service.json` when a path is set.
+/// A panel stays in the same connection session while it has a live link or comes back within
+/// this time (reconnect attempts, network flaps). After it, a new connection is a new session.
+const SESSION_GRACE: Duration = Duration::from_secs(120);
+
+/// Live links of one paired panel and when the last one ended.
 #[derive(Default)]
-struct Announced {
-    config_path: Option<std::path::PathBuf>,
-    ids: std::collections::HashSet<String>,
+struct PanelSession {
+    live: usize,
+    last_gone: Option<std::time::Instant>,
 }
 
 /// Reacts to a tray "check for updates" click; must return quickly (it runs on the IPC thread).
@@ -206,39 +210,35 @@ impl Hub {
             consent_listener: Mutex::new(None),
             update_handler: Mutex::new(None),
             transfers: TransferState::default(),
-            announced: Mutex::new(Announced::default()),
+            sessions: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Persists the "already announced" panels in the service config at `path` and loads them.
-    pub fn set_announce_store(&self, path: std::path::PathBuf) {
-        let cfg: desk_config::ServiceConfig =
-            desk_config::ConfigManager::load_or_default(&path).unwrap_or_default();
-        let mut a = lock(&self.announced);
-        a.ids.extend(cfg.announced_panels);
-        a.config_path = Some(path);
+    /// Counts a new link of `device_id`; `true` when it opens a new connection session.
+    fn session_opened(&self, device_id: &str, now: std::time::Instant) -> bool {
+        let mut map = lock(&self.sessions);
+        let entry = map.entry(device_id.to_string()).or_default();
+        let fresh = entry.live == 0
+            && entry
+                .last_gone
+                .map_or(true, |t| now.saturating_duration_since(t) >= SESSION_GRACE);
+        entry.live += 1;
+        entry.last_gone = None;
+        fresh
     }
 
-    /// `true` exactly once per paired panel: its first connection. Remembered across restarts.
-    fn first_connection(&self, device_id: &str) -> bool {
-        let mut a = lock(&self.announced);
-        if !a.ids.insert(device_id.to_string()) {
-            return false;
-        }
-        Self::persist_announced(&a);
-        true
+    /// A link of `device_id` ended; the session ends once none is left and the grace passes.
+    pub fn peer_link_closed(&self, device_id: &str) {
+        self.session_closed(device_id, std::time::Instant::now());
     }
 
-    fn persist_announced(a: &Announced) {
-        let Some(path) = &a.config_path else { return };
-        let mut ids: Vec<String> = a.ids.iter().cloned().collect();
-        ids.sort();
-        let saved =
-            desk_config::ConfigManager::update::<desk_config::ServiceConfig, _>(path, |c| {
-                c.announced_panels = ids.clone();
-            });
-        if let Err(e) = saved {
-            tracing::warn!(error = %e, "cannot remember the announced panels");
+    fn session_closed(&self, device_id: &str, now: std::time::Instant) {
+        let mut map = lock(&self.sessions);
+        if let Some(entry) = map.get_mut(device_id) {
+            entry.live = entry.live.saturating_sub(1);
+            if entry.live == 0 {
+                entry.last_gone = Some(now);
+            }
         }
     }
 
@@ -782,25 +782,18 @@ impl Hub {
         });
     }
 
-    /// A paired panel connected: always an audit line, but the tray balloon only the first
-    /// time for that panel (DAPP-119), so a panel in regular use does not nag the PC's user.
+    /// A paired panel connected: always an audit line, but the tray balloon once per
+    /// connection session (DAPP-119), not for every extra link or reconnect inside it.
     pub fn record_peer_connected(&self, device_id: &str, peer_name: &str) {
-        if self.first_connection(device_id) {
+        if self.session_opened(device_id, std::time::Instant::now()) {
             self.record_peer_activity(PeerActivityKind::Connected, peer_name, "");
         } else {
-            tracing::info!(target: "audit", peer = %peer_name, "paired panel reconnected (no balloon)");
+            tracing::info!(target: "audit", peer = %peer_name, "paired panel link inside the same session (no balloon)");
         }
     }
 
     /// Forgets the pairing of `device_id` and drops its connections. `true` when it was paired.
     pub fn unpair_device(&self, device_id: &str) -> bool {
-        {
-            // A fresh pairing of the same panel is announced again.
-            let mut a = lock(&self.announced);
-            if a.ids.remove(device_id) {
-                Self::persist_announced(&a);
-            }
-        }
         let removed = self
             .with_pairing(|p| p.trust_mut().remove_device(device_id))
             .unwrap_or_else(|e| {
@@ -1146,23 +1139,23 @@ mod tests {
     }
 
     #[test]
-    fn peer_balloon_is_announced_once_per_panel_and_survives_restart() -> DeskResult<()> {
-        let dir = tempfile::tempdir()?;
-        let path = dir.path().join("service.json");
-        let first = hub()?;
-        first.set_announce_store(path.clone());
-        assert!(first.first_connection("panel-a"));
-        assert!(!first.first_connection("panel-a"));
-        assert!(first.first_connection("panel-b"));
-        // A new service run reads the remembered panels back.
-        let second = hub()?;
-        second.set_announce_store(path.clone());
-        assert!(!second.first_connection("panel-a"));
-        // A fresh pairing of the same panel is announced again.
-        second.unpair_device("panel-a");
-        assert!(second.first_connection("panel-a"));
-        let saved: desk_config::ServiceConfig = desk_config::ConfigManager::load_or_default(&path)?;
-        assert_eq!(saved.announced_panels, vec!["panel-a", "panel-b"]);
+    fn peer_balloon_is_announced_once_per_connection_session() -> DeskResult<()> {
+        let h = hub()?;
+        let t0 = std::time::Instant::now();
+        // First link opens the session; extra links and a flap inside it stay silent.
+        assert!(h.session_opened("panel-a", t0));
+        assert!(!h.session_opened("panel-a", t0));
+        h.session_closed("panel-a", t0);
+        h.session_closed("panel-a", t0);
+        let soon = t0 + Duration::from_secs(5);
+        assert!(!h.session_opened("panel-a", soon));
+        // Another panel has its own session.
+        assert!(h.session_opened("panel-b", soon));
+        // Closed and gone past the grace: the next connection is a new session.
+        h.session_closed("panel-a", soon);
+        assert!(!h.session_opened("panel-a", soon + SESSION_GRACE - Duration::from_secs(1)));
+        h.session_closed("panel-a", soon);
+        assert!(h.session_opened("panel-a", soon + SESSION_GRACE * 2));
         Ok(())
     }
 
