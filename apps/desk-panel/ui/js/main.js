@@ -2,7 +2,8 @@
 
 import { S, appWindow, closeModal, go, invoke, refocus, render } from "./core.js";
 import { applyTheme, loadCatalog, loadPreviews, watchSystemTheme } from "./theme.js";
-import { confirmUnpair, doUnpair, loadPcs, refreshResults } from "./list.js";
+import { confirmUnpair, doRename, doUnpair, loadPcs, openRename, refreshResults } from "./list.js";
+import "./ctxmenu.js";
 import { incomingActions, setIncomingEnabled, startIncoming } from "./incoming.js";
 import { startTransfer, transferActions } from "./transfer.js";
 import { onCodeInput, onTargetInput, pair, pickTarget, resetPair, submitPair } from "./pair.js";
@@ -27,6 +28,9 @@ const actions = {
   },
   retry: () => loadPcs(),
   unpair: (el) => confirmUnpair(el.dataset.id),
+  rename: (el) => openRename(el.dataset.id),
+  "rename-do": () => doRename(),
+  "rename-cancel": () => closeModal("rename"),
   "unpair-do": () => doUnpair(),
   "unpair-cancel": () => closeModal("unpair"),
   "pick-target": (el) => pickTarget(el.dataset.address),
@@ -99,6 +103,11 @@ document.addEventListener("mousemove", () => {
 });
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.id === "renameName") {
+    e.preventDefault();
+    doRename();
+    return;
+  }
   if (S.screen !== "viewer") return;
   armHideAll();
   if (e.key === "Escape" && workspace.fs && !focusedViewer()?.control) toggleFullscreen();

@@ -9,9 +9,9 @@ use std::io::Write;
 use std::path::Path;
 
 pub use model::{
-    clamp_idle_minutes, clamp_upload_mb, PairedPc, PanelConfig, RelayConfig, ServiceConfig,
-    WindowState, DEFAULT_IDLE_MINUTES, DEFAULT_MAX_UPLOAD_MB, IDLE_MINUTES_CHOICES,
-    MAX_UPLOAD_MB_CEILING,
+    clamp_idle_minutes, clamp_upload_mb, clean_pc_alias, PairedPc, PanelConfig, RelayConfig,
+    ServiceConfig, WindowState, DEFAULT_IDLE_MINUTES, DEFAULT_MAX_UPLOAD_MB, IDLE_MINUTES_CHOICES,
+    MAX_PC_ALIAS_CHARS, MAX_UPLOAD_MB_CEILING,
 };
 
 /// Writes string content to a file atomically via a temporary swap file.
@@ -181,6 +181,33 @@ mod tests {
         };
         off.sanitize();
         assert_eq!(off.idle_minutes, 0);
+    }
+
+    #[test]
+    fn pc_alias_is_cleaned_and_blank_means_the_real_name() {
+        assert_eq!(clean_pc_alias("  Ofis PC  ").as_deref(), Some("Ofis PC"));
+        assert_eq!(clean_pc_alias("   "), None);
+        assert_eq!(clean_pc_alias("a\u{0}b\n").as_deref(), Some("ab"));
+        assert_eq!(
+            clean_pc_alias(&"x".repeat(100)).map_or(0, |a| a.chars().count()),
+            MAX_PC_ALIAS_CHARS
+        );
+        let mut pc = PairedPc {
+            id: "1".into(),
+            name: "MINIPC".into(),
+            address: None,
+            alias: None,
+        };
+        assert_eq!(pc.display_name(), "MINIPC");
+        pc.alias = Some("Salon".into());
+        assert_eq!(pc.display_name(), "Salon");
+        // An old panel.json without `alias` still loads, and an unset alias is not written back.
+        let old: PairedPc =
+            serde_json::from_str(r#"{"id":"1","name":"MINIPC"}"#).unwrap_or_else(|_| pc.clone());
+        assert_eq!(old.alias, None);
+        assert!(!serde_json::to_string(&old)
+            .unwrap_or_default()
+            .contains("alias"));
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 use crate::backend::{Backend, Candidate, InputEvent, PcInfo, SessionEvent};
 use crate::sessions::{SessionInfo, Sessions};
-use desk_config::{ConfigManager, PairedPc, PanelConfig};
+use desk_config::{clean_pc_alias, ConfigManager, PairedPc, PanelConfig};
 use desk_theme::{ResolvedTheme, ThemeMode};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -166,7 +166,28 @@ pub fn palette_previews() -> Vec<PalettePreview> {
 #[tauri::command]
 pub fn list_pcs(state: State<'_, AppState>) -> Vec<PcInfo> {
     let paired = lock(&state.config).paired_pcs.clone();
-    state.backend.list(&paired)
+    let mut rows = state.backend.list(&paired);
+    for row in &mut rows {
+        // The backend reports real names; the owner's alias (DAPP-114) is applied here once.
+        row.original_name = row.name.clone();
+        if let Some(pc) = paired.iter().find(|p| p.id == row.id) {
+            row.name = pc.display_name().to_string();
+        }
+    }
+    rows
+}
+
+/// Renames a PC in this panel only (saved in `panel.json`); a blank name returns to the real one.
+#[tauri::command]
+pub fn pc_rename(state: State<'_, AppState>, pc_id: String, name: String) -> Result<(), String> {
+    let mut cfg = lock(&state.config);
+    let pc = cfg
+        .paired_pcs
+        .iter_mut()
+        .find(|p| p.id == pc_id)
+        .ok_or_else(|| "unpaired".to_string())?;
+    pc.alias = clean_pc_alias(&name).filter(|a| *a != pc.name);
+    ConfigManager::save(&state.config_path, &*cfg).map_err(|e| e.to_string())
 }
 
 /// PCs that can be paired: mDNS neighbours and online tailnet peers.

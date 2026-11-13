@@ -341,6 +341,7 @@ impl Backend for TransportBackend {
                 PcInfo {
                     id: pc.id.clone(),
                     name: pc.name.clone(),
+                    original_name: String::new(),
                     status,
                     last_seen_min: match probe.and_then(|p| p.seen) {
                         Some(at) => u32::try_from(at.elapsed().as_secs() / 60).unwrap_or(u32::MAX),
@@ -417,6 +418,7 @@ impl Backend for TransportBackend {
             id,
             name,
             address: Some(address),
+            alias: None,
         })
     }
 
