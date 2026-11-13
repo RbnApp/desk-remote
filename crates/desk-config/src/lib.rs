@@ -9,8 +9,9 @@ use std::io::Write;
 use std::path::Path;
 
 pub use model::{
-    clamp_upload_mb, PairedPc, PanelConfig, RelayConfig, ServiceConfig, WindowState,
-    DEFAULT_MAX_UPLOAD_MB, MAX_UPLOAD_MB_CEILING,
+    clamp_idle_minutes, clamp_upload_mb, PairedPc, PanelConfig, RelayConfig, ServiceConfig,
+    WindowState, DEFAULT_IDLE_MINUTES, DEFAULT_MAX_UPLOAD_MB, IDLE_MINUTES_CHOICES,
+    MAX_UPLOAD_MB_CEILING,
 };
 
 /// Writes string content to a file atomically via a temporary swap file.
@@ -160,6 +161,26 @@ mod tests {
         };
         cfg.sanitize();
         assert_eq!(cfg.max_upload_mb, 1024);
+    }
+
+    #[test]
+    fn idle_limit_defaults_to_30_minutes_and_only_known_choices_survive() {
+        assert_eq!(PanelConfig::default().idle_minutes, 30);
+        for choice in [0, 15, 30, 60, 120] {
+            assert_eq!(clamp_idle_minutes(choice), choice);
+        }
+        assert_eq!(clamp_idle_minutes(7), 30);
+        assert_eq!(clamp_idle_minutes(100_000), 30);
+        // An older file without the key keeps working and gets the default.
+        let old: PanelConfig = serde_json::from_str(r#"{"palette":"ink"}"#).unwrap_or_default();
+        assert_eq!(old.idle_minutes, 30);
+        // "Off" is stored as 0 and must stay off.
+        let mut off = PanelConfig {
+            idle_minutes: 0,
+            ..PanelConfig::default()
+        };
+        off.sanitize();
+        assert_eq!(off.idle_minutes, 0);
     }
 
     #[test]

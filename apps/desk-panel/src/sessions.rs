@@ -1,9 +1,11 @@
 //! Registry of the live viewer sessions, keyed by PC id (several PCs can be open at once).
 
 use crate::backend::{InputEvent, ViewerSession};
+use crate::idle::{evaluate, IdleVerdict};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Instant;
 
 /// One row of `viewer_sessions` (used to restore the tab bar).
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -20,6 +22,8 @@ struct Entry {
     /// never block the other commands).
     session: Arc<dyn ViewerSession>,
     active: bool,
+    /// Last input sent to this session (idle auto-close counts from here).
+    last_input: Instant,
 }
 
 /// All open sessions; replacing one PC's session never touches the others.
@@ -40,6 +44,7 @@ impl Sessions {
             Entry {
                 session: Arc::from(session),
                 active: true,
+                last_input: Instant::now(),
             },
         );
         if let Some(old) = old {
@@ -58,8 +63,33 @@ impl Sessions {
     /// Forwards input to the session of `pc_id` only; ignored while it is paused.
     pub fn input(&self, pc_id: &str, event: &InputEvent) {
         if let Some(session) = self.active_session(pc_id) {
+            self.touch(pc_id);
             session.send_input(event);
         }
+    }
+
+    /// Marks `pc_id` as just used (input, file send, "Stay connected"); `false` if not open.
+    pub fn touch(&self, pc_id: &str) -> bool {
+        self.touch_at(pc_id, Instant::now())
+    }
+
+    fn touch_at(&self, pc_id: &str, now: Instant) -> bool {
+        lock(&self.map)
+            .get_mut(pc_id)
+            .map(|e| e.last_input = now)
+            .is_some()
+    }
+
+    /// Idle verdict of one session at `now` for a limit of `idle_minutes`; `None` if not open.
+    pub fn idle_verdict(
+        &self,
+        pc_id: &str,
+        idle_minutes: u32,
+        now: Instant,
+    ) -> Option<IdleVerdict> {
+        lock(&self.map)
+            .get(pc_id)
+            .map(|e| evaluate(idle_minutes, now.saturating_duration_since(e.last_input)))
     }
 
     pub fn request_keyframe(&self, pc_id: &str) {
@@ -159,6 +189,39 @@ mod tests {
 
     fn mv() -> InputEvent {
         InputEvent::MouseMove { x: 1, y: 2 }
+    }
+
+    #[test]
+    fn each_session_is_idle_on_its_own_and_input_resets_only_that_one() {
+        use std::time::Duration;
+        let (log, sessions) = (Arc::new(Log::default()), Sessions::default());
+        sessions.insert("a", fake("a", &log).0);
+        sessions.insert("b", fake("b", &log).0);
+        let later = Instant::now() + Duration::from_secs(29 * 60 + 30);
+        assert!(matches!(
+            sessions.idle_verdict("a", 30, later),
+            Some(IdleVerdict::Warn { .. })
+        ));
+        // Input to "a" (at `later`) makes it quiet; "b" keeps counting.
+        assert!(sessions.touch_at("a", later));
+        assert_eq!(
+            sessions.idle_verdict("a", 30, later),
+            Some(IdleVerdict::Active)
+        );
+        assert!(matches!(
+            sessions.idle_verdict("b", 30, later),
+            Some(IdleVerdict::Warn { .. })
+        ));
+        let much_later = later + Duration::from_secs(60);
+        assert_eq!(
+            sessions.idle_verdict("b", 30, much_later),
+            Some(IdleVerdict::Expired)
+        );
+        assert_eq!(
+            sessions.idle_verdict("a", 0, much_later),
+            Some(IdleVerdict::Active)
+        );
+        assert_eq!(sessions.idle_verdict("missing", 30, later), None);
     }
 
     #[test]

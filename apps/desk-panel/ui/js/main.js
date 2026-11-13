@@ -11,6 +11,7 @@ import {
   connectTailscale,
   copyKeyCommand,
   onFarmKeyInput,
+  onIdleChange,
   disconnectTailscale,
   onSettingChange,
   openKeysPage,
@@ -69,6 +70,8 @@ document.addEventListener("change", async (e) => {
     refocus('input[name="view"]:checked');
   } else if (name === "palette" || name === "mode" || name === "lang") {
     await onSettingChange(name, value);
+  } else if (name === "idle") {
+    await onIdleChange(value);
   } else if (id === "incEnabled") {
     setIncomingEnabled(checked);
   } else if (e.target.dataset.ctl !== undefined) {

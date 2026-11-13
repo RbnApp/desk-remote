@@ -249,6 +249,16 @@
       "title": "Demo controls",
       "drop": "Drop connection"
     },
+    "idle": {
+      "title": "Closed because nothing happened",
+      "body": "The connection to {name} was closed after a long time without any activity. Connect again whenever you like.",
+      "reconnect": "Reconnect"
+    },
+    "idle_warn": {
+      "text": "This connection closes in 1 minute because it is idle.",
+      "keep": "Stay connected",
+      "background": "{name} closes in 1 minute because it is idle."
+    },
     "ended": {
       "title": "{name} ended the session",
       "body": "The person at that PC disconnected you."
@@ -318,6 +328,16 @@
         "copy": "Copy command",
         "copied": "Command copied"
       }
+    },
+    "idle": {
+      "title": "Close idle connections",
+      "hint": "A connection with no mouse, keyboard or file activity closes by itself after this time. You get a warning one minute before. Each PC is counted separately; only watching counts as idle.",
+      "label": "Idle time before a connection closes",
+      "off": "Off",
+      "m15": "15 min",
+      "m30": "30 min",
+      "m60": "1 hour",
+      "m120": "2 hours"
     },
     "saved": "Settings saved"
   },

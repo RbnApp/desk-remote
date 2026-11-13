@@ -218,6 +218,10 @@ table.rows{width:100%;border-collapse:separate;border-spacing:0;background:var(-
 .screen.viewonly canvas{cursor:default}
 .screen.control canvas{cursor:none}
 .screen .rcursor{position:absolute;left:0;top:0;display:none;pointer-events:none;border:0;border-radius:0;max-width:none;max-height:none;background:transparent}
+.idle-banner{position:absolute;top:var(--s3);left:50%;transform:translateX(-50%);z-index:4;display:flex;align-items:center;gap:var(--s3);max-width:calc(100% - 2 * var(--s3));padding:var(--s2) var(--s3);border-radius:var(--r-md);border:1px solid var(--warning);background:var(--warning-bg);color:var(--warning);font-size:var(--fs-sm)}
+.idle-banner[hidden]{display:none}
+.idle-banner .msg-text{display:flex;align-items:center;gap:var(--s2)}
+.idle-banner .count{font-variant-numeric:tabular-nums}
 .overlay{position:absolute;inset:0;display:grid;place-items:center;background:color-mix(in srgb,var(--background) 82%,transparent);backdrop-filter:blur(2px);z-index:3}
 .ov-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--s5);width:min(400px,90%);display:flex;flex-direction:column;align-items:center;text-align:center;gap:var(--s3)}
 .ov-card .ico{width:56px;height:56px;border-radius:50%;display:grid;place-items:center}

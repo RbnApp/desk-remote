@@ -12,6 +12,7 @@ import { loadPcs } from "./list.js";
 const MAX_RETRY = 5;
 const RETRY_DELAY_MS = 2200;
 const HIDE_DELAY_MS = 3000;
+const IDLE_POLL_MS = 1000;
 const LATENCY_GOOD_MS = 80;
 const LATENCY_FAIR_MS = 200;
 
@@ -42,7 +43,7 @@ class Viewer {
   constructor(pc) {
     this.pc = pc;
     this.uid = nextUid++;
-    this.phase = "connecting"; // connecting | live | lost | failed | ended | unsupported
+    this.phase = "connecting"; // connecting | live | lost | failed | ended | idle | unsupported
     this.control = false;
     this.hostViewOnly = false;
     this.screenUnavailable = false;
@@ -58,6 +59,7 @@ class Viewer {
     this.retryTimer = 0;
     this.hideTimer = 0;
     this.chain = Promise.resolve();
+    this.idleWarned = false;
     this.el = this.buildPane();
     this.canvas = this.el.querySelector("canvas");
     this.cursor = new RemoteCursor(this.el.querySelector(".screen"), this.canvas);
@@ -70,6 +72,8 @@ class Viewer {
       () => this.control && !this.hostViewOnly && this.phase === "live" && workspace.focus === this.pc.id,
     );
     this.paint();
+    // Idle auto-close: Rust owns the count (last input per session); this only asks and reacts.
+    this.idleTimer = setInterval(() => this.checkIdle(), IDLE_POLL_MS);
   }
 
   buildPane() {
@@ -78,7 +82,7 @@ class Viewer {
     el.dataset.pc = this.pc.id;
     el.setAttribute("aria-label", this.pc.name);
     el.innerHTML = `<div class="vbar" role="toolbar" aria-label="${esc(this.pc.name)}"></div>
-      <div class="stage"><div class="screen viewonly"><canvas tabindex="0" width="1280" height="720" aria-label="${esc(this.pc.name)}"></canvas></div><div class="overlay-host"></div></div>`;
+      <div class="stage"><div class="screen viewonly"><canvas tabindex="0" width="1280" height="720" aria-label="${esc(this.pc.name)}"></canvas></div><div class="overlay-host"></div><div class="idle-banner" hidden></div></div>`;
     // Capture phase: the pane becomes the focused side before the canvas handles the click.
     el.addEventListener("pointerdown", () => setFocus(this.pc.id), true);
     return el;
@@ -131,6 +135,8 @@ class Viewer {
         return overlayCard("bad", ic("wifi-off"), t("view.lost.title"), t("view.lost.body", { name, n: this.retry, max: MAX_RETRY }), retry + back);
       case "ended":
         return overlayCard("bad", ic("power"), t("view.ended.title", { name }), t("view.ended.body"), back);
+      case "idle":
+        return overlayCard("bad", ic("clock"), t("view.idle.title"), t("view.idle.body", { name }), `<button class="btn primary" data-act="v-retry">${ic("refresh")}${t("view.idle.reconnect")}</button>${back}`);
       case "failed":
         if (this.reason === "denied") return overlayCard("bad", ic("x"), t("view.denied.title", { name }), t("view.denied.body"), retry + back);
         if (this.reason === "no_answer") return overlayCard("bad", ic("clock"), t("view.noanswer.title", { name }), t("view.noanswer.body"), retry + back);
@@ -174,6 +180,57 @@ class Viewer {
         if (!bar.contains(document.activeElement)) bar.classList.add("hide");
       }, HIDE_DELAY_MS);
     }
+  }
+
+  /** Asks Rust for this session's idle verdict: warning banner in the last minute, close at the limit. */
+  async checkIdle() {
+    if (this.phase !== "live") {
+      this.showIdleWarning(null);
+      return;
+    }
+    const token = this.token;
+    const verdict = await invoke("viewer_idle", { pcId: this.pc.id }).catch(() => null);
+    if (!verdict || token !== this.token || this.phase !== "live") return;
+    if (verdict.state === "expired") this.closeIdle();
+    else this.showIdleWarning(verdict.state === "warn" ? verdict.secs_left : null);
+  }
+
+  /** `secsLeft` null hides the banner; a number shows "closes soon" with a countdown. */
+  showIdleWarning(secsLeft) {
+    const banner = this.el.querySelector(".idle-banner");
+    if (secsLeft === null) {
+      banner.hidden = true;
+      this.idleWarned = false;
+      return;
+    }
+    if (!this.idleWarned) {
+      this.idleWarned = true;
+      banner.innerHTML = `<span class="msg-text" role="alert">${ic("clock")}${t("view.idle_warn.text")}</span><b class="count" aria-hidden="true"></b><button class="btn sm primary" data-act="keep-alive">${t("view.idle_warn.keep")}</button>`;
+      banner.hidden = false;
+      if (!visibleIds().includes(this.pc.id)) toast(t("view.idle_warn.background", { name: this.pc.name }));
+    }
+    banner.querySelector(".count").textContent = `${secsLeft} s`;
+  }
+
+  /** "Stay connected": restarts this session's idle count. */
+  keepAlive() {
+    invoke("viewer_keep_alive", { pcId: this.pc.id }).catch(() => {});
+    this.showIdleWarning(null);
+    this.canvas.focus({ preventScroll: true });
+  }
+
+  /** The idle limit is reached: leave this PC (same path as Disconnect) and say why on the tab. */
+  closeIdle() {
+    this.showIdleWarning(null);
+    this.token += 1;
+    clearTimeout(this.retryTimer);
+    this.releaseKeys();
+    this.pipeline?.close();
+    this.pipeline = null;
+    this.phase = "idle";
+    invoke("viewer_disconnect", { pcId: this.pc.id }).catch(() => {});
+    this.paint();
+    this.el.querySelector(".overlay [data-act]")?.focus({ preventScroll: true });
   }
 
   requestKeyframe() {
@@ -347,6 +404,7 @@ class Viewer {
     this.token += 1;
     clearTimeout(this.retryTimer);
     clearTimeout(this.hideTimer);
+    clearInterval(this.idleTimer);
     this.releaseKeys();
     this.resizeObserver.disconnect();
     this.cursor.close();
@@ -492,6 +550,7 @@ export const viewerActions = {
   disconnect: (el) => closeSession(paneViewer(el)?.pc.id),
   fs: () => toggleFullscreen(),
   "v-retry": (el) => paneViewer(el)?.retryNow(),
+  "keep-alive": (el) => paneViewer(el)?.keepAlive(),
   "demo-drop": (el) => invoke("demo_drop").catch(() => {}),
   "demo-toggle-screen": (el) => {
     const v = paneViewer(el);
