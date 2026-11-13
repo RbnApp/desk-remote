@@ -137,7 +137,8 @@ svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-widt
 .meta{color:var(--text-muted);font-size:var(--fs-sm);display:flex;align-items:center;gap:6px;min-height:20px}
 .meta.w{color:var(--warning)}
 .card .act{display:flex;gap:var(--s2);margin-top:var(--s2)}
-.card .act .btn{flex:1}
+.card .act .btn{flex:1;min-width:0}
+.card .act .btn.icon{flex:none}
 table.rows{width:100%;border-collapse:separate;border-spacing:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden}
 .rows th{text-align:left;font-size:var(--fs-xs);font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;padding:var(--s3) var(--s4);background:var(--surface-alt);border-bottom:1px solid var(--border)}
 .rows td{padding:var(--s3) var(--s4);border-bottom:1px solid var(--border);vertical-align:middle}
