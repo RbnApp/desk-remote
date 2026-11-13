@@ -205,3 +205,71 @@ fn stop_running(running: Option<Running>) {
         }
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use desk_crypto::{DeviceIdentity, PairingManager};
+    use std::sync::mpsc::channel;
+    use std::sync::Mutex;
+
+    /// Both tests bind the same per-session pipe name, so they must not overlap.
+    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+    /// Runs the real supervisor loop (current-user mode) for `run_for` with a stand-in helper
+    /// that appends one line to a marker file per start, then runs `tail`. Returns the starts.
+    fn starts_within(tail: &str, run_for: Duration) -> usize {
+        let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|p| p.into_inner());
+        let work = tempfile::tempdir().unwrap();
+        let marker = work.path().join("starts.txt");
+        // A script avoids argument-quoting differences between Rust and cmd.exe.
+        let script = work.path().join("helper.cmd");
+        std::fs::write(
+            &script,
+            format!(
+                "@echo off\r\necho x>>\"{}\"\r\n{tail}\r\n",
+                marker.display()
+            ),
+        )
+        .unwrap();
+        let cfg = SupervisorConfig {
+            mode: LaunchMode::CurrentUser,
+            helper_exe: script,
+            helper_args: Vec::new(),
+        };
+        let hub = Arc::new(Hub::new(
+            DeviceIdentity::generate().unwrap(),
+            PairingManager::new(),
+        ));
+        let (_tx, rx) = channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread = {
+            let stop = Arc::clone(&stop);
+            std::thread::spawn(move || run(&cfg, &hub, &rx, &stop))
+        };
+        std::thread::sleep(run_for);
+        stop.store(true, Ordering::SeqCst);
+        thread.join().unwrap();
+        std::fs::read_to_string(&marker).map_or(0, |t| t.lines().count())
+    }
+
+    #[test]
+    fn a_helper_that_keeps_running_is_not_started_again() {
+        // The "tray closed by the user" case: the helper lives on (only its icon is gone).
+        assert_eq!(
+            starts_within("ping -n 8 127.0.0.1 >nul", Duration::from_secs(4)),
+            1
+        );
+    }
+
+    #[test]
+    fn a_helper_that_exits_unexpectedly_is_restarted_with_backoff() {
+        let starts = starts_within("exit 1", Duration::from_secs(4));
+        assert!(
+            starts >= 2,
+            "crashed helper must be restarted, starts={starts}"
+        );
+        assert!(starts <= 6, "restarts must back off, starts={starts}");
+    }
+}

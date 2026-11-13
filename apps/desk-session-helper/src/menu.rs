@@ -4,7 +4,8 @@
 //! The helper never queries the network: every address shown here comes from the
 //! [`AgentInfo`](desk_ipc::AgentInfo) snapshot the service pushes over IPC. There is
 //! deliberately no "Stop agent" entry: "Close" ends a portable console agent the user started
-//! and otherwise closes only the tray, never the installed service (DAPP-104 M-09).
+//! and otherwise hides only the tray icon, never stopping the installed service nor the helper
+//! (DAPP-104 M-09, DAPP-110).
 
 use crate::state::UiState;
 use crate::ui::{shared, wide};
@@ -323,11 +324,12 @@ fn run(hwnd: HWND, picked: usize, info: Option<&AgentInfo>) {
             enabled: !info.is_some_and(|i| i.view_only),
         }),
         ID_ABOUT => crate::about::show(),
-        // Console agent: stopped directly. Installed service: only this tray closes.
+        // Console agent: stopped directly. Installed service: only the tray icon goes; this helper
+        // keeps capturing and injecting, so the supervisor has nothing to restart (DAPP-110).
         ID_QUIT => {
             if desk_service_core::quit_agent() == desk_service_core::StopOutcome::TrayOnly {
                 if let Some(s) = shared() {
-                    crate::ui::quit(s);
+                    crate::ui::hide_tray(s);
                 }
             }
         }

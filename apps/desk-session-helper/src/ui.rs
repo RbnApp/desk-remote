@@ -34,12 +34,16 @@ const NIN_BALLOONUSERCLICK: u32 = 0x0405;
 const WM_TRAY: u32 = WM_APP + 2;
 const WM_QUIT_UI: u32 = WM_APP + 3;
 const WM_SHOW_CODE: u32 = WM_APP + 4;
+const WM_HIDE_TRAY: u32 = WM_APP + 5;
 const TRAY_CLASS: PCWSTR = w!("DeskRemoteTrayWindow");
 const TRAY_ID: u32 = 1;
 
 static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
 static THEME: OnceLock<Mutex<ResolvedTheme>> = OnceLock::new();
 static WAS_VIEWED: AtomicBool = AtomicBool::new(false);
+/// The user closed the tray: the icon stays gone for this helper's life while capture, input and
+/// the service link keep running (DAPP-110). A new logon starts a new helper with a fresh tray.
+static TRAY_HIDDEN: AtomicBool = AtomicBool::new(false);
 /// File the visible balloon opens in Explorer when clicked (`None` for informational balloons).
 static BALLOON_TARGET: Mutex<Option<std::path::PathBuf>> = Mutex::new(None);
 
@@ -240,6 +244,9 @@ fn tooltip(viewers: usize, view_only: bool) -> String {
 }
 
 fn tray_add(hwnd: HWND) {
+    if TRAY_HIDDEN.load(Ordering::SeqCst) {
+        return;
+    }
     let mut data = tray_data(hwnd, NIF_ICON | NIF_TIP | NIF_MESSAGE);
     fill(&mut data.szTip, &tooltip(0, false));
     // SAFETY: fully initialised structure.
@@ -247,6 +254,9 @@ fn tray_add(hwnd: HWND) {
 }
 
 fn tray_update(hwnd: HWND, viewers: usize, view_only: bool, balloon: Option<&Notice>) {
+    if TRAY_HIDDEN.load(Ordering::SeqCst) {
+        return;
+    }
     let mut flags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
     if balloon.is_some() {
         flags |= NIF_INFO;
@@ -322,6 +332,13 @@ unsafe extern "system" fn tray_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
         }
         WM_SHOW_CODE => {
             crate::code::show();
+            LRESULT(0)
+        }
+        WM_HIDE_TRAY => {
+            // Only the icon goes; the process (screen, input, service link) must keep running,
+            // otherwise the service supervisor would see a dead helper and start it again.
+            TRAY_HIDDEN.store(true, Ordering::SeqCst);
+            tray_remove(hwnd);
             LRESULT(0)
         }
         WM_QUIT_UI => {
@@ -439,6 +456,22 @@ pub fn run(shared: Arc<Shared>, paths: &DeskPaths) -> windows::core::Result<()> 
         }
     }
     Ok(())
+}
+
+/// Removes the tray icon but keeps the helper running (remote screen and input stay available).
+pub fn hide_tray(shared: &Shared) {
+    let hwnd = shared.hwnd();
+    if hwnd != 0 {
+        // SAFETY: posting to a window owned by the UI thread.
+        let _ = unsafe {
+            PostMessageW(
+                Some(HWND(hwnd as *mut _)),
+                WM_HIDE_TRAY,
+                WPARAM(0),
+                LPARAM(0),
+            )
+        };
+    }
 }
 
 /// Asks the UI thread to tear down the tray icon and leave its message loop.
