@@ -29,6 +29,20 @@ pub struct PairedPc {
     pub address: Option<String>,
 }
 
+/// Where the panel window was last left, in physical pixels (DAPP-108).
+///
+/// The rectangle is the normal (not maximized) one, so un-maximizing after a restart returns to it.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WindowState {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    /// The window was maximized when the panel closed.
+    #[serde(default)]
+    pub maximized: bool,
+}
+
 /// Management panel configuration schema.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
@@ -51,6 +65,8 @@ pub struct PanelConfig {
     pub shell_menu: bool,
     /// Largest file this PC sends or accepts, in MB (see [`clamp_upload_mb`]).
     pub max_upload_mb: u32,
+    /// Last window rectangle and maximized flag; `None` until the first close (large centered start).
+    pub window: Option<WindowState>,
     /// PCs paired with this panel.
     pub paired_pcs: Vec<PairedPc>,
 }
@@ -67,6 +83,7 @@ impl Default for PanelConfig {
             list_view: "cards".to_string(),
             shell_menu: true,
             max_upload_mb: DEFAULT_MAX_UPLOAD_MB,
+            window: None,
             paired_pcs: Vec::new(),
         }
     }
