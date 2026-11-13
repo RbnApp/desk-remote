@@ -5,14 +5,16 @@
 //! verified, [`crate::takeover`] stops and disables the official client.
 
 use crate::control::Control;
+use crate::tailnet_run::{ChildSlot, Runner, RESTART_MAX, RESTART_MIN};
 use crate::takeover::{self, ScTailscale, TakeoverStatus};
+use crate::tracker::Backoff;
 use desk_error::{DeskError, DeskResult};
 use desk_paths::{restrict_file_to_admins, restrict_to_admins, DeskPaths};
-use serde::Deserialize;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdout, Stdio};
+use std::process::{Child, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
@@ -20,18 +22,7 @@ use std::thread::JoinHandle;
 pub const EMBEDDED_HELPER_BYTES: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/desk-tailnet-helper.exe"));
 
-/// One-time auth key dropped by the panel / installer; deleted after the first successful use.
-const AUTH_KEY_FILE: &str = "authkey.txt";
 const STATUS_FILE: &str = "tailnet-status.json";
-
-#[derive(Deserialize)]
-struct HelperReport {
-    status: String,
-    #[serde(default)]
-    ips: Vec<String>,
-    #[serde(default)]
-    auth_url: Option<String>,
-}
 
 /// Canonical path where the embedded helper executable is stored.
 pub fn helper_executable_path(paths: &DeskPaths) -> PathBuf {
@@ -98,16 +89,19 @@ fn write_embedded_helper(target: &Path) -> DeskResult<bool> {
     Ok(true)
 }
 
-/// Owns the helper child process; it is killed when the guard drops.
+/// Owns the helper child process and the thread that keeps it alive; stops both on drop.
 pub struct TailnetGuard {
-    child: Child,
+    stop: Arc<AtomicBool>,
+    child: ChildSlot,
     worker: Option<JoinHandle<()>>,
 }
 
 impl TailnetGuard {
-    /// Starts `desk-tailnet-helper listen` from `<data>/system/bin/` (or sibling).
-    /// The hand-over of an official client (if `take_over` is set) runs in the
-    /// background once the helper is verified reachable on the tailnet.
+    /// Starts `desk-tailnet-helper listen` from `<data>/system/bin/` (or sibling) and keeps it
+    /// running: it is restarted with a growing delay whenever it exits. The one-time sign-in is
+    /// done by the user from the tray (`needs_auth` URL); the login stays in the state folder.
+    /// The hand-over of an official client (if `take_over` is set) runs in the background once the
+    /// helper is verified reachable on the tailnet.
     #[must_use]
     pub fn start(
         paths: &DeskPaths,
@@ -129,7 +123,7 @@ impl TailnetGuard {
 
         let state_dir = paths.system_dir().join("tailscale");
         DeskPaths::ensure_dir(&state_dir).ok()?;
-        // The auth key (and node state) must not be readable by ordinary users in ANY mode.
+        // The node state (its login) must not be readable by ordinary users in ANY mode.
         // Portable runs of a non-admin user cannot be locked to Administrators without locking
         // themselves out, so there the folder is limited to the current user instead.
         let restricted = if harden {
@@ -141,91 +135,74 @@ impl TailnetGuard {
             tracing::error!(error = %e, "cannot restrict the tailnet state folder; helper not started");
             return None;
         }
-        let key_file = state_dir.join(AUTH_KEY_FILE);
-        let auth_key = std::fs::read_to_string(&key_file)
-            .ok()
-            .map(|k| k.trim().to_string())
-            .filter(|k| !k.is_empty());
-        let mut cmd = desk_paths::hidden_command(&exe);
-        cmd.arg("listen")
-            .arg("--state-dir")
-            .arg(&state_dir)
-            .arg("--tailnet-port")
-            .arg(port.to_string())
-            .arg("--bridge-addr")
-            .arg(format!("127.0.0.1:{port}"))
-            .stdout(Stdio::piped());
-        // The key travels over the child's stdin, never through the environment or the command
-        // line, where other processes of the same user could read it (DAPP-103 M-06).
-        if auth_key.is_some() {
-            cmd.arg("--auth-key-stdin").stdin(Stdio::piped());
-        } else {
-            cmd.stdin(Stdio::null());
-        }
         let record = paths.takeover_record_path();
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| tracing::warn!(error = %e, "cannot start tailnet helper"))
-            .ok()?;
-        tracing::info!(pid = child.id(), "tailnet helper started");
-        if let (Some(key), Some(mut stdin)) = (&auth_key, child.stdin.take()) {
-            // Dropping the handle closes the pipe, so the helper never waits for more input.
-            if let Err(e) = writeln!(stdin, "{key}") {
-                tracing::warn!(error = %e, "could not hand the auth key to the tailnet helper");
-            }
-        }
-        let stdout = child.stdout.take()?;
+        let stop = Arc::new(AtomicBool::new(false));
+        let child: ChildSlot = Arc::default();
+        let spawn_dir = state_dir.clone();
+        let runner = Runner {
+            spawn: Box::new(move || spawn_helper(&exe, &spawn_dir, port)),
+            take_over: Box::new(move |ips| {
+                let ips = ips.to_vec();
+                let verify = move || desk_transport::helper_online("listening", &ips, port);
+                let status = takeover::take_over(&ScTailscale, take_over, verify, &record);
+                tracing::info!(?status, "official Tailscale hand-over outcome");
+                status
+            }),
+            publish: Box::new(move |state, takeover| write_status(&state_dir, state, takeover)),
+            control,
+            stop: Arc::clone(&stop),
+            child: Arc::clone(&child),
+            backoff: Backoff::new(RESTART_MIN, RESTART_MAX),
+        };
         let worker = std::thread::Builder::new()
             .name("desk-tailnet".to_string())
-            .spawn(move || {
-                let status = supervise(stdout, port, take_over, &record, &control);
-                tracing::info!(?status, "official Tailscale hand-over outcome");
-                if matches!(status, TakeoverStatus::TookOver | TakeoverStatus::NotNeeded) {
-                    // The key is single-use; the node state in `state_dir` keeps the login.
-                    let _ = std::fs::remove_file(&key_file);
-                }
-                if let Ok(json) = serde_json::to_string_pretty(&status) {
-                    let _ = desk_config::write_atomic(&state_dir.join(STATUS_FILE), &json);
-                }
-            })
-            .ok();
-        Some(Self { child, worker })
+            .spawn(move || runner.run())
+            .map_err(|e| tracing::error!(error = %e, "cannot start the tailnet supervisor"))
+            .ok()?;
+        Some(Self {
+            stop,
+            child,
+            worker: Some(worker),
+        })
+    }
+}
+
+/// Starts one helper process; its stdout carries the JSON reports.
+fn spawn_helper(exe: &Path, state_dir: &Path, port: u16) -> Option<Child> {
+    let child = desk_paths::hidden_command(exe)
+        .arg("listen")
+        .arg("--state-dir")
+        .arg(state_dir)
+        .arg("--tailnet-port")
+        .arg(port.to_string())
+        .arg("--bridge-addr")
+        .arg(format!("127.0.0.1:{port}"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|e| tracing::warn!(error = %e, "cannot start tailnet helper"))
+        .ok()?;
+    tracing::info!(pid = child.id(), "tailnet helper started");
+    Some(child)
+}
+
+/// What `tailnet-status.json` holds: the helper's state and the official-client hand-over outcome.
+#[derive(Serialize)]
+struct StatusFile<'a> {
+    /// `connected | needs_login | error | off`.
+    state: &'a str,
+    takeover: &'a TakeoverStatus,
+}
+
+fn write_status(state_dir: &Path, state: &str, takeover: &TakeoverStatus) {
+    if let Ok(json) = serde_json::to_string_pretty(&StatusFile { state, takeover }) {
+        let _ = desk_config::write_atomic(&state_dir.join(STATUS_FILE), &json);
     }
 }
 
 /// Limits `dir` to the current user and SYSTEM (portable, non-service runs).
 fn restrict_to_current_user(dir: &Path) -> DeskResult<()> {
     desk_paths::restrict_to_user(dir, &desk_ipc::current_user_sid()?)
-}
-
-/// Waits for helper reports (needs_auth, listening, etc.) and executes the hand-over once listening.
-fn supervise(
-    stdout: ChildStdout,
-    port: u16,
-    take_over: bool,
-    record: &Path,
-    control: &Control,
-) -> TakeoverStatus {
-    let mut last_status = TakeoverStatus::Unverified;
-    let stream =
-        serde_json::Deserializer::from_reader(BufReader::new(stdout)).into_iter::<HelperReport>();
-
-    for item in stream {
-        let Ok(report) = item else { break };
-        tracing::info!(status = %report.status, ips = ?report.ips, "tailnet helper report");
-        control.set_tailnet_report(&report.status, &report.ips, report.auth_url.as_deref());
-
-        if report.status == "listening" {
-            let ips = report.ips.clone();
-            let verify = move || desk_transport::helper_online("listening", &ips, port);
-            last_status = takeover::take_over(&ScTailscale, take_over, verify, record);
-            if last_status == TakeoverStatus::NeedsAdmin {
-                control.set_takeover_needs_admin(true);
-            }
-            break;
-        }
-    }
-    last_status
 }
 
 /// Restores an official Tailscale client that this agent took over (called on shutdown / uninstall).
@@ -241,8 +218,12 @@ pub fn restore_official(paths: &DeskPaths) -> bool {
 
 impl Drop for TailnetGuard {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        self.stop.store(true, Ordering::SeqCst);
+        let running = self.child.lock().unwrap_or_else(|p| p.into_inner()).take();
+        if let Some(mut child) = running {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
         if let Some(w) = self.worker.take() {
             let _ = w.join();
         }

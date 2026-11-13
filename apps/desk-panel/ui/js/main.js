@@ -9,12 +9,9 @@ import { onCodeInput, onTargetInput, pair, pickTarget, resetPair, submitPair } f
 import {
   cancelTailscaleConnect,
   connectTailscale,
-  copyKeyCommand,
-  onFarmKeyInput,
   onIdleChange,
   disconnectTailscale,
   onSettingChange,
-  openKeysPage,
   saveSettings,
   startSidebarPolling,
 } from "./settings.js";
@@ -39,9 +36,7 @@ const actions = {
   },
   "ts-connect": () => connectTailscale(),
   "ts-cancel": () => cancelTailscaleConnect(),
-  "ts-keys": () => openKeysPage(),
   "ts-disconnect": () => disconnectTailscale(),
-  "ts-copy": () => copyKeyCommand(),
   ...viewerActions,
   ...tabActions,
   ...incomingActions,
@@ -90,8 +85,6 @@ document.addEventListener("input", (e) => {
     onTargetInput(value);
   } else if (id === "pname") {
     pair.name = value;
-  } else if (id === "farmKey") {
-    onFarmKeyInput(value);
   }
 });
 

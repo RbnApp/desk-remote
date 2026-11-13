@@ -7,7 +7,7 @@
 use desk_crypto::DeviceIdentity;
 use desk_ipc::{AgentInfo, TailnetState};
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Address advertised when the listener is bound to loopback only.
 const LOOPBACK_IP: &str = "127.0.0.1";
@@ -27,6 +27,8 @@ pub struct Control {
     port: AtomicU16,
     loopback_only: AtomicBool,
     tailnet: Mutex<TailnetReport>,
+    /// Called (outside the lock) when the tailnet state changes, so the tray learns at once.
+    on_tailnet_change: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -56,9 +58,34 @@ impl Control {
         let state = match status {
             "listening" | "running" if !ips.is_empty() => TailnetState::Connected,
             "needs_auth" => TailnetState::NeedsLogin,
+            "error" => TailnetState::Failed,
             _ => TailnetState::Off,
         };
-        let mut report = lock(&self.tailnet);
+        let changed = {
+            let mut report = lock(&self.tailnet);
+            let changed = report.state != state || report.auth_url.as_deref() != auth_url;
+            Self::store_report(&mut report, state, ips, auth_url);
+            changed
+        };
+        if changed {
+            let hook = lock(&self.on_tailnet_change).clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+    }
+
+    /// Registers what runs when the tailnet state changes (the hub pushes a fresh snapshot).
+    pub fn on_tailnet_change(&self, hook: impl Fn() + Send + Sync + 'static) {
+        *lock(&self.on_tailnet_change) = Some(Arc::new(hook));
+    }
+
+    fn store_report(
+        report: &mut TailnetReport,
+        state: TailnetState,
+        ips: &[String],
+        auth_url: Option<&str>,
+    ) {
         report.state = state;
         report.ips = if state == TailnetState::Connected {
             ips.to_vec()
@@ -150,6 +177,8 @@ mod tests {
             .tailnet_ips
             .is_empty());
         control.set_tailnet_report("error", &ips, None);
+        assert_eq!(state(&control), TailnetState::Failed);
+        control.set_tailnet_report("starting", &ips, None);
         assert_eq!(state(&control), TailnetState::Off);
         Ok(())
     }

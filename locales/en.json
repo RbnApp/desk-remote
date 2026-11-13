@@ -317,17 +317,7 @@
       "disconnect_hint": "Signs only this panel out of your tailnet. Another Tailscale app on this PC is not affected.",
       "failed": "Couldn't start the sign-in. Try again.",
       "peers": "Other devices",
-      "address": "Tailscale address",
-      "key": {
-        "title": "Key for farm PCs",
-        "hint": "Farm PCs without a screen can join your network with a one-time key. Create it in the Tailscale admin page (enable “One-off”), paste it below, and run the command on the farm PC.",
-        "open": "Create a key",
-        "label": "One-time key",
-        "ph": "tskey-auth-…",
-        "command": "Command for the farm PC",
-        "copy": "Copy command",
-        "copied": "Command copied"
-      }
+      "address": "Tailscale address"
     },
     "idle": {
       "title": "Close idle connections",
@@ -367,7 +357,7 @@
     "local_ip": "Local IP: {ip}  (click to copy)",
     "local_ip_none": "Local IP: not available",
     "tailnet_connected": "Tailscale: {ip}  (click to copy)",
-    "tailnet_login": "Tailscale: sign-in required (click)",
+    "tailnet_login": "Sign in to Tailscale (click)",
     "tailnet_off": "Tailscale: off",
     "tailnet_needs_admin": "Administrator permission required for Tailscale takeover",
     "disconnect_all": "Disconnect all viewers now",
@@ -382,7 +372,10 @@
     "peer_connected_body": "{peer} is connected to this PC.",
     "peer_file_title": "A paired panel sent a file",
     "peer_file_body": "{peer} offers: {detail}",
-    "quit": "Close Desk-Remote"
+    "quit": "Close Desk-Remote",
+    "tailnet_error": "Tailscale: stopped, restarting…",
+    "login_title": "Tailscale sign-in needed",
+    "login_body": "Right-click the Desk-Remote tray icon and choose “Sign in to Tailscale”. You only need to do this once."
   },
   "about": {
     "title": "About Desk-Remote",

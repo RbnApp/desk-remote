@@ -317,17 +317,7 @@
       "disconnect_hint": "Yalnız bu panelin tailnet oturumunu kapatır. Bu PC’deki başka bir Tailscale uygulaması etkilenmez.",
       "failed": "Giriş başlatılamadı. Tekrar dene.",
       "peers": "Diğer cihazlar",
-      "address": "Tailscale adresi",
-      "key": {
-        "title": "Farm PC'ler için anahtar",
-        "hint": "Ekranı olmayan farm PC'ler tek kullanımlık anahtarla ağına katılabilir. Anahtarı Tailscale yönetim sayfasında oluştur (“One-off”u aç), aşağıya yapıştır ve komutu farm PC'de çalıştır.",
-        "open": "Anahtar oluştur",
-        "label": "Tek kullanımlık anahtar",
-        "ph": "tskey-auth-…",
-        "command": "Farm PC için komut",
-        "copy": "Komutu kopyala",
-        "copied": "Komut kopyalandı"
-      }
+      "address": "Tailscale adresi"
     },
     "idle": {
       "title": "Boştaki bağlantıları kapat",
@@ -367,7 +357,7 @@
     "local_ip": "Yerel IP: {ip}  (kopyalamak için tıkla)",
     "local_ip_none": "Yerel IP: alınamadı",
     "tailnet_connected": "Tailscale: {ip}  (kopyalamak için tıkla)",
-    "tailnet_login": "Tailscale: giriş gerekli (tıkla)",
+    "tailnet_login": "Tailscale'e giriş yap (tıkla)",
     "tailnet_off": "Tailscale: kapalı",
     "tailnet_needs_admin": "Tailscale devri için yönetici izni gerekli",
     "disconnect_all": "Tüm izleyicileri şimdi ayır",
@@ -382,7 +372,10 @@
     "peer_connected_body": "{peer} bu PC'ye bağlandı.",
     "peer_file_title": "Eşleşmiş bir panel dosya gönderiyor",
     "peer_file_body": "{peer} gönderiyor: {detail}",
-    "quit": "Desk-Remote'u kapat"
+    "quit": "Desk-Remote'u kapat",
+    "tailnet_error": "Tailscale: durdu, yeniden başlatılıyor…",
+    "login_title": "Tailscale girişi gerekli",
+    "login_body": "Desk-Remote tepsi simgesine sağ tıklayıp “Tailscale'e giriş yap”ı seç. Bunu yalnız bir kez yapman yeter."
   },
   "about": {
     "title": "Desk-Remote hakkında",

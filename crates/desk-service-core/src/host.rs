@@ -150,6 +150,13 @@ impl ServiceHost {
         } else {
             None
         };
+        // The tray learns of a sign-in request or a helper crash at once, not on its next click.
+        let weak_hub = Arc::downgrade(&hub);
+        hub.control().on_tailnet_change(move || {
+            if let Some(hub) = weak_hub.upgrade() {
+                hub.push_agent_info();
+            }
+        });
         let tailnet = if svc.tailnet_helper
             && !opts.loopback_only
             && opts.role == crate::role::HostRole::AgentService

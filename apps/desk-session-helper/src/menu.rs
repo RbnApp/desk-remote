@@ -88,6 +88,7 @@ fn tailnet_line(info: Option<&AgentInfo>) -> (String, bool) {
             None => (t("tray.tailnet_off"), false),
         },
         Some(i) if i.tailnet == TailnetState::NeedsLogin => (t("tray.tailnet_login"), true),
+        Some(i) if i.tailnet == TailnetState::Failed => (t("tray.tailnet_error"), false),
         _ => (t("tray.tailnet_off"), false),
     }
 }
