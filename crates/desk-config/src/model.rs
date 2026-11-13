@@ -187,6 +187,9 @@ pub struct ServiceConfig {
     /// Replaces the GitHub "latest release" feed the agent updates from (a URL that returns
     /// the same JSON). For tests against a local release source; `None` in production.
     pub update_feed_url: Option<String>,
+    /// Device ids of paired panels whose first connection the tray already announced
+    /// (DAPP-119). Each panel gets that balloon once; unpairing removes the id.
+    pub announced_panels: Vec<String>,
 }
 
 impl Default for ServiceConfig {
@@ -204,6 +207,7 @@ impl Default for ServiceConfig {
             capture_max_height: 1080,
             max_upload_mb: DEFAULT_MAX_UPLOAD_MB,
             update_feed_url: None,
+            announced_panels: Vec::new(),
         }
     }
 }

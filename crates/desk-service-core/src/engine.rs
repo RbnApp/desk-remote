@@ -2,7 +2,6 @@
 
 use crate::hub::Hub;
 use desk_error::DeskResult;
-use desk_ipc::PeerActivityKind;
 use desk_protocol::Message;
 use desk_transport::{Listener, Session};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -136,7 +135,7 @@ fn serve_viewer(
     }
     let peer_fingerprint = session.peer_fingerprint();
     // The paired panel is let in without a question: leave a trace and tell the PC's user.
-    hub.record_peer_activity(PeerActivityKind::Connected, &shown_name, "");
+    hub.record_peer_connected(&device_id, &shown_name);
     let (id, rx) = hub.register_viewer_full(
         &device_id,
         &peer.to_string(),

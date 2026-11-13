@@ -129,6 +129,7 @@ impl ServiceHost {
             opts.consent_gate,
         ));
 
+        hub.set_announce_store(paths.service_config_path());
         hub.transfers()
             .set_max_upload_mb(desk_config::clamp_upload_mb(svc.max_upload_mb));
         hub.transfers().set_received_dir(paths.received_files_dir());

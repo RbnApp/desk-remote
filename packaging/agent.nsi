@@ -77,6 +77,7 @@ Var Out
     DeleteRegKey HKCU "${UNINSTALL_KEY}"
     DeleteRegKey HKLM "Software\${APP_ID}"
     DeleteRegKey HKCU "Software\${APP_ID}"
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_ID}"
     Delete "$INSTDIR\${EXE_NAME}"
     Delete "$INSTDIR\${EXE_NAME}.bak"
     Delete "$INSTDIR\Uninstall.exe"
@@ -190,6 +191,8 @@ Section "Install"
     ${EndIf}
   ${Else}
     !insertmacro DrRegister HKCU
+    ; No service in this mode: start the agent at every sign-in of this user instead.
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_ID}" '"$INSTDIR\${EXE_NAME}" run --console --portable --data-dir "$INSTDIR\DeskRemote-data"'
   ${EndIf}
   ; The upgrade went through: the backup is no longer needed. The stopped agent may still be
   ; winding down and holding its exe, so try for a few seconds.
