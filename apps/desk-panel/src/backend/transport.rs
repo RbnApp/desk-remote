@@ -534,6 +534,9 @@ fn spawn_reader(
                     Ok(Message::Notice { kind }) => sink(SessionEvent::Notice {
                         kind: notice_code(kind),
                     }),
+                    Ok(Message::Status { online, .. }) => {
+                        sink(SessionEvent::Status { online });
+                    }
                     // Frames already in flight when the tab was paused are not shown.
                     Ok(msg) if !live.active.load(Ordering::Relaxed) => {
                         tracing::trace!(?msg, "dropped while paused");

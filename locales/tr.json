@@ -219,6 +219,10 @@
       "host_viewonly_on": "{name} kontrolü kapattı — yalnız izleme",
       "host_viewonly_off": "Kontrole yeniden izin verildi"
     },
+    "screen_unavailable": {
+      "title": "Ekran şu an kullanılamıyor",
+      "body": "Uzak masaüstü yardımcısı bağlı değil veya ekran yakalanamıyor. Yardımcı başladığında ekran kendiliğinden açılır."
+    },
     "connecting": {
       "title": "{name} bağlanıyor…",
       "body": "Güvenli oturum kuruluyor."

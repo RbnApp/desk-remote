@@ -130,6 +130,8 @@ pub enum SessionEvent {
     },
     /// Round-trip time from `Ping/Pong`.
     Rtt { ms: u32 },
+    /// Availability status of the remote desktop (`Message::Status`).
+    Status { online: bool },
     /// The PC user changed what this viewer may do (`Message::Notice`); `kind` is the
     /// snake_case `NoticeKind` (`disconnected_by_host`, `view_only_on`, `view_only_off`).
     Notice { kind: &'static str },
@@ -194,6 +196,8 @@ pub trait Backend: Send + Sync {
     fn simulate_drop(&self) {}
     /// Test hook: push a host notice (`kind` as in [`SessionEvent::Notice`]) to the live session.
     fn simulate_notice(&self, _kind: &str) {}
+    /// Test hook: push a status update to the live session.
+    fn simulate_status(&self, _online: bool) {}
     /// Test hook: make the next connect fail with this `PairError` code.
     fn simulate_connect_failure(&self, _code: &str) {}
 }

@@ -183,17 +183,28 @@ impl DeskPaths {
         self.user_root.join("trusted_hosts.dat")
     }
 
-    /// Folder received files land in: `<profile>\Downloads\Desk-Remote`. Resolved in the
+    /// Folder received files land in: `<Downloads>\Desk-Remote`. Resolved in the
     /// calling user's context (the session helper or the panel, never the SYSTEM service).
+    /// Uses SHGetKnownFolderPath(FOLDERID_Downloads) on Windows (supports redirected Downloads),
+    /// falling back to USERPROFILE\Downloads.
     /// Custom (test) roots keep it inside their own tree.
     #[must_use]
     pub fn received_files_dir(&self) -> PathBuf {
+        if !self.downloads_for_received {
+            return self.user_root.join("received");
+        }
+        #[cfg(windows)]
+        {
+            if let Some(dir) = downloads_dir() {
+                return dir.join(RECEIVED_SUBDIR);
+            }
+        }
         let profile = std::env::var_os("USERPROFILE").filter(|v| !v.is_empty());
         match profile {
-            Some(profile) if self.downloads_for_received => PathBuf::from(profile)
+            Some(profile) => PathBuf::from(profile)
                 .join("Downloads")
                 .join(RECEIVED_SUBDIR),
-            _ => self.user_root.join("received"),
+            None => self.user_root.join("received"),
         }
     }
 
@@ -285,6 +296,24 @@ impl DeskPaths {
     /// Windows Named Pipe name for an interactive session helper.
     pub fn pipe_session_helper(session_id: u32) -> String {
         format!(r"\\.\pipe\DeskRemote-Helper-{}", session_id)
+    }
+}
+
+#[cfg(windows)]
+fn downloads_dir() -> Option<PathBuf> {
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::UI::Shell::{FOLDERID_Downloads, SHGetKnownFolderPath, KNOWN_FOLDER_FLAG};
+    // SAFETY: calls SHGetKnownFolderPath and frees the allocated buffer with CoTaskMemFree.
+    unsafe {
+        let path_ptr =
+            SHGetKnownFolderPath(&FOLDERID_Downloads, KNOWN_FOLDER_FLAG(0), None).ok()?;
+        let path_str = path_ptr.to_string().ok()?;
+        CoTaskMemFree(Some(path_ptr.as_ptr().cast()));
+        if path_str.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(path_str))
+        }
     }
 }
 

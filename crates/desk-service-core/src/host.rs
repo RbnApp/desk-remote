@@ -297,7 +297,9 @@ pub fn request_console_stop() -> bool {
 /// (console mode only).
 pub fn wait_for_console_stop(max: Option<std::time::Duration>) {
     use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
-    use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+    use windows::Win32::System::Threading::{
+        CreateEventW, OpenEventW, WaitForSingleObject, SYNCHRONIZATION_SYNCHRONIZE,
+    };
     // SAFETY: the handler only touches an atomic flag.
     let _ =
         unsafe { windows::Win32::System::Console::SetConsoleCtrlHandler(Some(console_ctrl), true) };
@@ -311,7 +313,8 @@ pub fn wait_for_console_stop(max: Option<std::time::Duration>) {
             STOP_EVENT,
         )
     }
-    .ok();
+    .ok()
+    .or_else(|| unsafe { OpenEventW(SYNCHRONIZATION_SYNCHRONIZE, false, STOP_EVENT).ok() });
     let started = std::time::Instant::now();
     while !CONSOLE_STOP.load(Ordering::SeqCst) {
         if max.is_some_and(|m| started.elapsed() >= m) {

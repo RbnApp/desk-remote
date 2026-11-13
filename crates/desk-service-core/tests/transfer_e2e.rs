@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 struct Rig {
     host: ServiceHost,
@@ -384,7 +384,10 @@ fn cancelling_in_the_middle_leaves_no_partial_file() {
         seen_partial,
         "a .partial file exists while the transfer runs"
     );
-    std::thread::sleep(Duration::from_millis(600));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !rig.inbox_names().is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
     assert!(rig.inbox_names().is_empty(), "{:?}", rig.inbox_names());
 }
 
