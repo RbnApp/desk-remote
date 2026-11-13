@@ -17,6 +17,22 @@ pub fn clamp_upload_mb(mb: u32) -> u32 {
     }
 }
 
+/// Default idle limit of a remote session, in minutes (owner decision K-581209: 30).
+pub const DEFAULT_IDLE_MINUTES: u32 = 30;
+
+/// The idle limits the settings offer, in minutes; `0` means "off" (never close).
+pub const IDLE_MINUTES_CHOICES: [u32; 5] = [0, 15, 30, 60, 120];
+
+/// Keeps an idle limit on one of [`IDLE_MINUTES_CHOICES`]; anything else means the default.
+#[must_use]
+pub fn clamp_idle_minutes(minutes: u32) -> u32 {
+    if IDLE_MINUTES_CHOICES.contains(&minutes) {
+        minutes
+    } else {
+        DEFAULT_IDLE_MINUTES
+    }
+}
+
 /// A remote PC that completed pairing with this panel.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PairedPc {
@@ -65,6 +81,9 @@ pub struct PanelConfig {
     pub shell_menu: bool,
     /// Largest file this PC sends or accepts, in MB (see [`clamp_upload_mb`]).
     pub max_upload_mb: u32,
+    /// Minutes without input after which a remote session closes by itself; `0` = never
+    /// (see [`clamp_idle_minutes`]).
+    pub idle_minutes: u32,
     /// Last window rectangle and maximized flag; `None` until the first close (large centered start).
     pub window: Option<WindowState>,
     /// PCs paired with this panel.
@@ -83,6 +102,7 @@ impl Default for PanelConfig {
             list_view: "cards".to_string(),
             shell_menu: true,
             max_upload_mb: DEFAULT_MAX_UPLOAD_MB,
+            idle_minutes: DEFAULT_IDLE_MINUTES,
             window: None,
             paired_pcs: Vec::new(),
         }
@@ -105,6 +125,7 @@ impl PanelConfig {
             self.list_view = "cards".to_string();
         }
         self.max_upload_mb = clamp_upload_mb(self.max_upload_mb);
+        self.idle_minutes = clamp_idle_minutes(self.idle_minutes);
     }
 }
 

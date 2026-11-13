@@ -249,6 +249,16 @@
       "title": "Demo kontrolleri",
       "drop": "Bağlantıyı kopar"
     },
+    "idle": {
+      "title": "Boşta kaldığı için bağlantı kapatıldı",
+      "body": "{name} bağlantısı uzun süre hiçbir işlem yapılmadığı için kapatıldı. İstediğin zaman yeniden bağlanabilirsin.",
+      "reconnect": "Yeniden bağlan"
+    },
+    "idle_warn": {
+      "text": "Bağlantı boşta olduğu için 1 dk içinde kapanacak.",
+      "keep": "Bağlı kal",
+      "background": "{name} boşta olduğu için 1 dk içinde kapanacak."
+    },
     "ended": {
       "title": "{name} bağlantıyı kesti",
       "body": "O PC'deki kullanıcı bağlantını sonlandırdı."
@@ -318,6 +328,16 @@
         "copy": "Komutu kopyala",
         "copied": "Komut kopyalandı"
       }
+    },
+    "idle": {
+      "title": "Boştaki bağlantıları kapat",
+      "hint": "Fare, klavye ya da dosya işlemi olmayan bağlantı bu süre sonunda kendiliğinden kapanır. Kapanmadan 1 dk önce uyarı alırsın. Her PC ayrı sayılır; yalnızca izlemek de boşta sayılır.",
+      "label": "Bağlantı kapanmadan önceki boşta süresi",
+      "off": "Kapalı",
+      "m15": "15 dk",
+      "m30": "30 dk",
+      "m60": "1 saat",
+      "m120": "2 saat"
     },
     "saved": "Ayarlar kaydedildi"
   },

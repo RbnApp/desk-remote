@@ -22,6 +22,7 @@ export async function saveSettings(patch) {
     mode: patch.mode ?? null,
     language: patch.language ?? null,
     listView: patch.list_view ?? null,
+    idleMinutes: patch.idle_minutes ?? null,
   });
   if (patch.language !== undefined) await loadCatalog();
   await applyTheme();
@@ -38,6 +39,19 @@ function previewSwatch(preview, mode) {
 function paletteCard(preview) {
   const label = S.lang === "tr" ? preview.label_tr : preview.label_en;
   return `<label><input type="radio" name="palette" value="${preview.id}" ${S.settings.palette === preview.id ? "checked" : ""}><div class="pc"><div class="pn"><span>${esc(label)}</span><span class="tick">${ic("check")}</span></div><div class="sw2">${previewSwatch(preview, "light")}${previewSwatch(preview, "dark")}</div></div></label>`;
+}
+
+const IDLE_CHOICES = [
+  { v: 0, k: "off" },
+  { v: 15, k: "m15" },
+  { v: 30, k: "m30" },
+  { v: 60, k: "m60" },
+  { v: 120, k: "m120" },
+];
+
+function idleSection() {
+  const options = IDLE_CHOICES.map((o) => ({ v: o.v, l: t(`set.idle.${o.k}`) }));
+  return `<section class="sec"><div><h2>${t("set.idle.title")}</h2><p class="hint">${t("set.idle.hint")}</p></div>${Seg("idle", t("set.idle.label"), options, S.settings.idle_minutes)}</section>`;
 }
 
 function tailscaleSection() {
@@ -93,7 +107,7 @@ function renderSettings() {
     <section class="sec"><div><h2>${t("set.mode.title")}</h2><p class="hint">${t("set.mode.hint")}</p></div>${Seg("mode", t("set.mode.title"), modes, S.settings.mode)}</section>
     <section class="sec"><div><h2>${t("set.lang.title")}</h2><p class="hint">${t("set.lang.hint")}</p></div>${Seg("lang", t("set.lang.title"), langs, S.settings.language)}</section>`,
     transfer: transferSettings,
-    connection: tailscaleSection,
+    connection: () => idleSection() + tailscaleSection(),
   };
   const tabs = TABS.map(
     (id) => `<button role="tab" id="stab-${id}" aria-selected="${id === tab}" aria-controls="spanel" tabindex="${id === tab ? 0 : -1}" data-stab="${id}">${t(`set.tabs.${id}`)}</button>`,
@@ -109,6 +123,14 @@ export async function onSettingChange(name, value) {
   await saveSettings({ [field]: value });
   render();
   refocus(`input[name="${name}"]:checked`);
+  toast(t("set.saved"));
+}
+
+/** Saves the idle auto-close time (minutes; 0 = off). */
+export async function onIdleChange(value) {
+  await saveSettings({ idle_minutes: Number(value) });
+  render();
+  refocus('input[name="idle"]:checked');
   toast(t("set.saved"));
 }
 

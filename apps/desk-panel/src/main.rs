@@ -5,6 +5,7 @@
 
 mod backend;
 mod commands;
+mod idle;
 pub mod incoming;
 #[cfg(feature = "demo")]
 mod incoming_demo;
@@ -120,6 +121,8 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
         commands::viewer_request_keyframe,
         commands::viewer_set_active,
         commands::viewer_sessions,
+        commands::viewer_idle,
+        commands::viewer_keep_alive,
         commands::tailscale_status,
         commands::tailscale_connect,
         commands::tailscale_disconnect,
@@ -166,6 +169,8 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
         commands::viewer_request_keyframe,
         commands::viewer_set_active,
         commands::viewer_sessions,
+        commands::viewer_idle,
+        commands::viewer_keep_alive,
         commands::tailscale_status,
         commands::tailscale_connect,
         commands::tailscale_disconnect,

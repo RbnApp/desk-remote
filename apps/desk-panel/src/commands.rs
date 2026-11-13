@@ -91,6 +91,7 @@ pub fn update_settings(
     mode: Option<String>,
     language: Option<String>,
     list_view: Option<String>,
+    idle_minutes: Option<u32>,
 ) -> Result<PanelConfig, String> {
     let mut cfg = lock(&state.config);
     if let Some(v) = palette {
@@ -104,6 +105,9 @@ pub fn update_settings(
     }
     if let Some(v) = list_view {
         cfg.list_view = v;
+    }
+    if let Some(v) = idle_minutes {
+        cfg.idle_minutes = v;
     }
     cfg.sanitize();
     ConfigManager::save(&state.config_path, &*cfg).map_err(|e| e.to_string())?;
@@ -331,6 +335,26 @@ pub fn viewer_set_active(
     }
 }
 
+/// Idle verdict of one session (the viewer polls it): `active`, `warn` with `secs_left`, or
+/// `expired`. The error value is `no_session`.
+#[tauri::command]
+pub fn viewer_idle(
+    state: State<'_, AppState>,
+    pc_id: String,
+) -> Result<crate::idle::IdleVerdict, String> {
+    let minutes = lock(&state.config).idle_minutes;
+    state
+        .sessions
+        .idle_verdict(&pc_id, minutes, std::time::Instant::now())
+        .ok_or_else(|| "no_session".to_string())
+}
+
+/// "Stay connected": restarts the idle count of this session only.
+#[tauri::command]
+pub fn viewer_keep_alive(state: State<'_, AppState>, pc_id: String) {
+    state.sessions.touch(&pc_id);
+}
+
 /// Open sessions, to restore the tab bar after a reload.
 #[tauri::command]
 pub fn viewer_sessions(state: State<'_, AppState>) -> Vec<SessionInfo> {
@@ -462,6 +486,8 @@ pub fn transfer_send(
         (pc, cfg.max_upload_mb)
     };
     let pc = pc.ok_or_else(|| "unpaired".to_string())?;
+    // Sending a file is activity on that PC's session.
+    state.sessions.touch(&device_id);
     Ok(state
         .transfers
         .send(&state.backend, &pc, paths, limit, &emitter(app)))
