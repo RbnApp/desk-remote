@@ -437,4 +437,30 @@ mod tests {
             assert!(shape.rgba.chunks_exact(4).any(|p| p[3] > 0), "not blank");
         }
     }
+
+    /// DAPP-107: the standard arrow must render without a frame - the border pixels of the image
+    /// stay fully transparent, and only the arrow itself is opaque.
+    #[test]
+    fn the_arrow_renders_without_a_box_around_it() {
+        // SAFETY: shared system cursor; never destroyed.
+        let Ok(arrow) = (unsafe { LoadCursorW(None, IDC_ARROW) }) else {
+            return; // no interactive desktop
+        };
+        let Some(shape) = render_shape(1, HICON(arrow.0)) else {
+            return;
+        };
+        let (w, h) = (usize::from(shape.width), usize::from(shape.height));
+        let alpha = |x: usize, y: usize| shape.rgba[(y * w + x) * 4 + 3];
+        for i in 0..w {
+            assert_eq!(alpha(i, h - 1), 0, "bottom row pixel {i}");
+        }
+        for i in 0..h {
+            assert_eq!(alpha(w - 1, i), 0, "right column pixel {i}");
+        }
+        let opaque = shape.rgba.chunks_exact(4).filter(|p| p[3] > 0).count();
+        assert!(
+            opaque < w * h / 2,
+            "a frame/fill covers the image: {opaque}"
+        );
+    }
 }

@@ -213,8 +213,8 @@ table.rows{width:100%;border-collapse:separate;border-spacing:0;background:var(-
 .stage{flex:1;position:relative;display:grid;place-items:center;padding:var(--s4);overflow:hidden;background:var(--surface-alt)}
 .screen{position:relative;width:100%;height:100%;display:grid;place-items:center;overflow:hidden;border-radius:var(--r-md)}
 .screen canvas{max-width:100%;max-height:100%;object-fit:contain;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);outline:0}
-.screen canvas:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
-.screen.control canvas{outline:2px solid var(--accent);outline-offset:2px}
+.screen canvas:not(.rcursor):focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
+.screen.control canvas:not(.rcursor){outline:2px solid var(--accent);outline-offset:2px}
 .screen.viewonly canvas{cursor:default}
 .screen.control canvas{cursor:none}
 .screen .rcursor{position:absolute;left:0;top:0;display:none;pointer-events:none;border:0;border-radius:0;max-width:none;max-height:none;background:transparent}
