@@ -1,6 +1,6 @@
 //! Receiving side: validates an offer and writes the file safely.
 
-use crate::{free_space, is_safe_file_name, unique_path, PARTIAL_SUFFIX};
+use crate::{claim_unique_path, free_space, is_safe_file_name, PARTIAL_SUFFIX};
 use desk_protocol::{FileRejectReason, Message};
 use sha2::{Digest, Sha256};
 use std::fs::File;
@@ -215,8 +215,16 @@ impl Receiver {
                 reply: failure(&id, code),
             };
         }
-        let target = unique_path(&self.dir, &name);
+        // The name is claimed atomically, so a concurrent transfer cannot take it and the
+        // rename below only ever replaces our own empty placeholder (DAPP-105 L1).
+        let Ok(target) = claim_unique_path(&self.dir, &name) else {
+            remove_quietly(&partial);
+            return Handled::Failed {
+                reply: failure(&id, "disk_full"),
+            };
+        };
         if std::fs::rename(&partial, &target).is_err() {
+            remove_quietly(&target);
             remove_quietly(&partial);
             return Handled::Failed {
                 reply: failure(&id, "disk_full"),

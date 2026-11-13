@@ -19,7 +19,7 @@ mod receiver;
 mod sender;
 mod space;
 
-pub use name::{is_safe_file_name, unique_path};
+pub use name::{claim_unique_path, is_safe_file_name};
 pub use receiver::{Handled, Receiver, MB};
 pub use sender::{new_transfer_id, prepare, send_prepared, Prepared, SendError, SendProgress};
 pub use space::free_space;

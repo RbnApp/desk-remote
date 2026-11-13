@@ -34,13 +34,11 @@ pub fn is_safe_file_name(name: &str) -> bool {
     !RESERVED.iter().any(|r| r.eq_ignore_ascii_case(stem))
 }
 
-/// First free path for `name` inside `dir`: `name`, then `stem (1).ext`, `stem (2).ext`, ...
-#[must_use]
-pub fn unique_path(dir: &Path, name: &str) -> PathBuf {
-    let first = dir.join(name);
-    if !first.exists() {
-        return first;
-    }
+/// Atomically claims the first free path for `name` inside `dir`: `name`, then
+/// `stem (1).ext`, `stem (2).ext`, ... The file is created empty (`create_new`), so two
+/// transfers can never pick the same name; the caller then moves its finished file onto the
+/// claimed path, replacing only that empty placeholder.
+pub fn claim_unique_path(dir: &Path, name: &str) -> std::io::Result<PathBuf> {
     let path = Path::new(name);
     let stem = path
         .file_stem()
@@ -49,10 +47,26 @@ pub fn unique_path(dir: &Path, name: &str) -> PathBuf {
         .extension()
         .map(|e| format!(".{}", e.to_string_lossy()))
         .unwrap_or_default();
-    (1u32..)
-        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
-        .find(|candidate| !candidate.exists())
-        .unwrap_or(first)
+    for n in 0u32..10_000 {
+        let candidate = if n == 0 {
+            dir.join(name)
+        } else {
+            dir.join(format!("{stem} ({n}){ext}"))
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(_) => return Ok(candidate),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "no free file name",
+    ))
 }
 
 #[cfg(test)]
@@ -107,22 +121,24 @@ mod tests {
     }
 
     #[test]
-    fn clashes_get_a_numbered_name() -> Result<(), std::io::Error> {
+    fn clashes_get_a_numbered_name_and_nothing_is_overwritten() -> Result<(), std::io::Error> {
         let dir = tempfile::tempdir()?;
-        assert_eq!(unique_path(dir.path(), "a.txt"), dir.path().join("a.txt"));
-        std::fs::write(dir.path().join("a.txt"), b"1")?;
+        let first = claim_unique_path(dir.path(), "a.txt")?;
+        assert_eq!(first, dir.path().join("a.txt"));
+        std::fs::write(&first, b"keep me")?;
+        // The placeholder from the claim already blocks the name: no second claim can race it.
         assert_eq!(
-            unique_path(dir.path(), "a.txt"),
+            claim_unique_path(dir.path(), "a.txt")?,
             dir.path().join("a (1).txt")
         );
-        std::fs::write(dir.path().join("a (1).txt"), b"2")?;
         assert_eq!(
-            unique_path(dir.path(), "a.txt"),
+            claim_unique_path(dir.path(), "a.txt")?,
             dir.path().join("a (2).txt")
         );
+        assert_eq!(std::fs::read(&first)?, b"keep me");
         std::fs::write(dir.path().join("noext"), b"3")?;
         assert_eq!(
-            unique_path(dir.path(), "noext"),
+            claim_unique_path(dir.path(), "noext")?,
             dir.path().join("noext (1)")
         );
         Ok(())

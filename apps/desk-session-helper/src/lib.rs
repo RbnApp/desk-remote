@@ -54,6 +54,19 @@ pub fn show_running_code() -> bool {
     ui::request_show_code()
 }
 
+/// Entry point shared by every binary that can be started as the helper (`desk-service`, and
+/// `desk-panel` for the panel-in-app host): when this process was launched with the `helper`
+/// subcommand it runs the helper and returns its exit code, otherwise `None`. Call it first in
+/// `main`, before any logger or single-instance setup — the helper owns its own.
+#[must_use]
+pub fn run_if_requested() -> Option<std::process::ExitCode> {
+    if std::env::args().nth(1).as_deref() != Some(desk_paths::HELPER_SUBCOMMAND) {
+        return None;
+    }
+    let rest: Vec<String> = std::env::args().skip(2).collect();
+    Some(run(&rest))
+}
+
 /// Runs the helper until its tray UI ends; `args` are the arguments after `helper`.
 pub fn run(args: &[String]) -> std::process::ExitCode {
     let args = parse_args(args);

@@ -952,6 +952,7 @@ dependencies = [
  "desk-paths",
  "desk-protocol",
  "desk-service-core",
+ "desk-session-helper",
  "desk-theme",
  "desk-transfer",
  "desk-transport",

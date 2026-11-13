@@ -195,9 +195,8 @@ fn attach_parent_console() -> bool {
 
 fn main() -> std::process::ExitCode {
     // The helper has its own logger (per-user log directory) and DPI setup.
-    if std::env::args().nth(1).as_deref() == Some(desk_paths::HELPER_SUBCOMMAND) {
-        let rest: Vec<String> = std::env::args().skip(2).collect();
-        return helper::run(&rest);
+    if let Some(code) = helper::run_if_requested() {
+        return code;
     }
     let args = match parse_args() {
         Ok(a) => a,

@@ -65,7 +65,11 @@ impl SessionTracker {
                 }
             }
             SessionEvent::Logoff(id) => {
+                // A logged-off session has no user token any more: keeping it as the target
+                // would send the supervisor into a failing spawn/backoff loop. The next
+                // console connect or logon picks the new target.
                 if self.console == Some(id) {
+                    self.console = None;
                     self.locked = false;
                 }
             }
@@ -151,10 +155,11 @@ mod tests {
         // Another user logs on at the console in session 2.
         assert!(t.apply(SessionEvent::Logon(2)));
         assert_eq!(t.target(), Some(2));
-        // Logging off keeps the target until the console moves; lock state is reset.
+        // Logging off drops the target (its token is gone) and resets the lock state.
         assert!(t.apply(SessionEvent::Lock(2)));
         assert!(t.apply(SessionEvent::Logoff(2)));
         assert!(!t.locked());
+        assert_eq!(t.target(), None);
     }
 
     #[test]

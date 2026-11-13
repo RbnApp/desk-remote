@@ -17,6 +17,16 @@ use desk_capture::ScreenRect;
 use desk_error::DeskResult;
 use std::collections::BTreeSet;
 
+/// Windows wheel units per notch (`WHEEL_DELTA`).
+pub const WHEEL_DELTA: i16 = 120;
+
+/// Converts the wire wheel value (whole notches, positive = up) into `WHEEL_DELTA` units.
+/// `i8::MAX * 120` always fits an `i16`, so this cannot overflow.
+#[must_use]
+pub fn wheel_units(notches: i8) -> i16 {
+    i16::from(notches) * WHEEL_DELTA
+}
+
 /// One low-level event for the backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RawInput {
@@ -206,6 +216,17 @@ mod tests {
         assert_eq!((presses, releases), (1, 1));
         assert!(events.contains(&RawInput::Wheel { delta: 120 }));
         assert!(matches!(events[0], RawInput::MouseMove { .. }));
+        Ok(())
+    }
+
+    #[test]
+    fn wire_notches_become_wheel_delta_units() -> DeskResult<()> {
+        assert_eq!(wheel_units(1), 120);
+        assert_eq!(wheel_units(-3), -360);
+        assert_eq!(wheel_units(i8::MAX), 15_240);
+        let (mut inj, rec) = injector();
+        inj.mouse(0, 0, 0, wheel_units(-1))?;
+        assert!(rec.0.borrow().contains(&RawInput::Wheel { delta: -120 }));
         Ok(())
     }
 

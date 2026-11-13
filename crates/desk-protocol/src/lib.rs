@@ -43,6 +43,9 @@ pub enum InputPayload {
         x: u16,
         y: u16,
         buttons: u8,
+        /// Whole wheel notches since the previous event, positive = away from the user (up).
+        /// The sender converts pixels to notches; the injector multiplies by `WHEEL_DELTA`
+        /// (120) — the single place that unit is applied (`desk_input::wheel_units`).
         wheel: i8,
     },
     /// Keyboard key state change with hardware scancode.

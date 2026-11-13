@@ -599,3 +599,18 @@ fn red_frame_over_the_network_limit_is_refused() -> DeskResult<()> {
     assert!(verdict.contains("exceeds maximum allowed"), "{verdict}");
     Ok(())
 }
+
+#[test]
+fn recv_timeout_restores_the_sessions_own_idle_timeout() -> DeskResult<()> {
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(DeskError::Io)?;
+    let addr = listener.local_addr().map_err(DeskError::Io)?;
+    let mut s = connect(PeerTarget::Lan(addr))?;
+    let (_peer, _) = listener.accept().map_err(DeskError::Io)?;
+    let idle = Duration::from_secs(8);
+    s.set_timeout(Some(idle))?;
+    // Nothing arrives, so the wait ends with `None` ...
+    assert!(s.recv_timeout(Duration::from_millis(30))?.is_none());
+    // ... and the owner's 8 s idle limit is back, not the 30 s default (DAPP-105 M1).
+    assert_eq!(s.stream.read_timeout().map_err(DeskError::Io)?, Some(idle));
+    Ok(())
+}

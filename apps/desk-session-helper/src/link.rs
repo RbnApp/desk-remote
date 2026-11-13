@@ -161,7 +161,7 @@ impl Session {
                 y,
                 buttons,
                 wheel,
-            } => inj.mouse(x, y, buttons, i16::from(wheel)),
+            } => inj.mouse(x, y, buttons, desk_input::wheel_units(wheel)),
             InputPayload::Key { scancode, down } => match u16::try_from(scancode) {
                 Ok(code) => inj.key(code, down),
                 Err(_) => Ok(()),
