@@ -600,6 +600,7 @@
     "auto_hint": "Açıkken panel her açılışında yeni sürümü arar ve kurar. Açık bir uzak bağlantı asla kesilmez.",
     "on": "Açık",
     "off": "Kapalı",
+    "install_failed_hint": "Kurulum başlatılamadı. Windows izin penceresini onaylayıp \"Güncelle\"ye tekrar basın.",
     "failed_hint": "Bu PC'de hiçbir şey değişmedi. İnternet bağlantısını kontrol edip tekrar deneyin.",
     "progress": "İndirme ilerlemesi"
   }

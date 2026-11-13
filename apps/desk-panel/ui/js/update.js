@@ -31,13 +31,13 @@ function progress() {
 
 export function updateSettings() {
   const busy = BUSY.includes(up.state);
-  const offered = ["available", "failed"].includes(up.state) && up.latest;
+  const offered = ["available", "ready", "failed"].includes(up.state) && up.latest;
   const apply = offered
     ? `<button class="btn primary" data-act="upd-apply">${ic("check")}${t("upd.apply")}</button>`
     : up.state === "waiting"
       ? `<button class="btn primary" disabled>${ic("arc", "spin")}${t("upd.apply_waiting")}</button>`
       : "";
-  const failed = up.state === "failed" ? `<div class="msg err" role="alert">${ic("alert")}${t("upd.failed_hint")}</div>` : "";
+  const failed = up.state === "failed" ? `<div class="msg err" role="alert">${ic("alert")}${t(up.error === "install" ? "upd.install_failed_hint" : "upd.failed_hint")}</div>` : "";
   const state = t(`upd.state.${up.state}`);
   const icon = BUSY.includes(up.state) && up.state !== "waiting" ? ic("arc", "spin") : ic(up.state === "idle" || up.state === "ready" ? "dot" : "ring");
   const latest = up.latest ? `<dt>${t("upd.latest")}</dt><dd>${esc(up.latest)}</dd>` : "";

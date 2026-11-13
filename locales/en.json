@@ -600,6 +600,7 @@
     "auto_hint": "When on, the panel looks for a new version every time it opens and installs it. An open remote connection is never interrupted.",
     "on": "On",
     "off": "Off",
+    "install_failed_hint": "The installer could not be started. Accept the Windows permission prompt and press \"Update\" again.",
     "failed_hint": "Nothing was changed on this PC. Check the internet connection and try again.",
     "progress": "Download progress"
   }

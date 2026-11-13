@@ -18,7 +18,6 @@ use crate::sessions::Sessions;
 use desk_update::{Component, NetTransport, UpdateStatus, Updater};
 use desk_version::SemVer;
 use serde::Serialize;
-use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -39,6 +38,8 @@ struct Flags {
     installing: AtomicBool,
     /// A check/download cycle is running.
     busy: AtomicBool,
+    /// The verified installer could not be started (e.g. the elevation prompt was refused).
+    install_failed: AtomicBool,
     /// Unix seconds of the last finished check (0 = none yet).
     last_check: AtomicU64,
 }
@@ -73,6 +74,10 @@ fn info(status: &UpdateStatus, flags: &Flags) -> UpdateInfo {
     };
     if state == "ready" && flags.waiting.load(Ordering::SeqCst) {
         state = "waiting";
+    }
+    if state == "ready" && flags.install_failed.load(Ordering::SeqCst) {
+        state = "failed";
+        error = Some("install".to_string());
     }
     if flags.installing.load(Ordering::SeqCst) {
         state = "installing";
@@ -201,6 +206,7 @@ impl UpdateManager {
             }
             self.flags.waiting.store(false, Ordering::SeqCst);
         }
+        self.flags.install_failed.store(false, Ordering::SeqCst);
         match launch_installer(&path) {
             Ok(()) => {
                 tracing::info!(version = %release.version, "panel update installer started");
@@ -212,6 +218,7 @@ impl UpdateManager {
             }
             Err(e) => {
                 tracing::warn!(error = %e, "cannot start the panel update installer");
+                self.flags.install_failed.store(true, Ordering::SeqCst);
                 self.announce(app);
             }
         }
@@ -219,10 +226,30 @@ impl UpdateManager {
 }
 
 /// Starts the verified Tauri NSIS installer silently; `/UPDATE` makes it start the panel again.
+///
+/// The installer asks for the highest available rights, so a plain `CreateProcess` fails with
+/// "elevation required" on a per-machine install. `Start-Process -Verb RunAs` goes through the
+/// shell, shows the Windows consent prompt and reports a refusal as an error.
 fn launch_installer(installer: &Path) -> std::io::Result<()> {
-    let mut command = desk_paths::hidden_command(installer);
-    command.raw_arg("/S").raw_arg("/UPDATE");
-    command.spawn().map(|_| ())
+    let quoted = installer.to_string_lossy().replace('\'', "''");
+    let script = format!(
+        "Start-Process -FilePath '{quoted}' -ArgumentList '/S','/UPDATE' -Verb RunAs -ErrorAction Stop"
+    );
+    let mut command = desk_paths::hidden_command("powershell.exe");
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        &script,
+    ]);
+    let status = command.status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other("the installer could not be started"))
+    }
 }
 
 #[cfg(test)]
