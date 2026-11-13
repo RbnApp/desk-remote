@@ -18,6 +18,7 @@
 
 mod capturer;
 mod cursor;
+mod desktop;
 mod dpi;
 mod monitor;
 mod pacer;
@@ -26,6 +27,9 @@ mod win;
 pub use capturer::{Capturer, Grab};
 pub use cursor::{
     compose_rgba, normalize_to_monitor, CursorPos, CursorShape, CursorTracker, CursorUpdate,
+};
+pub use desktop::{
+    attach_input_desktop, follows_input_desktop, input_desktop_name, set_follow_input_desktop,
 };
 pub use dpi::ensure_per_monitor_dpi_aware;
 pub use monitor::{list_monitors, luid_to_u64, MonitorInfo, MonitorSelector, ScreenRect};

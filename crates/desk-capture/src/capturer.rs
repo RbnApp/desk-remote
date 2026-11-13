@@ -61,6 +61,10 @@ pub struct Capturer {
 impl Capturer {
     /// Opens the selected monitor. Fails if no monitor matches or duplication is denied.
     pub fn new(selector: MonitorSelector) -> DeskResult<Self> {
+        if crate::desktop::follows_input_desktop() {
+            // Secure-desktop helper: this thread must sit on the desktop being shown.
+            let _ = crate::desktop::attach_input_desktop();
+        }
         let monitors = list_monitors()?;
         let monitor = selector.select(&monitors)?.clone();
         let (device, context) = create_device(&monitor)?;

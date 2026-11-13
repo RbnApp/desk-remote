@@ -12,6 +12,9 @@ pub const APP_ICON_RESOURCE_ID: u16 = 1;
 
 /// Subcommand that turns the agent executable into the per-session helper process.
 pub const HELPER_SUBCOMMAND: &str = "helper";
+
+/// Flag after `helper` that starts the SYSTEM secure-desktop helper instead of the tray helper.
+pub const SECURE_DESKTOP_FLAG: &str = "--secure-desktop";
 /// File name of the panel executable (installed next to the Explorer menu extension).
 pub const PANEL_EXE_NAME: &str = "desk-panel.exe";
 /// Command-line flag with which Explorer entries hand the chosen paths to the panel.
@@ -305,6 +308,12 @@ impl DeskPaths {
     /// Windows Named Pipe name for the central service.
     pub fn pipe_service() -> &'static str {
         r"\\.\pipe\DeskRemote-Service"
+    }
+
+    /// Windows Named Pipe name for the SYSTEM helper that serves a session's secure desktop
+    /// (UAC prompt, lock screen).
+    pub fn pipe_secure_helper(session_id: u32) -> String {
+        format!(r"\\.\pipe\DeskRemote-SecureHelper-{}", session_id)
     }
 
     /// Windows Named Pipe name for an interactive session helper.

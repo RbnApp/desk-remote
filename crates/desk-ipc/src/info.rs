@@ -52,7 +52,8 @@ pub struct AgentInfo {
     pub fingerprint: String,
     /// Viewers currently watching.
     pub viewers: u32,
-    /// The desktop cannot be shown (locked, secure desktop or no display).
+    /// The desktop cannot be shown (no display). Lock screen and UAC prompt are shown by the
+    /// secure-desktop helper and do not count.
     pub unavailable: bool,
     /// Remote input is blocked (watch only).
     pub view_only: bool,

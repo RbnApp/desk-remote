@@ -12,8 +12,8 @@ use std::process::Child;
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::Security::{
-    DuplicateTokenEx, GetTokenInformation, SecurityImpersonation, TokenLinkedToken, TokenPrimary,
-    TOKEN_ALL_ACCESS, TOKEN_LINKED_TOKEN,
+    DuplicateTokenEx, GetTokenInformation, SecurityImpersonation, SetTokenInformation,
+    TokenLinkedToken, TokenPrimary, TokenSessionId, TOKEN_ALL_ACCESS, TOKEN_LINKED_TOKEN,
 };
 use windows::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
 use windows::Win32::System::RemoteDesktop::{
@@ -21,8 +21,9 @@ use windows::Win32::System::RemoteDesktop::{
 };
 use windows::Win32::System::Threading::PROCESS_CREATION_FLAGS;
 use windows::Win32::System::Threading::{
-    CreateProcessAsUserW, GetCurrentProcessId, TerminateProcess, WaitForSingleObject,
-    CREATE_UNICODE_ENVIRONMENT, PROCESS_INFORMATION, STARTUPINFOW,
+    CreateProcessAsUserW, GetCurrentProcess, GetCurrentProcessId, OpenProcessToken,
+    TerminateProcess, WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, PROCESS_INFORMATION,
+    STARTUPINFOW,
 };
 
 /// How the helper process is started.
@@ -147,6 +148,57 @@ pub fn launch_helper(
         }
         LaunchMode::SystemService => launch_in_session(exe, args, session_id),
     }
+}
+
+/// Starts `exe` as SYSTEM inside `session_id`: the service's own token, moved to that session.
+/// Only a SYSTEM process can open the secure desktop (UAC prompt, lock screen) to capture it
+/// and click in it (DAPP-118). It never gets the user's token, tray or files.
+pub fn launch_system_helper(
+    exe: &Path,
+    args: &[String],
+    session_id: u32,
+) -> DeskResult<HelperProcess> {
+    if !exe.exists() {
+        return Err(DeskError::Service(format!(
+            "secure-desktop helper not found at {}",
+            exe.display()
+        )));
+    }
+    let mut own = HANDLE::default();
+    // SAFETY: valid out-parameter; the pseudo handle needs no closing.
+    unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &mut own) }
+        .map_err(|e| service_err("OpenProcessToken", e))?;
+    let mut primary = HANDLE::default();
+    // SAFETY: `own` is a valid token handle owned here.
+    let duplicated = unsafe {
+        DuplicateTokenEx(
+            own,
+            TOKEN_ALL_ACCESS,
+            None,
+            SecurityImpersonation,
+            TokenPrimary,
+            &mut primary,
+        )
+    };
+    // SAFETY: `own` is no longer needed.
+    let _ = unsafe { CloseHandle(own) };
+    duplicated.map_err(|e| service_err("DuplicateTokenEx", e))?;
+    // SAFETY: the buffer is the 4-byte session id the call expects.
+    let moved = unsafe {
+        SetTokenInformation(
+            primary,
+            TokenSessionId,
+            (&raw const session_id).cast(),
+            std::mem::size_of::<u32>() as u32,
+        )
+    };
+    let result = match moved {
+        Ok(()) => spawn_with_token(primary, exe, args, session_id),
+        Err(e) => Err(service_err("SetTokenInformation(session)", e)),
+    };
+    // SAFETY: owned here, not needed after CreateProcessAsUserW.
+    let _ = unsafe { CloseHandle(primary) };
+    result
 }
 
 fn launch_in_session(exe: &Path, args: &[String], session_id: u32) -> DeskResult<HelperProcess> {

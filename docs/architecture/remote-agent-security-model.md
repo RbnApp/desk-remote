@@ -13,7 +13,7 @@ and the agent only serves private networks.
 | Rule | Behaviour | Code |
 | --- | --- | --- |
 | Paired = permanent | A panel paired once with the one-time code reconnects without a code. | `desk-crypto` trust store |
-| Trace on every connection | Log line (target `audit`) plus a tray balloon naming the panel. | `Hub::record_peer_activity`, `engine::serve_viewer`, helper `link.rs` |
+| Trace on every connection | Log line (target `audit`) on every connection; the tray balloon naming the panel only on the panel's first connection (DAPP-119, remembered in `service.json` as `announced_panels`, cleared when the pairing is removed). | `Hub::record_peer_connected`, `engine::serve_viewer`, helper `link.rs` |
 | Trace on every file | Log line with a sanitised name and size plus a tray balloon. Files still need an authenticated pairing. | `transfer::serve` |
 | Remove pairing, PC side | Tray menu "Paired panels" asks for confirmation, forgets the panel, drops its viewers. | helper `menu.rs`, `Hub::unpair_device` |
 | Remove pairing, panel side | "Remove pairing" on a PC tells the PC (`Message::Unpair`) when reachable and always forgets it locally. | panel `pc_unpair`, `Backend::unpair` |
@@ -26,6 +26,30 @@ and the agent only serves private networks.
 
 - "Disconnect all" now also clears the pending consent request and the active session and tells the panel the session ended.
 - "Always allow" is written to the pairing store after the hub state lock is released (documented lock order: state, then pairing).
+
+## Secure desktop: UAC prompt and lock screen (DAPP-118, owner decision 13.11.2026)
+
+There is **no setting** for this: a paired panel always sees and can click the UAC consent prompt and the
+lock screen. "Doing everything remotely is the point of the app; confirming UAC on the PC would defeat it."
+The protection is the one above: only a paired panel on a private network gets a stream at all. Nothing
+was added that widens who may connect.
+
+- The user's tray helper cannot open the secure (Winlogon) desktop. While viewers watch and the user
+  helper reports `DesktopLocked` (or Windows reports the session locked), the supervisor starts a second
+  copy of the agent in the same session as **SYSTEM**: `DeskRemote-Ajan.exe helper --secure-desktop`
+  (`launch::launch_system_helper`; the service's own token moved to the session).
+- That helper has no tray, no windows and no file access. It speaks only picture, cursor and input over its
+  own pipe `\\.\pipe\DeskRemote-SecureHelper-<session>`, whose DACL is SYSTEM only; the service verifies
+  the connecting pid, image path and SID (SYSTEM) before sending it anything.
+- It attaches its capture and input threads to the desktop that receives input
+  (`desk_capture::attach_input_desktop`) and follows it when it changes.
+- The hub hands the viewers over (`Hub::switch_media`): the secure helper gets a clean join, input goes to it
+  alone, and the user helper's stale picture is dropped. When the prompt closes the secure helper is released
+  and the user helper restarts its capture with a fresh config and keyframe. The viewers' link and
+  `Status` stay online throughout; a locked screen no longer reports the PC as unavailable.
+- The supervisor ends the secure helper as soon as it is not needed. In `run --console` (portable, user
+  token) there is no SYSTEM service, so the secure desktop stays out of reach there.
+- Both helpers are the same executable: service and helpers must be the same version.
 
 ## Limits
 

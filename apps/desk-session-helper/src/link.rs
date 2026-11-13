@@ -30,6 +30,8 @@ const LOCK_POLL: Duration = Duration::from_secs(1);
 /// Cursor sampling period while a viewer watches (about 60 Hz), and the idle receive timeout.
 const CURSOR_POLL: Duration = Duration::from_millis(16);
 const IDLE_POLL: Duration = Duration::from_millis(100);
+/// How often the secure-desktop helper checks which desktop receives input.
+const DESKTOP_POLL: Duration = Duration::from_millis(250);
 
 /// Own session id (the pipe name embeds it).
 #[must_use]
@@ -303,6 +305,31 @@ impl Session {
         true
     }
 
+    /// Secure-desktop helper only: moves capture and input to the desktop that receives input
+    /// when it changes (UAC prompt, lock screen, back to the user's desktop).
+    fn follow_desktop(&mut self, attached: &mut Option<String>) {
+        if self.last_lock_poll.elapsed() < DESKTOP_POLL {
+            return;
+        }
+        self.last_lock_poll = Instant::now();
+        let Some(now) = desk_capture::input_desktop_name() else {
+            return;
+        };
+        if attached.as_deref() == Some(now.as_str()) {
+            return;
+        }
+        *attached = desk_capture::attach_input_desktop();
+        tracing::info!(desktop = %now, "capture follows the input desktop");
+        // A running capture belongs to the old desktop: restart it on the new one.
+        let viewers = self.pipeline.viewer_count();
+        for _ in 0..viewers {
+            self.pipeline.viewer_leave();
+        }
+        for _ in 0..viewers {
+            self.join();
+        }
+    }
+
     fn shutdown(&mut self) {
         self.inbox.abort();
         while self.pipeline.viewer_count() > 0 {
@@ -352,6 +379,72 @@ fn serve(conn: IpcConnection, cfg: &ServiceConfig, inbox_dir: &Path, shared: &Sh
     });
     conn.close();
     keep_running
+}
+
+/// The SYSTEM helper's view of the service link: picture, cursor and input only. It owns no UI
+/// and no files; it exists to show and drive the UAC prompt and the lock screen (DAPP-118).
+fn serve_secure(conn: IpcConnection, cfg: &ServiceConfig, inbox_dir: &Path) -> bool {
+    let mut session = Session::new(conn.clone(), cfg, inbox_dir.to_path_buf());
+    let mut attached = desk_capture::attach_input_desktop();
+    let _ = conn.send(&IpcMessage::HelperHello {
+        session_id: own_session_id(),
+        pid: std::process::id(),
+    });
+    let keep_running = loop {
+        let wait = if session.pipeline.viewer_count() > 0 {
+            CURSOR_POLL
+        } else {
+            IDLE_POLL
+        };
+        match conn.recv_timeout(wait) {
+            Ok(Some(IpcMessage::Wire(Message::ViewerJoin))) => session.join(),
+            Ok(Some(IpcMessage::Wire(Message::ViewerLeave))) => session.leave(),
+            Ok(Some(IpcMessage::Wire(Message::RequestKeyframe))) => {
+                session.pipeline.request_keyframe();
+            }
+            Ok(Some(IpcMessage::Wire(Message::InputEvent(payload)))) => session.input(payload),
+            Ok(Some(IpcMessage::Shutdown)) => break false,
+            Ok(Some(_)) | Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(error = %e, "service connection lost");
+                break true;
+            }
+        }
+        session.follow_desktop(&mut attached);
+        session.poll_cursor();
+    };
+    session.shutdown();
+    conn.close();
+    keep_running
+}
+
+/// Secure-desktop helper main: connect to the service, serve, end when the service is gone.
+pub fn run_secure(paths: &DeskPaths, done: &Arc<AtomicBool>) -> DeskResult<()> {
+    // Every capture thread of this process must sit on the desktop being shown.
+    desk_capture::set_follow_input_desktop(true);
+    let cfg: ServiceConfig =
+        ConfigManager::load_or_default(&paths.service_config_path()).unwrap_or_default();
+    let inbox_dir = paths.received_files_dir();
+    let pipe = DeskPaths::pipe_secure_helper(own_session_id());
+    let mut last_connected = Instant::now();
+    while !done.load(Ordering::SeqCst) {
+        match IpcClient::connect(&pipe, Duration::from_secs(2)) {
+            Ok(conn) => {
+                tracing::info!(%pipe, "secure-desktop helper connected to service");
+                if !serve_secure(conn, &cfg, &inbox_dir) {
+                    break;
+                }
+                last_connected = Instant::now();
+            }
+            Err(_) => {
+                if last_connected.elapsed() > ORPHAN_AFTER {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Worker main: connect (retrying), serve, reconnect; ends when told to or orphaned.

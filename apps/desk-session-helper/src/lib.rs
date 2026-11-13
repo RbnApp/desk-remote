@@ -32,6 +32,8 @@ struct HelperArgs {
     data_dir: Option<PathBuf>,
     /// Portable test mode: the tray menu gets a "Quit" entry that stops the whole agent.
     portable: bool,
+    /// SYSTEM helper for the secure desktop (UAC prompt, lock screen): no UI, picture and input only.
+    secure_desktop: bool,
 }
 
 fn parse_args(args: &[String]) -> HelperArgs {
@@ -41,6 +43,7 @@ fn parse_args(args: &[String]) -> HelperArgs {
         match flag.as_str() {
             "--data-dir" => parsed.data_dir = it.next().map(PathBuf::from),
             "--portable" => parsed.portable = true,
+            desk_paths::SECURE_DESKTOP_FLAG => parsed.secure_desktop = true,
             _ => {}
         }
     }
@@ -81,13 +84,28 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
     let _guard = desk_logger::init(&LoggerConfig {
         level: LogLevel::Info,
         log_dir: Some(paths.user_log_dir()),
-        file_name_prefix: "desk-session-helper".to_string(),
+        file_name_prefix: if args.secure_desktop {
+            "desk-secure-helper"
+        } else {
+            "desk-session-helper"
+        }
+        .to_string(),
         console_output: false,
         json_format: false,
     })
     .ok()
     .flatten();
 
+    if args.secure_desktop {
+        let done = Arc::new(AtomicBool::new(false));
+        return match link::run_secure(&paths, &done) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                tracing::error!(error = %e, "secure-desktop helper failed");
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     let shared = Arc::new(Shared::default());
     let done = Arc::new(AtomicBool::new(false));
     let worker = {

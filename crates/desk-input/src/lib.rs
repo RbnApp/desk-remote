@@ -8,7 +8,7 @@
 //! ## Scope Boundaries
 //! - Injection only; wire decoding is `desk-protocol`'s job and arrives as plain values.
 //! - Input into elevated windows or the secure desktop needs a SYSTEM-level helper
-//!   (the session helper); this crate does not elevate.
+//!   (the secure-desktop helper, DAPP-118); this crate does not elevate.
 //! - Windows 10/11 only; the whole crate is empty on other platforms.
 //!
 //! ## Dependencies

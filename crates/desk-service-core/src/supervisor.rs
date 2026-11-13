@@ -1,7 +1,9 @@
 //! Keeps one session helper alive for the console session and feeds its IPC into the hub.
 
 use crate::hub::Hub;
-use crate::launch::{active_console_session, launch_helper, HelperProcess, LaunchMode};
+use crate::launch::{
+    active_console_session, launch_helper, launch_system_helper, HelperProcess, LaunchMode,
+};
 use crate::tracker::{Backoff, SessionEvent, SessionTracker};
 use desk_ipc::{pipe_access_sddl, ExpectedClient, IpcMessage, IpcServer};
 use desk_paths::DeskPaths;
@@ -28,6 +30,12 @@ struct Running {
     reader_stop: Arc<AtomicBool>,
 }
 
+/// SYSTEM helper that shows the UAC prompt and the lock screen while viewers watch.
+struct RunningSecure {
+    process: HelperProcess,
+    reader_stop: Arc<AtomicBool>,
+}
+
 /// Runs until `stop`; `events` carries SCM session notifications.
 pub fn run(
     cfg: &SupervisorConfig,
@@ -38,6 +46,8 @@ pub fn run(
     let mut tracker = SessionTracker::with_console(active_console_session());
     let mut backoff = Backoff::new(Duration::from_millis(500), Duration::from_secs(5));
     let mut running: Option<Running> = None;
+    let mut secure: Option<RunningSecure> = None;
+    let mut next_secure = Instant::now();
     let mut next_attempt = Instant::now();
     hub.set_session_locked(tracker.locked());
 
@@ -81,6 +91,30 @@ pub fn run(
         }
         let _ = changed;
 
+        // The secure desktop (UAC prompt, lock screen) is out of the user helper's reach: while
+        // viewers watch it, a SYSTEM helper of the same session serves them (DAPP-118).
+        if cfg.mode == LaunchMode::SystemService {
+            let session = running.as_ref().map(|r| r.process.session_id());
+            let needed = session.is_some() && hub.secure_desktop_needed();
+            if let Some(sec) = secure.as_mut() {
+                if !needed || session != Some(sec.process.session_id()) || !sec.process.is_running()
+                {
+                    stop_secure(secure.take());
+                    next_secure = Instant::now() + SECURE_RETRY;
+                }
+            }
+            if secure.is_none() && needed && Instant::now() >= next_secure {
+                match session.map(|s| start_secure(cfg, hub, s)) {
+                    Some(Ok(r)) => secure = Some(r),
+                    Some(Err(e)) => {
+                        tracing::warn!(error = %e, "cannot start secure-desktop helper");
+                        next_secure = Instant::now() + SECURE_RETRY;
+                    }
+                    None => {}
+                }
+            }
+        }
+
         if running.is_none() && Instant::now() >= next_attempt {
             if let Some(session) = wanted {
                 match start(cfg, hub, session) {
@@ -94,7 +128,56 @@ pub fn run(
         }
         std::thread::sleep(TICK);
     }
+    stop_secure(secure.take());
     stop_running(running.take());
+}
+
+/// Pause before the secure-desktop helper is started again after it ended or failed.
+const SECURE_RETRY: Duration = Duration::from_secs(1);
+/// Account every SYSTEM process runs as; the secure-desktop pipe belongs to it alone.
+const SYSTEM_SID: &str = "S-1-5-18";
+
+fn start_secure(
+    cfg: &SupervisorConfig,
+    hub: &Arc<Hub>,
+    session: u32,
+) -> desk_error::DeskResult<RunningSecure> {
+    let server = IpcServer::bind(
+        &DeskPaths::pipe_secure_helper(session),
+        &pipe_access_sddl(SYSTEM_SID),
+    )?;
+    let mut args = cfg.helper_args.clone();
+    args.push(desk_paths::SECURE_DESKTOP_FLAG.to_string());
+    let process = launch_system_helper(&cfg.helper_exe, &args, session)?;
+    tracing::info!(
+        pid = process.pid(),
+        session,
+        "secure-desktop helper started"
+    );
+    let reader_stop = Arc::new(AtomicBool::new(false));
+    let (hub, stop) = (Arc::clone(hub), Arc::clone(&reader_stop));
+    let expected = ExpectedHelper {
+        pid: process.pid(),
+        image: cfg.helper_exe.clone(),
+        user_sid: SYSTEM_SID.to_string(),
+    };
+    std::thread::Builder::new()
+        .name("desk-secure-ipc".to_string())
+        .spawn(move || secure_link(&server, &hub, &stop, &expected))
+        .map_err(|e| desk_error::DeskError::Service(format!("ipc thread: {e}")))?;
+    Ok(RunningSecure {
+        process,
+        reader_stop,
+    })
+}
+
+fn stop_secure(secure: Option<RunningSecure>) {
+    if let Some(mut sec) = secure {
+        sec.reader_stop.store(true, Ordering::SeqCst);
+        if sec.process.is_running() {
+            sec.process.terminate();
+        }
+    }
 }
 
 fn start(cfg: &SupervisorConfig, hub: &Arc<Hub>, session: u32) -> desk_error::DeskResult<Running> {
@@ -148,18 +231,17 @@ struct ExpectedHelper {
     user_sid: String,
 }
 
-/// Accepts the helper connection (verifying who connected) and pumps its messages. Nothing is
-/// sent to a client before it passed [`desk_ipc::IpcConnection::verify_client`], so a
-/// look-alike process of the same user never sees the pairing code (DAPP-103 H-04 / M-10).
-fn helper_link(
+/// Waits for the one expected pipe client and verifies who connected. Nothing is sent to a
+/// client before it passed [`desk_ipc::IpcConnection::verify_client`], so a look-alike process
+/// never sees the pairing code (DAPP-103 H-04 / M-10).
+fn accept_verified(
     server: &IpcServer,
-    hub: &Arc<Hub>,
     stop: &Arc<AtomicBool>,
     expected: &ExpectedHelper,
-) {
-    let conn = loop {
+) -> Option<desk_ipc::IpcConnection> {
+    loop {
         if stop.load(Ordering::SeqCst) {
-            return;
+            return None;
         }
         match server.accept(Duration::from_millis(500)) {
             Ok(Some(c)) => {
@@ -169,7 +251,7 @@ fn helper_link(
                     user_sid: &expected.user_sid,
                 });
                 match verdict {
-                    Ok(()) => break c,
+                    Ok(()) => return Some(c),
                     Err(e) => {
                         tracing::warn!(error = %e, expected_pid = expected.pid, "rejected unexpected IPC client");
                         c.close();
@@ -179,11 +261,46 @@ fn helper_link(
             Ok(None) => {}
             Err(e) => {
                 tracing::warn!(error = %e, "ipc accept failed");
-                return;
+                return None;
             }
         }
+    }
+}
+
+/// Pumps the user helper's messages into the hub.
+fn helper_link(
+    server: &IpcServer,
+    hub: &Arc<Hub>,
+    stop: &Arc<AtomicBool>,
+    expected: &ExpectedHelper,
+) {
+    let Some(conn) = accept_verified(server, stop, expected) else {
+        return;
     };
     let token = hub.attach_helper(conn.clone());
+    while !stop.load(Ordering::SeqCst) {
+        match conn.recv_timeout(Duration::from_millis(200)) {
+            Ok(Some(IpcMessage::Shutdown)) => break,
+            Ok(Some(msg)) => hub.on_user_helper_message(msg),
+            Ok(None) => {}
+            Err(_) => break,
+        }
+    }
+    hub.detach_helper(token);
+    conn.close();
+}
+
+/// Pumps the secure-desktop helper's messages (picture, cursor) into the hub.
+fn secure_link(
+    server: &IpcServer,
+    hub: &Arc<Hub>,
+    stop: &Arc<AtomicBool>,
+    expected: &ExpectedHelper,
+) {
+    let Some(conn) = accept_verified(server, stop, expected) else {
+        return;
+    };
+    let token = hub.attach_secure(conn.clone());
     while !stop.load(Ordering::SeqCst) {
         match conn.recv_timeout(Duration::from_millis(200)) {
             Ok(Some(IpcMessage::Shutdown)) => break,
@@ -192,7 +309,7 @@ fn helper_link(
             Err(_) => break,
         }
     }
-    hub.detach_helper(token);
+    hub.detach_secure(token);
     conn.close();
 }
 

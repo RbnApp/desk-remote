@@ -74,6 +74,8 @@ struct Viewer {
 struct State {
     viewers: HashMap<ViewerId, Viewer>,
     helper: Option<(u64, IpcConnection)>,
+    /// SYSTEM helper that captures and drives the secure desktop (UAC prompt, lock screen).
+    secure: Option<(u64, IpcConnection)>,
     last_config: Option<Message>,
     session_locked: bool,
     helper_locked: bool,
@@ -85,7 +87,38 @@ struct State {
 
 impl State {
     fn available(&self) -> bool {
-        self.helper.is_some() && !(self.session_locked || self.helper_locked || self.no_display)
+        // A locked screen or UAC prompt does not make the PC unavailable: the secure-desktop
+        // helper shows it (DAPP-118), so the viewer's link never drops for it.
+        self.helper.is_some() && !self.no_display
+    }
+
+    /// The user's desktop cannot be captured right now (lock screen, UAC prompt).
+    fn secure_wanted(&self) -> bool {
+        self.session_locked || self.helper_locked
+    }
+
+    /// The secure-desktop helper is the one the viewers watch and drive.
+    fn secure_active(&self) -> bool {
+        self.secure.is_some() && self.secure_wanted()
+    }
+
+    /// Link that carries picture and input right now.
+    fn media(&self) -> Option<IpcConnection> {
+        let link = if self.secure_active() {
+            &self.secure
+        } else {
+            &self.helper
+        };
+        link.as_ref().map(|(_, c)| c.clone())
+    }
+
+    /// Every connected helper (viewer counts must stay right on both).
+    fn links(&self) -> Vec<IpcConnection> {
+        self.helper
+            .iter()
+            .chain(self.secure.iter())
+            .map(|(_, c)| c.clone())
+            .collect()
     }
 
     fn status(&self) -> Message {
@@ -465,17 +498,15 @@ impl Hub {
                     kind: NoticeKind::ViewOnlyOn,
                 });
             }
-            (
-                st.helper.as_ref().map(|(_, c)| c.clone()),
-                st.joined_ids(),
-                true,
-            )
+            (st.links(), st.joined_ids(), true)
         };
         if should_start {
             tracing::info!(viewer = id, "viewer joined");
-            if let Some(conn) = helper {
+            for conn in helper {
                 let _ = conn.send(&IpcMessage::Wire(Message::ViewerJoin));
-                let _ = conn.send(&IpcMessage::Viewers { device_ids: list });
+                let _ = conn.send(&IpcMessage::Viewers {
+                    device_ids: list.clone(),
+                });
             }
             self.push_agent_info();
         }
@@ -489,12 +520,14 @@ impl Hub {
                 Some(viewer) if viewer.joined => viewer.joined = false,
                 _ => return,
             }
-            (st.helper.as_ref().map(|(_, c)| c.clone()), st.joined_ids())
+            (st.links(), st.joined_ids())
         };
         tracing::info!(viewer = id, "viewer left");
-        if let Some(conn) = helper {
+        for conn in helper {
             let _ = conn.send(&IpcMessage::Wire(Message::ViewerLeave));
-            let _ = conn.send(&IpcMessage::Viewers { device_ids: list });
+            let _ = conn.send(&IpcMessage::Viewers {
+                device_ids: list.clone(),
+            });
         }
         self.push_agent_info();
     }
@@ -688,7 +721,7 @@ impl Hub {
                         ViewerConsent::Granted(SessionMode::Control) => !self.control.view_only(),
                         _ => false,
                     };
-                    (st.helper.as_ref().map(|(_, c)| c.clone()), input_allowed)
+                    (st.media(), input_allowed)
                 }
                 _ => (None, false),
             }
@@ -866,7 +899,9 @@ impl Hub {
         for _ in 0..joined {
             let _ = conn.send(&IpcMessage::Wire(Message::ViewerJoin));
         }
-        let _ = conn.send(&IpcMessage::Viewers { device_ids: list });
+        let _ = conn.send(&IpcMessage::Viewers {
+            device_ids: list.clone(),
+        });
         tracing::info!(viewers = joined, "session helper attached");
         if changed {
             tracing::info!(available = true, "desktop availability changed");
@@ -904,6 +939,24 @@ impl Hub {
         helper.is_some_and(|conn| conn.send(msg).is_ok())
     }
 
+    /// A message from the user's session helper: while the secure-desktop helper serves the
+    /// viewers, the user helper's picture and cursor (a stale or blank desktop) are dropped.
+    pub fn on_user_helper_message(&self, msg: IpcMessage) {
+        let picture = matches!(
+            &msg,
+            IpcMessage::Wire(
+                Message::VideoConfig { .. }
+                    | Message::VideoFrame { .. }
+                    | Message::CursorShape { .. }
+                    | Message::CursorPos { .. }
+            )
+        );
+        if picture && lock(&self.state).secure_active() {
+            return;
+        }
+        self.on_helper_message(msg);
+    }
+
     /// Handles one message coming from the helper.
     pub fn on_helper_message(&self, msg: IpcMessage) {
         match msg {
@@ -915,10 +968,7 @@ impl Hub {
             IpcMessage::Wire(wire @ Message::VideoFrame { .. }) => {
                 let (dropped, helper) = {
                     let st = lock(&self.state);
-                    (
-                        st.broadcast(&wire),
-                        st.helper.as_ref().map(|(_, c)| c.clone()),
-                    )
+                    (st.broadcast(&wire), st.media())
                 };
                 if dropped {
                     // A viewer lost frames: the next picture must be self-contained.
@@ -961,6 +1011,83 @@ impl Hub {
         }
     }
 
+    /// The secure-desktop helper connected. It serves the viewers whenever the user's desktop
+    /// cannot be captured (UAC prompt, lock screen) and stays idle otherwise.
+    pub fn attach_secure(&self, conn: IpcConnection) -> u64 {
+        let token = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let active = {
+            let mut st = lock(&self.state);
+            st.secure = Some((token, conn));
+            st.secure_active()
+        };
+        tracing::info!(active, "secure-desktop helper attached");
+        if active {
+            self.switch_media(true);
+        }
+        token
+    }
+
+    /// The secure-desktop helper connection ended.
+    pub fn detach_secure(&self, token: u64) {
+        let was_active = {
+            let mut st = lock(&self.state);
+            if !matches!(&st.secure, Some((t, _)) if *t == token) {
+                return;
+            }
+            let was = st.secure_active();
+            st.secure = None;
+            was
+        };
+        tracing::info!("secure-desktop helper detached");
+        if was_active {
+            self.switch_media(false);
+        }
+    }
+
+    /// `true` while viewers watch and the user's desktop cannot be captured: the supervisor
+    /// then keeps a secure-desktop helper running for the session.
+    #[must_use]
+    pub fn secure_desktop_needed(&self) -> bool {
+        let st = lock(&self.state);
+        st.secure_wanted() && !st.joined_ids().is_empty()
+    }
+
+    /// Hands the viewers over between the secure-desktop helper and the user helper. The
+    /// receiving side gets a clean join, so it starts with a fresh config and keyframe.
+    fn switch_media(&self, to_secure: bool) {
+        let (helper, secure, list) = {
+            let st = lock(&self.state);
+            (
+                st.helper.as_ref().map(|(_, c)| c.clone()),
+                st.secure.as_ref().map(|(_, c)| c.clone()),
+                st.joined_ids(),
+            )
+        };
+        tracing::info!(to_secure, viewers = list.len(), "picture source switched");
+        let cycle = |conn: &IpcConnection, leave: bool| {
+            for _ in 0..list.len() {
+                let _ = conn.send(&IpcMessage::Wire(Message::ViewerLeave));
+            }
+            if !leave {
+                for _ in 0..list.len() {
+                    let _ = conn.send(&IpcMessage::Wire(Message::ViewerJoin));
+                }
+            }
+        };
+        if to_secure {
+            if let Some(conn) = &secure {
+                cycle(conn, false);
+            }
+        } else {
+            if let Some(conn) = &secure {
+                cycle(conn, true);
+            }
+            if let Some(conn) = &helper {
+                cycle(conn, false);
+            }
+        }
+    }
+
     /// Lock state reported by the OS session notifications (`WTS_SESSION_LOCK`/`UNLOCK`).
     pub fn set_session_locked(&self, locked: bool) {
         self.update_availability(|st| st.session_locked = locked);
@@ -969,7 +1096,14 @@ impl Hub {
     fn update_availability(&self, change: impl FnOnce(&mut State)) {
         let mut st = lock(&self.state);
         let before = st.available();
+        let was_secure = st.secure_active();
         change(&mut st);
+        let secure_now = st.secure_active();
+        if secure_now != was_secure {
+            drop(st);
+            self.switch_media(secure_now);
+            st = lock(&self.state);
+        }
         if st.available() != before {
             let status = st.status();
             tracing::info!(available = st.available(), "desktop availability changed");
@@ -1040,8 +1174,8 @@ mod tests {
         })
     }
 
-    /// Hub with a joined viewer and a connected helper pipe; returns the helper's end.
-    fn hub_with_helper() -> DeskResult<(Hub, ViewerId, Receiver<Message>, IpcConnection)> {
+    /// A connected pipe pair `(service end, helper end)`.
+    fn pipe_pair() -> DeskResult<(IpcConnection, IpcConnection)> {
         use desk_ipc::{pipe_access_sddl, IpcClient, IpcServer};
         use std::time::Duration;
         static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -1061,6 +1195,12 @@ mod tests {
         let helper_end = client
             .join()
             .map_err(|_| desk_error::DeskError::Ipc("client thread".to_string()))??;
+        Ok((service_end, helper_end))
+    }
+
+    /// Hub with a joined viewer and a connected helper pipe; returns the helper's end.
+    fn hub_with_helper() -> DeskResult<(Hub, ViewerId, Receiver<Message>, IpcConnection)> {
+        let (service_end, helper_end) = pipe_pair()?;
         let hub = hub()?;
         hub.attach_helper(service_end);
         let (id, rx) = hub.register_viewer("A");
@@ -1153,31 +1293,68 @@ mod tests {
         Ok(())
     }
 
+    fn kinds(conn: &IpcConnection) -> Vec<String> {
+        let mut out = Vec::new();
+        while let Ok(Some(m)) = conn.recv_timeout(std::time::Duration::from_millis(100)) {
+            out.push(match m {
+                IpcMessage::Wire(Message::ViewerJoin) => "join".to_string(),
+                IpcMessage::Wire(Message::ViewerLeave) => "leave".to_string(),
+                IpcMessage::Wire(Message::InputEvent(_)) => "input".to_string(),
+                IpcMessage::Wire(Message::RequestKeyframe) => "keyframe".to_string(),
+                _ => continue,
+            });
+        }
+        out
+    }
+
     #[test]
-    fn lock_is_reported_to_viewers_and_cleared_on_unlock() -> DeskResult<()> {
-        let (hub, _id, rx, _helper) = hub_with_helper()?;
+    fn lock_or_uac_keeps_the_viewer_online_and_hands_over_to_the_secure_helper() -> DeskResult<()> {
+        let (hub, id, rx, user_helper) = hub_with_helper()?;
+        let (secure_service_end, secure_helper) = pipe_pair()?;
+        let _ = kinds(&user_helper);
         let _ = rx.try_recv();
-        hub.set_session_locked(true);
-        assert!(matches!(
-            rx.try_recv(),
-            Ok(Message::Status { online: false, .. })
-        ));
-        // The helper-side detection (secure desktop) is a second, independent source.
+        let key = Message::InputEvent(desk_protocol::InputPayload::Key {
+            scancode: 30,
+            down: true,
+        });
+        // The secure helper idles until the desktop is locked.
+        let token = hub.attach_secure(secure_service_end);
+        assert!(kinds(&secure_helper).is_empty());
+        assert!(!hub.secure_desktop_needed());
+
+        // UAC / lock: no "offline" status; the secure helper gets the viewer and the input.
         hub.on_helper_message(IpcMessage::DesktopLocked { locked: true });
+        hub.set_session_locked(true);
+        assert!(hub.secure_desktop_needed());
         assert!(
-            rx.try_recv().is_err(),
-            "no duplicate status while still unavailable"
+            !std::iter::from_fn(|| rx.try_recv().ok())
+                .any(|m| matches!(m, Message::Status { online: false, .. })),
+            "the link must not report the PC as unavailable"
         );
+        assert_eq!(kinds(&secure_helper), ["leave", "join"]);
+        hub.forward_from_viewer(id, key.clone());
+        assert_eq!(kinds(&secure_helper), ["input"]);
+        assert!(
+            kinds(&user_helper).is_empty(),
+            "input must not go to the user helper"
+        );
+        // The user helper's stale picture is not shown meanwhile.
+        hub.on_user_helper_message(IpcMessage::Wire(Message::VideoFrame {
+            ts_us: 1,
+            keyframe: true,
+            data: vec![1],
+        }));
+        assert!(rx.try_recv().is_err());
+
+        // Back to the normal desktop: secure helper released, user helper restarts cleanly.
         hub.set_session_locked(false);
-        assert!(
-            rx.try_recv().is_err(),
-            "still locked according to the helper"
-        );
         hub.on_helper_message(IpcMessage::DesktopLocked { locked: false });
-        assert!(matches!(
-            rx.try_recv(),
-            Ok(Message::Status { online: true, .. })
-        ));
+        assert!(!hub.secure_desktop_needed());
+        assert_eq!(kinds(&secure_helper), ["leave"]);
+        assert_eq!(kinds(&user_helper), ["leave", "join"]);
+        hub.forward_from_viewer(id, key);
+        assert_eq!(kinds(&user_helper), ["input"]);
+        hub.detach_secure(token);
         Ok(())
     }
 

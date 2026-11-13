@@ -9,7 +9,7 @@
 //!   stops the installed Windows service, so a tray click cannot take unattended access down.
 //!
 //! ## Scope Boundaries
-//! - The UAC secure desktop (the consent dialog itself, Ctrl+Alt+Del) stays out of reach.
+//! - The UAC secure desktop is served by the SYSTEM secure-desktop helper (see `supervisor`), not here.
 //! - Pure decision logic is separate from the Win32 calls so it is unit-tested.
 //!
 //! ## Dependencies
