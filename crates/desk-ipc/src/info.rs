@@ -12,6 +12,8 @@ pub enum TailnetState {
     Connected,
     /// The node still needs an interactive sign-in.
     NeedsLogin,
+    /// The helper stopped unexpectedly; the service starts it again.
+    Failed,
     /// Not running (disabled, not installed, failed or not reported yet).
     #[default]
     Off,

@@ -24,6 +24,7 @@ pub mod role;
 mod scm;
 mod supervisor;
 mod tailnet;
+mod tailnet_run;
 pub mod takeover;
 mod tracker;
 mod transfer;

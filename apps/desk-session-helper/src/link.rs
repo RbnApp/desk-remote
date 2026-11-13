@@ -8,7 +8,7 @@ use desk_config::{ConfigManager, ServiceConfig};
 use desk_error::DeskResult;
 use desk_i18n::t;
 use desk_input::{system_injector, SystemInjector};
-use desk_ipc::{IpcClient, IpcConnection, IpcMessage, PeerActivityKind};
+use desk_ipc::{AgentInfo, IpcClient, IpcConnection, IpcMessage, PeerActivityKind, TailnetState};
 use desk_paths::DeskPaths;
 use desk_protocol::{InputPayload, Message};
 use std::path::{Path, PathBuf};
@@ -49,6 +49,22 @@ fn peer_notice(kind: PeerActivityKind, peer: &str, detail: &str) -> Notice {
         body: t(body).replace("{peer}", peer).replace("{detail}", detail),
         open: None,
     }
+}
+
+/// True while the tray has already told the user that Tailscale needs a sign-in.
+static LOGIN_ANNOUNCED: AtomicBool = AtomicBool::new(false);
+
+/// Balloon asking for the one-time Tailscale sign-in; shown once per sign-in need (DAPP-113).
+fn login_notice(info: &AgentInfo) -> Option<Notice> {
+    if info.tailnet != TailnetState::NeedsLogin {
+        LOGIN_ANNOUNCED.store(false, Ordering::SeqCst);
+        return None;
+    }
+    (!LOGIN_ANNOUNCED.swap(true, Ordering::SeqCst)).then(|| Notice {
+        title: t("tray.login_title"),
+        body: t("tray.login_body"),
+        open: None,
+    })
 }
 
 /// Forwards encoded media to the service over the pipe.
@@ -248,7 +264,12 @@ impl Session {
                     expires: Instant::now() + Duration::from_secs(u64::from(ttl_secs)),
                 });
             }),
-            IpcMessage::AgentInfo(info) => shared.update(|ui| ui.info = Some(info)),
+            IpcMessage::AgentInfo(info) => shared.update(|ui| {
+                if let Some(notice) = login_notice(&info) {
+                    ui.pending_notice.get_or_insert(notice);
+                }
+                ui.info = Some(info);
+            }),
             IpcMessage::PeerActivity {
                 kind,
                 peer_name,
@@ -341,4 +362,21 @@ pub fn run(shared: &Arc<Shared>, paths: &DeskPaths, done: &Arc<AtomicBool>) -> D
     }
     done.store(true, Ordering::SeqCst);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sign_in_balloon_shows_once_per_need() {
+        let info = |tailnet| AgentInfo {
+            tailnet,
+            ..AgentInfo::default()
+        };
+        assert!(login_notice(&info(TailnetState::NeedsLogin)).is_some());
+        assert!(login_notice(&info(TailnetState::NeedsLogin)).is_none());
+        assert!(login_notice(&info(TailnetState::Connected)).is_none());
+        assert!(login_notice(&info(TailnetState::NeedsLogin)).is_some());
+    }
 }

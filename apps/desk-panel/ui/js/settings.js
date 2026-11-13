@@ -1,17 +1,15 @@
 // Settings screen: palette, appearance, language and the Connection (Tailscale) section.
 
-import { S, $, esc, ic, invoke, mountApp, openUrl, refocus, render, screens, t, toast } from "./core.js";
+import { S, $, esc, ic, invoke, mountApp, refocus, render, screens, t, toast } from "./core.js";
 import { Seg, Shell } from "./components.js";
 import { transferSettings } from "./transfer.js";
 import { applyTheme, loadCatalog } from "./theme.js";
 
-const KEYS_URL = "https://login.tailscale.com/admin/settings/keys";
 const POLL_MS = 2000;
 const POLL_LIMIT_MS = 300000;
 const SIDEBAR_POLL_MS = 20000;
 
 let pollTimer = null;
-let farmKey = "";
 let tab = "appearance";
 const TABS = ["appearance", "transfer", "connection"];
 
@@ -74,18 +72,7 @@ function tailscaleSection() {
   }
   const failed = S.tsFailed ? `<div class="msg err" role="alert">${ic("alert")}${t("set.tailscale.failed")}</div>` : "";
   return `<section class="sec" id="tsSection"><div><h2>${t("set.tailscale.title")}</h2><p class="hint">${t("set.tailscale.hint")}</p></div>
-    <div class="inline"><span class="lbl">${t("set.tailscale.status")}</span>${badge}</div>${details}${action}${failed}
-    <div class="divider"></div>${farmKeyArea()}</section>`;
-}
-
-const keyCommand = () => `tailscale up --auth-key=${farmKey.trim() || t("set.tailscale.key.ph")}`;
-
-function farmKeyArea() {
-  return `<div class="field"><h2 style="font-size:var(--fs-md)">${t("set.tailscale.key.title")}</h2><p class="hint">${t("set.tailscale.key.hint")}</p>
-    <div><button class="btn" data-act="ts-keys">${ic("link")}${t("set.tailscale.key.open")}</button></div>
-    <label for="farmKey">${t("set.tailscale.key.label")}</label><input id="farmKey" class="input" style="font-family:var(--mono)" type="password" autocomplete="off" spellcheck="false" placeholder="${esc(t("set.tailscale.key.ph"))}" value="${esc(farmKey)}">
-    <span class="lbl">${t("set.tailscale.key.command")}</span><div class="cmd" id="keyCmd">${esc(keyCommand())}</div>
-    <div><button class="btn" data-act="ts-copy">${ic("check")}${t("set.tailscale.key.copy")}</button></div></div>`;
+    <div class="inline"><span class="lbl">${t("set.tailscale.status")}</span>${badge}</div>${details}${action}${failed}</section>`;
 }
 
 function renderSettings() {
@@ -134,23 +121,6 @@ export async function onIdleChange(value) {
   toast(t("set.saved"));
 }
 
-export function onFarmKeyInput(value) {
-  farmKey = value;
-  const el = $("#keyCmd");
-  if (el) el.textContent = keyCommand();
-}
-
-export async function copyKeyCommand() {
-  try {
-    await navigator.clipboard.writeText(keyCommand());
-    toast(t("set.tailscale.key.copied"));
-  } catch {
-    toast(t("set.tailscale.failed"));
-  }
-}
-
-export const openKeysPage = () => openUrl(KEYS_URL);
-
 export async function refreshTailscale() {
   try {
     const status = await invoke("tailscale_status");
@@ -158,7 +128,7 @@ export async function refreshTailscale() {
   } catch {
     S.tailscale = { ...S.tailscale, checked: true, state: "failed" };
   }
-  if (S.screen === "settings" && !$("#farmKey:focus")) render();
+  if (S.screen === "settings") render();
   else if (S.screen === "list" || S.screen === "pair") render();
 }
 
