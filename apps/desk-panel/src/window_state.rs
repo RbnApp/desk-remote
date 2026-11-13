@@ -10,8 +10,13 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::{Manager, PhysicalPosition, PhysicalSize, Window, WindowEvent};
 
-/// Share of the work area the very first window takes (owner: "open bigger").
-const FIRST_START_PERCENT: i32 = 90;
+/// First window height as a share of the work area. The owner's reference is a Chrome Remote
+/// Desktop window (about half the width, 70% of the height of a 34" ultrawide), "a bit bigger".
+const FIRST_START_HEIGHT_PERCENT: i32 = 78;
+/// First window width per height (16:10: a 16:9 remote screen plus the sidebar).
+const FIRST_START_ASPECT: (i32, i32) = (16, 10);
+/// The first window never takes more than this share of the work area's width.
+const FIRST_START_MAX_WIDTH_PERCENT: i32 = 90;
 /// At least this much of the window must lie on a monitor for a record to count as visible.
 const MIN_VISIBLE_W: i32 = 160;
 const MIN_VISIBLE_H: i32 = 80;
@@ -54,10 +59,9 @@ pub fn initial_placement(
     primary: Rect,
 ) -> (Rect, bool) {
     let Some(saved) = saved else {
-        let (w, h) = (
-            primary.w * FIRST_START_PERCENT / 100,
-            primary.h * FIRST_START_PERCENT / 100,
-        );
+        let h = primary.h * FIRST_START_HEIGHT_PERCENT / 100;
+        let w = (h * FIRST_START_ASPECT.0 / FIRST_START_ASPECT.1)
+            .min(primary.w * FIRST_START_MAX_WIDTH_PERCENT / 100);
         return (centered(primary, w, h), false);
     };
     let rect = Rect {
@@ -223,11 +227,31 @@ mod tests {
     }
 
     #[test]
-    fn first_start_is_ninety_percent_and_centered() {
+    fn first_start_is_a_bit_bigger_than_the_reference_and_centered() {
         let (r, max) = initial_placement(None, &[SCREEN], SCREEN);
-        assert_eq!((r.w, r.h), (1728, 936));
-        assert_eq!((r.x, r.y), (96, 52));
+        assert_eq!((r.w, r.h), (1297, 811));
+        assert_eq!((r.x, r.y), (311, 114));
         assert!(!max);
+    }
+
+    #[test]
+    fn first_start_on_an_ultrawide_follows_the_height_and_a_narrow_screen_caps_the_width() {
+        let wide = Rect {
+            x: 0,
+            y: 0,
+            w: 3440,
+            h: 1392,
+        };
+        let (r, _) = initial_placement(None, &[wide], wide);
+        assert_eq!((r.w, r.h), (1736, 1085));
+        let narrow = Rect {
+            x: 0,
+            y: 0,
+            w: 1280,
+            h: 1024,
+        };
+        let (r, _) = initial_placement(None, &[narrow], narrow);
+        assert_eq!((r.w, r.h), (1152, 798));
     }
 
     #[test]
