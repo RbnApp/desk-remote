@@ -78,6 +78,11 @@
       "action": "Action"
     },
     "connect": "Connect",
+    "unpair": "Remove pairing",
+    "unpair_title": "Remove pairing?",
+    "unpair_body": "{name} will be forgotten here and on that PC. To connect again you need a new pairing code.",
+    "unpair_done": "Pairing removed",
+    "unpair_cancel": "Cancel",
     "connecting": "Connecting…",
     "unavailable": "Offline",
     "unavailable_hint": "Can't connect to an offline PC",
@@ -348,6 +353,15 @@
     "disconnect_all": "Disconnect all viewers now",
     "view_only": "Block remote control (watch only)",
     "about": "About…",
+    "paired": "Paired panels",
+    "paired_none": "No paired panels",
+    "paired_remove_title": "Remove pairing",
+    "paired_remove_body": "Remove the pairing of {name}? It can no longer connect to this PC until it is paired again with a new code.",
+    "paired_unnamed": "Unnamed panel ({id})",
+    "peer_connected_title": "A paired panel connected",
+    "peer_connected_body": "{peer} is connected to this PC.",
+    "peer_file_title": "A paired panel sent a file",
+    "peer_file_body": "{peer} offers: {detail}",
     "quit": "Close Desk-Remote"
   },
   "about": {

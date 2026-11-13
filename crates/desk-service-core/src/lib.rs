@@ -31,7 +31,7 @@ mod transfer;
 pub use control::Control;
 pub use elevate::{
     is_elevated, quit_agent, relaunch_elevated, runas, stop_agent_with, Runas, RunasRequest,
-    StopOutcome, STOP_ARG,
+    StopOutcome,
 };
 pub use host::{
     console_agent_running, request_console_stop, wait_for_console_stop, HostOptions, ServiceHost,

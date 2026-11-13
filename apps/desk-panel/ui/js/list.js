@@ -1,9 +1,42 @@
 // PC list screen: cards or rows, status filter, search, empty/error/loading states.
 
-import { S, $, esc, ic, invoke, mountApp, render, screens, t } from "./core.js";
+import { S, $, closeModal, esc, ic, invoke, mountApp, openModal, render, screens, t, toast } from "./core.js";
 import { PcCard, PcRow, Seg, Shell, StateBlock } from "./components.js";
 
 const FILTERS = ["all", "online", "offline", "connecting", "warning"];
+
+/** Asks, then removes the pairing at both ends (the PC is told only when reachable). */
+export function confirmUnpair(id) {
+  const pc = S.pcs.find((p) => p.id === id);
+  if (!pc) return;
+  openModal({
+    key: "unpair",
+    role: "alertdialog",
+    icon: "alert",
+    title: esc(t("list.unpair_title")),
+    body: `<p>${esc(t("list.unpair_body", { name: pc.name }))}</p>`,
+    focus: '[data-act="unpair-cancel"]',
+    buttons: [
+      { act: "unpair-cancel", label: t("list.unpair_cancel") },
+      { act: "unpair-do", label: t("list.unpair"), cls: "primary", id: "unpairDo" },
+    ],
+  });
+  S.unpairId = id;
+}
+
+export async function doUnpair() {
+  const id = S.unpairId;
+  closeModal("unpair");
+  if (!id) return;
+  try {
+    await invoke("pc_unpair", { pcId: id });
+    toast(t("list.unpair_done"));
+  } catch {
+    toast(t("error.unknown"));
+  }
+  S.unpairId = null;
+  await loadPcs();
+}
 
 export async function loadPcs() {
   S.listState = "loading";

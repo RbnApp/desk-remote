@@ -420,6 +420,24 @@ impl Backend for TransportBackend {
         })
     }
 
+    fn unpair(&self, pc: &PairedPc) {
+        // Best effort: an offline PC cannot be told, the local side is removed regardless.
+        match self.inner.open(pc, SESSION_CONNECT) {
+            Ok(mut session) => {
+                if let Err(e) = session.send(&Message::Unpair) {
+                    tracing::warn!(error = %e, "the PC could not be told to remove the pairing");
+                }
+            }
+            Err(e) => tracing::info!(error = ?e, "PC unreachable, pairing removed locally only"),
+        }
+        if let Some(trust) = lock(&self.inner.trust).as_mut() {
+            if let Err(e) = trust.remove_device(&pc.id) {
+                tracing::warn!(error = %e, "cannot persist the removed pairing");
+            }
+        }
+        lock(&self.inner.state).probes.remove(&pc.id);
+    }
+
     fn open_session(&self, pc: &PairedPc) -> Result<Session, PairError> {
         self.inner.open(pc, SESSION_CONNECT)
     }

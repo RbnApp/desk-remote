@@ -36,8 +36,26 @@ pub enum IpcMessage {
         transfer_id: String,
         peer_name: String,
     },
+    /// Service -> helper: a paired panel connected or offered a file (tray balloon, DAPP-104).
+    PeerActivity {
+        kind: PeerActivityKind,
+        peer_name: String,
+        /// File name and size for [`PeerActivityKind::FileOffered`]; empty otherwise.
+        detail: String,
+    },
+    /// Helper -> service: the tray user removed this panel's pairing.
+    UnpairRequest { device_id: String },
     /// Service -> helper: exit cleanly.
     Shutdown,
+}
+
+/// What a [`IpcMessage::PeerActivity`] reports.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PeerActivityKind {
+    /// A paired panel opened a viewer session.
+    Connected,
+    /// A paired panel proposed a file.
+    FileOffered,
 }
 
 impl IpcMessage {
@@ -58,6 +76,8 @@ impl IpcMessage {
             Self::DisconnectAllRequest => "DisconnectAllRequest",
             Self::SetViewOnly { .. } => "SetViewOnly",
             Self::FileIncoming { .. } => "FileIncoming",
+            Self::PeerActivity { .. } => "PeerActivity",
+            Self::UnpairRequest { .. } => "UnpairRequest",
             Self::Shutdown => "Shutdown",
         }
     }
@@ -66,7 +86,7 @@ impl IpcMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::info::TailnetState;
+    use crate::info::{PairedPeerInfo, TailnetState};
     use desk_error::DeskResult;
     use desk_protocol::FrameCodec;
 
@@ -104,7 +124,19 @@ mod tests {
                 view_only: true,
                 tailnet_auth_url: None,
                 takeover_needs_admin: false,
+                paired: vec![PairedPeerInfo {
+                    device_id: "desk-aaaa".to_string(),
+                    name: "Laptop".to_string(),
+                }],
             }),
+            IpcMessage::PeerActivity {
+                kind: PeerActivityKind::FileOffered,
+                peer_name: "Laptop".to_string(),
+                detail: "a.txt (3 B)".to_string(),
+            },
+            IpcMessage::UnpairRequest {
+                device_id: "desk-aaaa".to_string(),
+            },
             IpcMessage::FileIncoming {
                 transfer_id: "t1".to_string(),
                 peer_name: "Laptop".to_string(),

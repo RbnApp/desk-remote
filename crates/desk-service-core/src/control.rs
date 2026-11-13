@@ -81,6 +81,7 @@ impl Control {
         identity: &DeviceIdentity,
         viewers: usize,
         unavailable: bool,
+        paired: Vec<desk_ipc::PairedPeerInfo>,
     ) -> AgentInfo {
         let loopback = self.loopback_only.load(Ordering::SeqCst);
         let report = lock(&self.tailnet);
@@ -101,6 +102,7 @@ impl Control {
             viewers: u32::try_from(viewers).unwrap_or(u32::MAX),
             unavailable,
             view_only: self.view_only(),
+            paired,
         }
     }
 }
@@ -124,21 +126,29 @@ mod tests {
         let control = Control::default();
         let identity = DeviceIdentity::generate()?;
         let ips = vec!["100.64.0.7".to_string()];
-        let state = |c: &Control| c.snapshot(&identity, 0, false).tailnet;
+        let state = |c: &Control| c.snapshot(&identity, 0, false, Vec::new()).tailnet;
         assert_eq!(state(&control), TailnetState::Off, "nothing reported yet");
         control.set_tailnet_report("listening", &ips, None);
         assert_eq!(state(&control), TailnetState::Connected);
-        assert_eq!(control.snapshot(&identity, 0, false).tailnet_ips, ips);
+        assert_eq!(
+            control
+                .snapshot(&identity, 0, false, Vec::new())
+                .tailnet_ips,
+            ips
+        );
         control.set_tailnet_report("needs_auth", &[], Some("https://login.example.com"));
         assert_eq!(state(&control), TailnetState::NeedsLogin);
         assert_eq!(
             control
-                .snapshot(&identity, 0, false)
+                .snapshot(&identity, 0, false, Vec::new())
                 .tailnet_auth_url
                 .as_deref(),
             Some("https://login.example.com")
         );
-        assert!(control.snapshot(&identity, 0, false).tailnet_ips.is_empty());
+        assert!(control
+            .snapshot(&identity, 0, false, Vec::new())
+            .tailnet_ips
+            .is_empty());
         control.set_tailnet_report("error", &ips, None);
         assert_eq!(state(&control), TailnetState::Off);
         Ok(())
@@ -148,7 +158,7 @@ mod tests {
     fn loopback_mode_advertises_loopback_with_the_bound_port() -> DeskResult<()> {
         let control = Control::default();
         control.configure(51234, true);
-        let info = control.snapshot(&DeviceIdentity::generate()?, 3, true);
+        let info = control.snapshot(&DeviceIdentity::generate()?, 3, true, Vec::new());
         assert_eq!(info.local_ip.as_deref(), Some("127.0.0.1"));
         assert_eq!(
             (info.port, info.viewers, info.unavailable),

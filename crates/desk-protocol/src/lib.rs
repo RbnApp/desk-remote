@@ -138,6 +138,9 @@ pub enum Message {
         shape_id: u32,
         visible: bool,
     },
+    /// Panel -> agent: "remove my pairing" — the agent forgets the sending panel's device
+    /// (DAPP-104 M-03). Only ever acts on the authenticated sender, never on another device.
+    Unpair,
 }
 
 /// Largest payload of one [`Message::FileChunk`] (256 KiB).
@@ -388,6 +391,7 @@ mod tests {
                 scancode: 30,
                 down: true,
             }),
+            Message::Unpair,
             Message::Ping { ts: 987_654_321 },
             Message::Pong { ts: 987_654_321 },
             Message::Status {

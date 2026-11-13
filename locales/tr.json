@@ -78,6 +78,11 @@
       "action": "İşlem"
     },
     "connect": "Bağlan",
+    "unpair": "Eşleşmeyi kaldır",
+    "unpair_title": "Eşleşme kaldırılsın mı?",
+    "unpair_body": "{name} burada ve o PC'de unutulacak. Yeniden bağlanmak için yeni bir eşleşme kodu gerekir.",
+    "unpair_done": "Eşleşme kaldırıldı",
+    "unpair_cancel": "Vazgeç",
     "connecting": "Bağlanıyor…",
     "unavailable": "Çevrimdışı",
     "unavailable_hint": "Çevrimdışı PC'ye bağlanılamaz",
@@ -348,6 +353,15 @@
     "disconnect_all": "Tüm izleyicileri şimdi ayır",
     "view_only": "Uzaktan kontrolü engelle (yalnız izleme)",
     "about": "Hakkında…",
+    "paired": "Eşleşmiş paneller",
+    "paired_none": "Eşleşmiş panel yok",
+    "paired_remove_title": "Eşleşmeyi kaldır",
+    "paired_remove_body": "{name} eşleşmesi kaldırılsın mı? Yeni bir kodla yeniden eşleşene kadar bu PC'ye bağlanamaz.",
+    "paired_unnamed": "Adsız panel ({id})",
+    "peer_connected_title": "Eşleşmiş bir panel bağlandı",
+    "peer_connected_body": "{peer} bu PC'ye bağlandı.",
+    "peer_file_title": "Eşleşmiş bir panel dosya gönderiyor",
+    "peer_file_body": "{peer} gönderiyor: {detail}",
     "quit": "Desk-Remote'u kapat"
   },
   "about": {

@@ -173,6 +173,12 @@ pub(crate) fn serve(
         sha256,
     };
     let state = hub.transfers();
+    // A paired panel offering a file is recorded and shown on the tray before anything else.
+    hub.record_peer_activity(
+        desk_ipc::PeerActivityKind::FileOffered,
+        peer_name,
+        &format!("{} ({} B)", display_file_name(&offer.name), offer.size),
+    );
     let reject = |session: &mut Session, reason| {
         let sent = session.send(&Message::FileReject {
             transfer_id: offer.id.clone(),
@@ -199,6 +205,11 @@ pub(crate) fn serve(
         transfer_id: offer.id.clone(),
     })?;
     pump(session, sink.as_mut(), &offer.id, stop)
+}
+
+/// Offered file name made safe to log and show: control characters dropped, length capped.
+fn display_file_name(name: &str) -> String {
+    name.chars().filter(|c| !c.is_control()).take(60).collect()
 }
 
 /// Reads what the peer still sends for a moment before the connection closes: closing a socket

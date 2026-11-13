@@ -4,9 +4,9 @@
 //! - Tells whether this process is elevated and relaunches the executable through UAC (`runas`).
 //!   An elevated agent is what lets a remote viewer control administrator windows: Windows
 //!   (UIPI) drops input that a lower-integrity process injects into a higher-integrity window.
-//! - The single "close Desk-Remote" path shared by the portable "Quit" and the installed-service
-//!   tray entry: stop the console agent directly when there is one, otherwise ask Windows for
-//!   administrator rights and run `DeskRemote-Ajan.exe stop`.
+//! - The single "close Desk-Remote" path of the tray (DAPP-104 M-09): it stops a console
+//!   (portable) agent the user started themselves and otherwise only closes the tray. It never
+//!   stops the installed Windows service, so a tray click cannot take unattended access down.
 //!
 //! ## Scope Boundaries
 //! - The UAC secure desktop (the consent dialog itself, Ctrl+Alt+Del) stays out of reach.
@@ -17,7 +17,7 @@
 
 use desk_error::{DeskError, DeskResult};
 use std::path::{Path, PathBuf};
-use windows::core::{w, HSTRING, PCWSTR};
+use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, HLOCAL};
 use windows::Win32::Security::Authorization::{
     ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
@@ -34,8 +34,6 @@ use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
 /// `ERROR_CANCELLED`: the user pressed "No" on the UAC prompt.
 const ERROR_CANCELLED: u32 = 1223;
-/// Argument of the stop subcommand.
-pub const STOP_ARG: &str = "stop";
 
 /// What a `runas` call came to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,10 +49,10 @@ pub enum Runas {
 /// Result of "close Desk-Remote".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopOutcome {
+    /// A console (portable) agent of this user session was told to stop.
     Stopped,
-    /// The UAC prompt was declined: everything keeps running.
-    Cancelled,
-    Failed,
+    /// There is no console agent: only the tray is closed, the service keeps running.
+    TrayOnly,
 }
 
 /// The exact `ShellExecuteEx` request of an elevated start.
@@ -153,35 +151,34 @@ pub fn relaunch_elevated(exe: &Path) -> Runas {
     runas(&RunasRequest::new(exe, ""), false)
 }
 
-/// The decision of "close Desk-Remote": a console agent is stopped directly; otherwise the
-/// installed service needs administrator rights, so `elevated_stop` runs through UAC.
-pub fn stop_agent_with(
-    console_stop: impl FnOnce() -> bool,
-    elevated_stop: impl FnOnce() -> Runas,
-) -> StopOutcome {
+/// The decision of "close Desk-Remote": a console agent is stopped directly; anything else
+/// (the installed service) is left running and the caller closes the tray only.
+pub fn stop_agent_with(console_stop: impl FnOnce() -> bool) -> StopOutcome {
     if console_stop() {
-        return StopOutcome::Stopped;
-    }
-    match elevated_stop() {
-        Runas::Done(0) => StopOutcome::Stopped,
-        Runas::Cancelled => StopOutcome::Cancelled,
-        Runas::Done(_) | Runas::Failed(_) => StopOutcome::Failed,
+        StopOutcome::Stopped
+    } else {
+        StopOutcome::TrayOnly
     }
 }
 
-/// "Close Desk-Remote" from the tray (portable and installed-service mode share this path).
-pub fn quit_agent() -> DeskResult<StopOutcome> {
-    let exe = desk_paths::DeskPaths::current_exe()?;
-    let outcome = stop_agent_with(crate::request_console_stop, || {
-        runas(&RunasRequest::new(&exe, STOP_ARG), true)
-    });
+/// "Close Desk-Remote" from the tray. On [`StopOutcome::TrayOnly`] the caller closes its own
+/// tray; no UAC prompt and no service control call is ever made here.
+pub fn quit_agent() -> StopOutcome {
+    let outcome = stop_agent_with(crate::request_console_stop);
     tracing::info!(?outcome, "close requested from the tray");
-    Ok(outcome)
+    outcome
 }
 
-/// Security attributes for the console stop event: administrators and SYSTEM get everything,
-/// any interactive user may signal/wait on it. Without this an elevated agent's event would be
-/// invisible to the user's normal (medium integrity) double-click and `stop` processes.
+/// SDDL of the console stop event: SYSTEM, Administrators and the creating user only. Other
+/// interactive users of the PC cannot signal (or wait on) it (DAPP-104 H-05). The user's own
+/// non-elevated tray/`stop` process shares the SID of an elevated agent, so it still can.
+fn stop_event_sddl(user_sid: &str) -> String {
+    format!("D:(A;;0x1F0003;;;SY)(A;;0x1F0003;;;BA)(A;;0x1F0003;;;{user_sid})")
+}
+
+/// Security attributes for the console stop event (see [`stop_event_sddl`]). Without an
+/// explicit descriptor an elevated agent's event would be invisible to the user's normal
+/// (medium integrity) double-click and `stop` processes.
 pub(crate) struct StopEventSecurity {
     descriptor: PSECURITY_DESCRIPTOR,
     attributes: SECURITY_ATTRIBUTES,
@@ -189,11 +186,12 @@ pub(crate) struct StopEventSecurity {
 
 impl StopEventSecurity {
     pub(crate) fn new() -> DeskResult<Self> {
+        let sddl = HSTRING::from(stop_event_sddl(&desk_ipc::current_user_sid()?));
         let mut descriptor = PSECURITY_DESCRIPTOR::default();
-        // SAFETY: constant SDDL string; the descriptor is freed in `Drop`.
+        // SAFETY: the SDDL string outlives the call; the descriptor is freed in `Drop`.
         unsafe {
             ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                w!("D:(A;;0x1F0003;;;SY)(A;;0x1F0003;;;BA)(A;;0x100002;;;IU)"),
+                PCWSTR(sddl.as_ptr()),
                 SDDL_REVISION_1,
                 &mut descriptor,
                 None,
@@ -225,15 +223,13 @@ impl Drop for StopEventSecurity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::Cell;
 
     #[test]
-    fn the_uac_request_runs_the_exe_with_the_runas_verb_and_stop_argument() {
+    fn the_uac_request_uses_the_runas_verb() {
         let exe = Path::new(r"C:\Program Files\Desk-Remote\DeskRemote-Ajan.exe");
-        let request = RunasRequest::new(exe, STOP_ARG);
+        let request = RunasRequest::new(exe, "");
         assert_eq!(request.verb, "runas");
         assert_eq!(request.file, exe);
-        assert_eq!(request.params, "stop");
     }
 
     #[test]
@@ -243,41 +239,24 @@ mod tests {
     }
 
     #[test]
-    fn a_console_agent_is_stopped_without_any_uac_prompt() {
-        let asked = Cell::new(false);
-        let outcome = stop_agent_with(
-            || true,
-            || {
-                asked.set(true);
-                Runas::Done(0)
-            },
-        );
-        assert_eq!(outcome, StopOutcome::Stopped);
-        assert!(
-            !asked.get(),
-            "no UAC when the agent can be stopped directly"
-        );
+    fn a_console_agent_is_stopped_and_anything_else_closes_only_the_tray() {
+        assert_eq!(stop_agent_with(|| true), StopOutcome::Stopped);
+        // No console agent (the installed service): nothing is stopped, no UAC, no SCM call.
+        assert_eq!(stop_agent_with(|| false), StopOutcome::TrayOnly);
     }
 
     #[test]
-    fn the_service_path_asks_uac_and_stops_only_when_confirmed() {
-        assert_eq!(
-            stop_agent_with(|| false, || Runas::Done(0)),
-            StopOutcome::Stopped
+    fn the_stop_event_is_limited_to_system_admins_and_the_creating_user() {
+        let sddl = stop_event_sddl("S-1-5-21-1-2-3-1001");
+        assert!(sddl.contains(";;;SY)") && sddl.contains(";;;BA)"));
+        assert!(sddl.contains(";;;S-1-5-21-1-2-3-1001)"));
+        assert!(
+            !sddl.contains(";;;IU)"),
+            "interactive users must not be granted"
         );
-        assert_eq!(
-            stop_agent_with(|| false, || Runas::Cancelled),
-            StopOutcome::Cancelled,
-            "cancelling UAC leaves everything running"
-        );
-        assert_eq!(
-            stop_agent_with(|| false, || Runas::Done(1)),
-            StopOutcome::Failed
-        );
-        assert_eq!(
-            stop_agent_with(|| false, || Runas::Failed(2)),
-            StopOutcome::Failed
-        );
+        assert!(!sddl.contains(";;;WD)"), "Everyone must not be granted");
+        // The real descriptor parses and carries the current user.
+        assert!(StopEventSecurity::new().is_ok());
     }
 
     #[test]

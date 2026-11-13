@@ -1,13 +1,14 @@
 //! IPC worker: talks to the service, runs capture/encode and injects input.
 
 use crate::inbox::FileInbox;
-use crate::state::{CodeInfo, Shared};
+use crate::state::{CodeInfo, Notice, Shared};
 use desk_capture::{list_monitors, CursorPos, CursorTracker, MonitorSelector, ScreenRect};
 use desk_codec::{EncodedSink, MediaPipeline, PipelineConfig};
 use desk_config::{ConfigManager, ServiceConfig};
 use desk_error::DeskResult;
+use desk_i18n::t;
 use desk_input::{system_injector, SystemInjector};
-use desk_ipc::{IpcClient, IpcConnection, IpcMessage};
+use desk_ipc::{IpcClient, IpcConnection, IpcMessage, PeerActivityKind};
 use desk_paths::DeskPaths;
 use desk_protocol::{InputPayload, Message};
 use std::path::{Path, PathBuf};
@@ -35,6 +36,19 @@ pub fn own_session_id() -> u32 {
     // SAFETY: valid out-parameter.
     let _ = unsafe { ProcessIdToSessionId(GetCurrentProcessId(), &mut id) };
     id
+}
+
+/// Tray balloon for a paired panel that connected or offered a file (DAPP-104 H-01/H-02).
+fn peer_notice(kind: PeerActivityKind, peer: &str, detail: &str) -> Notice {
+    let (title, body) = match kind {
+        PeerActivityKind::Connected => ("tray.peer_connected_title", "tray.peer_connected_body"),
+        PeerActivityKind::FileOffered => ("tray.peer_file_title", "tray.peer_file_body"),
+    };
+    Notice {
+        title: t(title),
+        body: t(body).replace("{peer}", peer).replace("{detail}", detail),
+        open: None,
+    }
 }
 
 /// Forwards encoded media to the service over the pipe.
@@ -235,6 +249,13 @@ impl Session {
                 });
             }),
             IpcMessage::AgentInfo(info) => shared.update(|ui| ui.info = Some(info)),
+            IpcMessage::PeerActivity {
+                kind,
+                peer_name,
+                detail,
+            } => {
+                shared.update(|ui| ui.pending_notice = Some(peer_notice(kind, &peer_name, &detail)))
+            }
             IpcMessage::Shutdown => return false,
             other => tracing::debug!(kind = other.kind(), "ignored service message"),
         }

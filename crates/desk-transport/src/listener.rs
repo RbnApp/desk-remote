@@ -2,7 +2,7 @@
 
 use crate::session::Session;
 use desk_error::{DeskError, DeskResult};
-use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,6 +11,30 @@ use std::time::Duration;
 /// viewers and file senders together). One more is closed on arrival, so a paired but
 /// misbehaving panel cannot exhaust threads and memory (DAPP-103 M-01).
 pub const MAX_LIVE_CONNECTIONS: usize = 32;
+
+/// Whether a peer address belongs to the networks an agent serves (DAPP-104 H-03): this PC
+/// itself (the tailnet bridge connects from loopback), private LAN ranges 10/8, 172.16/12,
+/// 192.168/16 and the tailnet/CGNAT range 100.64/10. Everything else is closed on arrival,
+/// so binding to every interface never exposes the agent to the public internet.
+#[must_use]
+pub fn is_private_peer(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            v4.is_loopback()
+                || a == 10
+                || (a == 172 && (16..=31).contains(&b))
+                || (a == 192 && b == 168)
+                || (a == 100 && (64..=127).contains(&b))
+        }
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                // Unique local fc00::/7 (the tailnet's IPv6 range is fd7a:115c:a1e0::/48).
+                || (v6.segments()[0] & 0xfe00) == 0xfc00
+                || v6.to_ipv4_mapped().is_some_and(|v4| is_private_peer(IpAddr::V4(v4)))
+        }
+    }
+}
 
 /// Holds one live-connection slot; released when the [`Session`] that owns it is dropped.
 pub(crate) struct LiveSlot(Arc<AtomicUsize>);
@@ -80,6 +104,10 @@ impl Listener {
     pub fn accept(&self) -> DeskResult<Session> {
         loop {
             let (stream, peer) = self.listener.accept().map_err(DeskError::Io)?;
+            if !is_private_peer(peer.ip()) {
+                tracing::warn!(%peer, "connection from a non-private network refused");
+                continue;
+            }
             if self.live.fetch_add(1, Ordering::SeqCst) >= self.max_live {
                 self.live.fetch_sub(1, Ordering::SeqCst);
                 tracing::warn!(%peer, limit = self.max_live, "too many open connections, closed");
@@ -104,6 +132,38 @@ mod tests {
         let _ = client.set_read_timeout(Some(Duration::from_secs(3)));
         let mut byte = [0u8; 1];
         matches!(client.read(&mut byte), Ok(0))
+    }
+
+    #[test]
+    fn only_loopback_private_lan_and_tailnet_sources_are_served() {
+        let ok = |s: &str| s.parse::<IpAddr>().is_ok_and(is_private_peer);
+        for allowed in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "172.31.255.254",
+            "192.168.1.20",
+            "100.64.0.7",
+            "100.127.255.255",
+            "::1",
+            "fd7a:115c:a1e0::1",
+            "::ffff:192.168.0.5",
+        ] {
+            assert!(ok(allowed), "{allowed} must be served");
+        }
+        for refused in [
+            "8.8.8.8",
+            "172.15.0.1",
+            "172.32.0.1",
+            "100.63.255.255",
+            "100.128.0.1",
+            "192.169.0.1",
+            "11.0.0.1",
+            "2001:db8::1",
+            "::ffff:8.8.8.8",
+        ] {
+            assert!(!ok(refused), "{refused} must be refused");
+        }
     }
 
     #[test]
