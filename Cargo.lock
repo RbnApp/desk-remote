@@ -839,7 +839,7 @@ dependencies = [
 
 [[package]]
 name = "desk-capture"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-error",
  "tracing",
@@ -848,7 +848,7 @@ dependencies = [
 
 [[package]]
 name = "desk-codec"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-capture",
  "desk-error",
@@ -860,7 +860,7 @@ dependencies = [
 
 [[package]]
 name = "desk-config"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-error",
  "desk-paths",
@@ -872,7 +872,7 @@ dependencies = [
 
 [[package]]
 name = "desk-crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chacha20poly1305",
  "desk-error",
@@ -890,14 +890,14 @@ dependencies = [
 
 [[package]]
 name = "desk-error"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "desk-exe-identity"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-version",
  "embed-resource",
@@ -907,7 +907,7 @@ dependencies = [
 
 [[package]]
 name = "desk-i18n"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-error",
  "serde",
@@ -916,7 +916,7 @@ dependencies = [
 
 [[package]]
 name = "desk-input"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-capture",
  "desk-error",
@@ -927,7 +927,7 @@ dependencies = [
 
 [[package]]
 name = "desk-ipc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-error",
  "desk-paths",
@@ -939,7 +939,7 @@ dependencies = [
 
 [[package]]
 name = "desk-logger"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-error",
  "desk-paths",
@@ -952,7 +952,7 @@ dependencies = [
 
 [[package]]
 name = "desk-panel"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-config",
  "desk-crypto",
@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "desk-paths"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-error",
  "tempfile",
@@ -990,7 +990,7 @@ dependencies = [
 
 [[package]]
 name = "desk-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-error",
  "postcard",
@@ -1000,7 +1000,7 @@ dependencies = [
 
 [[package]]
 name = "desk-relay"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-config",
  "desk-error",
@@ -1011,7 +1011,7 @@ dependencies = [
 
 [[package]]
 name = "desk-service"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-error",
  "desk-exe-identity",
@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "desk-service-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-capture",
  "desk-config",
@@ -1052,7 +1052,7 @@ dependencies = [
 
 [[package]]
 name = "desk-session-helper"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-capture",
  "desk-codec",
@@ -1074,7 +1074,7 @@ dependencies = [
 
 [[package]]
 name = "desk-shell-ext"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-i18n",
  "desk-paths",
@@ -1084,7 +1084,7 @@ dependencies = [
 
 [[package]]
 name = "desk-theme"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-error",
  "serde",
@@ -1093,7 +1093,7 @@ dependencies = [
 
 [[package]]
 name = "desk-transfer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-error",
  "desk-protocol",
@@ -1106,7 +1106,7 @@ dependencies = [
 
 [[package]]
 name = "desk-transport"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-capture",
  "desk-codec",
@@ -1125,7 +1125,7 @@ dependencies = [
 
 [[package]]
 name = "desk-update"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "desk-error",
  "desk-transport",
@@ -1139,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "desk-version"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
 ]

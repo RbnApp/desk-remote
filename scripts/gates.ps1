@@ -65,11 +65,17 @@ if (-not (Test-Path "VERSION")) {
 }
 
 $RootVersion = (Get-Content -Path "VERSION" -Raw).Trim()
-if ($RootVersion -ne "0.1.0") {
-    Write-Error "Gate 1 Failed: Root VERSION must strictly be 0.1.0, found: '$RootVersion'"
+if ($RootVersion -notmatch '^\d+\.\d+\.\d+$') {
+    Write-Error "Gate 1 Failed: Root VERSION must be MAJOR.MINOR.PATCH, found: '$RootVersion'"
     exit 1
 }
-Write-Host "  [PASS] Root VERSION is 0.1.0" -ForegroundColor Green
+$WorkspaceVersion = ((Select-String -Path "Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value)
+$PanelVersion = (Get-Content -Path "apps/desk-panel/tauri.conf.json" -Raw | ConvertFrom-Json).version
+if ($WorkspaceVersion -ne $RootVersion -or $PanelVersion -ne $RootVersion) {
+    Write-Error "Gate 1 Failed: VERSION ($RootVersion), workspace ($WorkspaceVersion) and panel config ($PanelVersion) must be equal."
+    exit 1
+}
+Write-Host "  [PASS] VERSION, workspace and panel config are all $RootVersion" -ForegroundColor Green
 
 # ---------------------------------------------------------
 # Gate 2: Format Gate (rustfmt)

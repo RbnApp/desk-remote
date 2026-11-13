@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_current_version_matches_canonical() {
-        assert_eq!(CURRENT, "0.1.0");
+        assert_eq!(CURRENT, RAW_VERSION.trim());
     }
 
     #[test]
@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn test_version_info_fields() {
         let info = version_info();
-        assert_eq!(info.version, "0.1.0");
+        assert_eq!(info.version, CURRENT);
         assert!(!info.target_arch.is_empty());
         assert!(!info.target_os.is_empty());
     }

@@ -27,7 +27,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Desk-Remote Contributors"]
 license = "MIT"
@@ -40,24 +40,24 @@ unwrap_used = "deny"
 expect_used = "deny"
 
 [workspace.dependencies]
-desk-error = { path = "crates/desk-error", version = "0.1.0" }
-desk-logger = { path = "crates/desk-logger", version = "0.1.0" }
-desk-paths = { path = "crates/desk-paths", version = "0.1.0" }
-desk-config = { path = "crates/desk-config", version = "0.1.0" }
-desk-version = { path = "crates/desk-version", version = "0.1.0" }
-desk-exe-identity = { path = "crates/desk-exe-identity", version = "0.1.0" }
-desk-i18n = { path = "crates/desk-i18n", version = "0.1.0" }
-desk-theme = { path = "crates/desk-theme", version = "0.1.0" }
-desk-transport = { path = "crates/desk-transport", version = "0.1.0" }
-desk-protocol = { path = "crates/desk-protocol", version = "0.1.0" }
-desk-crypto = { path = "crates/desk-crypto", version = "0.1.0" }
-desk-ipc = { path = "crates/desk-ipc", version = "0.1.0" }
-desk-transfer = { path = "crates/desk-transfer", version = "0.1.0" }
-desk-update = { path = "crates/desk-update", version = "0.1.0" }
-desk-service-core = { path = "crates/desk-service-core", version = "0.1.0" }
-desk-capture = { path = "crates/desk-capture", version = "0.1.0" }
-desk-codec = { path = "crates/desk-codec", version = "0.1.0" }
-desk-input = { path = "crates/desk-input", version = "0.1.0" }
+desk-error = { path = "crates/desk-error", version = "0.1.1" }
+desk-logger = { path = "crates/desk-logger", version = "0.1.1" }
+desk-paths = { path = "crates/desk-paths", version = "0.1.1" }
+desk-config = { path = "crates/desk-config", version = "0.1.1" }
+desk-version = { path = "crates/desk-version", version = "0.1.1" }
+desk-exe-identity = { path = "crates/desk-exe-identity", version = "0.1.1" }
+desk-i18n = { path = "crates/desk-i18n", version = "0.1.1" }
+desk-theme = { path = "crates/desk-theme", version = "0.1.1" }
+desk-transport = { path = "crates/desk-transport", version = "0.1.1" }
+desk-protocol = { path = "crates/desk-protocol", version = "0.1.1" }
+desk-crypto = { path = "crates/desk-crypto", version = "0.1.1" }
+desk-ipc = { path = "crates/desk-ipc", version = "0.1.1" }
+desk-transfer = { path = "crates/desk-transfer", version = "0.1.1" }
+desk-update = { path = "crates/desk-update", version = "0.1.1" }
+desk-service-core = { path = "crates/desk-service-core", version = "0.1.1" }
+desk-capture = { path = "crates/desk-capture", version = "0.1.1" }
+desk-codec = { path = "crates/desk-codec", version = "0.1.1" }
+desk-input = { path = "crates/desk-input", version = "0.1.1" }
 
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }

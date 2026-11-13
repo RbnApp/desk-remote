@@ -23,7 +23,7 @@ desk-logger = { workspace = true }
 desk-paths = { workspace = true }
 desk-protocol = { workspace = true }
 desk-service-core = { workspace = true }
-desk-session-helper = { path = "../desk-session-helper", version = "0.1.0" }
+desk-session-helper = { path = "../desk-session-helper", version = "0.1.1" }
 desk-theme = { workspace = true }
 desk-transfer = { workspace = true }
 desk-transport = { workspace = true }
