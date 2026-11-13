@@ -13,7 +13,7 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
-desk-session-helper = { path = "../desk-session-helper", version = "0.1.1" }
+desk-session-helper = { path = "../desk-session-helper", version = "0.1.2" }
 
 [build-dependencies]
 desk-exe-identity = { workspace = true, features = ["embed"] }

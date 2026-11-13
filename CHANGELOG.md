@@ -3,6 +3,18 @@
 The section that matches `VERSION` becomes the GitHub Release notes (`## X.Y.Z`). Versions are bumped
 only when the owner asks for a build. See [release flow](docs/architecture/release.md).
 
+## 0.1.2
+
+**New**
+- The session helper is its own program, `DeskRemote-Session.exe`; Task Manager lists it as "Desk-Remote Session Helper" instead of a second "Agent".
+- The Connection tab shows devices online and the total number of tailnet devices separately.
+
+**Changed**
+- The agent program is now `DeskRemote-Agent.exe` (was `DeskRemote-Ajan.exe`); an upgrade carries an existing install over to the new name.
+
+**Fixed**
+- The panel's Updates tab installs a ready update: the "Update" button is shown, the installer starts with the Windows permission prompt, and a failed start is shown instead of doing nothing.
+
 ## 0.1.1
 
 **New**
