@@ -71,7 +71,7 @@ Desk-Remote/
 - **Responsibility**: Only builds the menu entry and starts `desk-panel.exe --send <paths>`; the title comes from `locales/` through `desk-i18n`. It never talks to the network.
 
 ### `packaging/` and `scripts/build-installers.ps1`
-- **Role**: Two installers (`dist/Desk-Remote-Panel-Setup-<VERSION>.exe`, `dist/Desk-Remote-Ajan-Setup-<VERSION>.exe`). The panel installer (Tauri NSIS) never installs the agent; the agent installer registers the service and rolls back on failure. Installer texts are generated from `locales/*.json`.
+- **Role**: Two installers (`dist/DeskRemote-Panel-Setup-<VERSION>.exe`, `dist/DeskRemote-Agent-Setup-<VERSION>.exe`). The panel installer (Tauri NSIS) never installs the agent; the agent installer registers the service and rolls back on failure. Installer texts are generated from `locales/*.json`. Asset names and the release flow: [release.md](release.md).
 
 ### `apps/desk-session-helper`
 - **Role**: Library holding the lightweight helper that runs inside the active interactive user desktop session. It has no executable of its own: `apps/desk-service` starts it as the `helper` subcommand, so the agent ships as one file.

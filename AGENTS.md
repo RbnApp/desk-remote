@@ -35,3 +35,4 @@ All AI agents and human contributors working on this repository MUST strictly fo
 - [Code Style & Engineering Conventions](docs/architecture/code-style.md)
 - [Automated Enforcement Gates](docs/architecture/gates.md)
 - [Theme System (palettes, modes, color tokens)](docs/architecture/theme.md)
+- [Release Pipeline (asset names, SHA256SUMS, rollback)](docs/architecture/release.md)

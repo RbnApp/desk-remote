@@ -5,8 +5,8 @@
     One command: release build of panel, agent and the Windows 11 menu DLL, sparse package
     (signed with a locally created, non-exportable self-signed certificate), installer strings
     from locales/*.json, then
-      dist\Desk-Remote-Panel-Setup-<VERSION>.exe
-      dist\Desk-Remote-Ajan-Setup-<VERSION>.exe
+      dist\DeskRemote-Panel-Setup-<VERSION>.exe
+      dist\DeskRemote-Agent-Setup-<VERSION>.exe
       dist\SHA256SUMS.txt
     The installers themselves are NOT code-signed (no certificate is bought); Windows
     SmartScreen will warn on first run. The version comes only from the root VERSION file.
@@ -130,14 +130,14 @@ try {
 $PanelBuilt = Get-ChildItem (Join-Path $Release "bundle\nsis") -Filter "*_${Version}_x64-setup.exe" |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $PanelBuilt) { throw "Tauri did not produce the panel installer" }
-$PanelOut = Join-Path $Dist "Desk-Remote-Panel-Setup-$Version.exe"
+$PanelOut = Join-Path $Dist "DeskRemote-Panel-Setup-$Version.exe"
 Copy-Item $PanelBuilt.FullName $PanelOut -Force
 
 # ---- 6. Agent installer (NSIS) -------------------------------------------------------------
 Step "Agent installer (NSIS)"
 $MakeNsis = Join-Path $env:LOCALAPPDATA "tauri\NSIS\makensis.exe"
 if (-not (Test-Path $MakeNsis)) { throw "makensis not found at $MakeNsis (the Tauri build downloads it)" }
-$AgentOut = Join-Path $Dist "Desk-Remote-Ajan-Setup-$Version.exe"
+$AgentOut = Join-Path $Dist "DeskRemote-Agent-Setup-$Version.exe"
 $AgentExe = Join-Path $Release "DeskRemote-Ajan.exe"
 $IconPath = Join-Path $RepoRoot "apps\desk-service\icons\icon.ico"
 Run "makensis" {
@@ -153,5 +153,6 @@ $Sums = foreach ($f in @($PanelOut, $AgentOut)) {
     Write-Host ("{0}  {1,12:N0} bytes  sha256 {2}" -f $item.Name, $item.Length, $hash) -ForegroundColor Green
     "$hash  $($item.Name)"
 }
-[IO.File]::WriteAllLines((Join-Path $Dist "SHA256SUMS.txt"), $Sums)
+# LF line endings, no BOM: the file is read by `sha256sum -c` and by the update client.
+[IO.File]::WriteAllText((Join-Path $Dist "SHA256SUMS.txt"), (($Sums -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
 Write-Host "Installers are not code-signed: Windows SmartScreen warns on first run (More info > Run anyway)." -ForegroundColor Yellow

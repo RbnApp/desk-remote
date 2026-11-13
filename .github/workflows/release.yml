@@ -1,0 +1,83 @@
+# Release pipeline: a push to main that changes VERSION builds both Windows installers with
+# scripts/build-installers.ps1, then creates the v<VERSION> tag and GitHub Release and uploads
+# the installers plus SHA256SUMS.txt. The update client reads those assets (see
+# docs/architecture/release.md for the fixed asset-name contract). The release notes come from the
+# "## <VERSION>" section of CHANGELOG.md. If the release already exists, nothing happens.
+# To run it by hand: Actions > Release > Run workflow.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: [VERSION, .github/workflows/release.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: v
+        run: |
+          V=$(tr -d '[:space:]' < VERSION)
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if gh release view "v$V" >/dev/null 2>&1; then
+            echo "v$V is already released, skipping."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.v.outputs.exists != 'true'
+
+      - uses: actions/setup-go@v5
+        if: steps.v.outputs.exists != 'true'
+        with:
+          go-version-file: apps/desk-tailnet-helper/go.mod
+          cache-dependency-path: apps/desk-tailnet-helper/go.sum
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.v.outputs.exists != 'true'
+
+      - name: Install Tauri CLI
+        if: steps.v.outputs.exists != 'true'
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Build installers
+        if: steps.v.outputs.exists != 'true'
+        shell: pwsh
+        run: ./scripts/build-installers.ps1
+
+      - name: Check asset names
+        if: steps.v.outputs.exists != 'true'
+        run: |
+          V=${{ steps.v.outputs.version }}
+          for f in "DeskRemote-Agent-Setup-$V.exe" "DeskRemote-Panel-Setup-$V.exe" SHA256SUMS.txt; do
+            [ -s "dist/$f" ] || { echo "missing release asset: dist/$f"; exit 1; }
+          done
+          (cd dist && grep -c "" SHA256SUMS.txt && cat SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+
+      - name: Create release
+        if: steps.v.outputs.exists != 'true'
+        run: |
+          V=${{ steps.v.outputs.version }}
+          awk -v v="$V" '$0 ~ "^## " v "( |$)" {f=1; next} /^## /{f=0} f' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Desk-Remote $V" > notes.md
+          gh release create "v$V" \
+            "dist/DeskRemote-Agent-Setup-$V.exe" \
+            "dist/DeskRemote-Panel-Setup-$V.exe" \
+            dist/SHA256SUMS.txt \
+            --title "Desk-Remote $V" --notes-file notes.md --target "$GITHUB_SHA"
