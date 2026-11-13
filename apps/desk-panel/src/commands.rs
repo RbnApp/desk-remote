@@ -193,6 +193,25 @@ pub async fn pair_pc(
     Ok(pc)
 }
 
+/// Removes the pairing with a PC at both ends; works while the PC is offline (local only).
+#[tauri::command]
+pub async fn pc_unpair(state: State<'_, AppState>, pc_id: String) -> Result<(), String> {
+    state.sessions.close(&pc_id);
+    let pc = lock(&state.config)
+        .paired_pcs
+        .iter()
+        .find(|p| p.id == pc_id)
+        .cloned()
+        .ok_or_else(|| "unpaired".to_string())?;
+    let backend = Arc::clone(&state.backend);
+    tauri::async_runtime::spawn_blocking(move || backend.unpair(&pc))
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut cfg = lock(&state.config);
+    cfg.paired_pcs.retain(|p| p.id != pc_id);
+    ConfigManager::save(&state.config_path, &*cfg).map_err(|e| e.to_string())
+}
+
 /// Joins a PC and streams `VideoConfig`/`VideoFrame`/`Rtt`/`Closed` into `events`.
 ///
 /// Frames travel as raw bytes (`[keyframe u8][ts_us u64 LE][Annex-B data]`); every other

@@ -1,8 +1,8 @@
 // Entry point: loads state from Rust, wires global events, shows the window.
 
-import { S, appWindow, go, invoke, refocus, render } from "./core.js";
+import { S, appWindow, closeModal, go, invoke, refocus, render } from "./core.js";
 import { applyTheme, loadCatalog, loadPreviews, watchSystemTheme } from "./theme.js";
-import { loadPcs, refreshResults } from "./list.js";
+import { confirmUnpair, doUnpair, loadPcs, refreshResults } from "./list.js";
 import { incomingActions, setIncomingEnabled, startIncoming } from "./incoming.js";
 import { startTransfer, transferActions } from "./transfer.js";
 import { onCodeInput, onTargetInput, pair, pickTarget, resetPair, submitPair } from "./pair.js";
@@ -28,6 +28,9 @@ const actions = {
     render();
   },
   retry: () => loadPcs(),
+  unpair: (el) => confirmUnpair(el.dataset.id),
+  "unpair-do": () => doUnpair(),
+  "unpair-cancel": () => closeModal("unpair"),
   "pick-target": (el) => pickTarget(el.dataset.address),
   "pair-again": () => {
     resetPair();

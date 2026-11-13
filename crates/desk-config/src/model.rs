@@ -99,7 +99,8 @@ pub struct ServiceConfig {
     pub relay_url: Option<String>,
     pub log_level: String,
     pub allow_unattended: bool,
-    /// Announce this PC on the local network (mDNS).
+    /// Announce this PC on the local network (mDNS). Off by default (DAPP-104 H-03): a paired
+    /// panel is added by address or code; turning this on is an explicit choice.
     pub lan_announce: bool,
     /// Run the embedded tailnet helper (the only Tailscale path; no client is ever required).
     pub tailnet_helper: bool,
@@ -122,7 +123,7 @@ impl Default for ServiceConfig {
             relay_url: None,
             log_level: "info".to_string(),
             allow_unattended: true,
-            lan_announce: true,
+            lan_announce: false,
             tailnet_helper: true,
             take_over_official_tailscale: true,
             capture_fps: 30,

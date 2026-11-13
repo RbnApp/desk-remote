@@ -1,14 +1,15 @@
-//! Tray context menu: agent info (click to copy), pairing code, viewers, "disconnect all
-//! viewers", "block remote control" and About (plus "Quit" in the portable test mode only).
+//! Tray context menu: agent info (click to copy), pairing code, viewers, "paired panels"
+//! (remove a pairing), "disconnect all viewers", "block remote control", About and "Close".
 //!
 //! The helper never queries the network: every address shown here comes from the
 //! [`AgentInfo`](desk_ipc::AgentInfo) snapshot the service pushes over IPC. There is
-//! deliberately no "Exit" or "Stop agent" entry in the SYSTEM-service mode.
+//! deliberately no "Stop agent" entry: "Close" ends a portable console agent the user started
+//! and otherwise closes only the tray, never the installed service (DAPP-104 M-09).
 
 use crate::state::UiState;
 use crate::ui::{shared, wide};
 use desk_i18n::t;
-use desk_ipc::{AgentInfo, IpcMessage, TailnetState};
+use desk_ipc::{AgentInfo, IpcMessage, PairedPeerInfo, TailnetState};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{HANDLE, HWND, POINT};
 use windows::Win32::System::DataExchange::{
@@ -16,8 +17,9 @@ use windows::Win32::System::DataExchange::{
 };
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, SetForegroundWindow, TrackPopupMenu,
-    MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+    AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, MessageBoxW, SetForegroundWindow,
+    TrackPopupMenu, IDYES, MB_ICONQUESTION, MB_YESNO, MF_CHECKED, MF_GRAYED, MF_POPUP,
+    MF_SEPARATOR, MF_STRING, TPM_RETURNCMD, TPM_RIGHTBUTTON,
 };
 
 /// Clipboard format id of UTF-16 text (`CF_UNICODETEXT`).
@@ -32,6 +34,10 @@ const ID_DISCONNECT_ALL: usize = 6;
 const ID_VIEW_ONLY: usize = 7;
 const ID_ABOUT: usize = 8;
 const ID_QUIT: usize = 9;
+/// First id of the "paired panels" entries; entry `i` is `ID_PAIRED_BASE + i`.
+const ID_PAIRED_BASE: usize = 100;
+/// Most paired panels the submenu lists.
+const PAIRED_MAX: usize = 50;
 
 fn send(msg: &IpcMessage) {
     if let Some(conn) = shared().and_then(|s| s.conn()) {
@@ -156,6 +162,62 @@ fn separator(menu: windows::Win32::UI::WindowsAndMessaging::HMENU) {
     let _ = unsafe { AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null()) };
 }
 
+/// Name shown for a paired panel (its last announced name, else a short device id).
+fn peer_label(peer: &PairedPeerInfo) -> String {
+    if peer.name.is_empty() {
+        let short: String = peer.device_id.chars().take(14).collect();
+        t("tray.paired_unnamed").replace("{id}", &short)
+    } else {
+        peer.name.clone()
+    }
+}
+
+/// Adds the "Paired panels" submenu: one entry per paired panel, click = remove its pairing.
+fn append_paired(menu: windows::Win32::UI::WindowsAndMessaging::HMENU, info: Option<&AgentInfo>) {
+    let peers = info.map(|i| i.paired.as_slice()).unwrap_or_default();
+    // SAFETY: the submenu belongs to this thread and is destroyed with its parent menu.
+    let Ok(sub) = (unsafe { CreatePopupMenu() }) else {
+        return;
+    };
+    if peers.is_empty() {
+        append(sub, 0, &t("tray.paired_none"), false, false);
+    }
+    for (i, peer) in peers.iter().take(PAIRED_MAX).enumerate() {
+        append(sub, ID_PAIRED_BASE + i, &peer_label(peer), true, false);
+    }
+    let title = wide(&t("tray.paired"));
+    // SAFETY: NUL-terminated text outlives the call; for MF_POPUP the id is the submenu handle.
+    let _ = unsafe {
+        AppendMenuW(
+            menu,
+            MF_STRING | MF_POPUP,
+            sub.0 as usize,
+            PCWSTR(title.as_ptr()),
+        )
+    };
+}
+
+/// Asks the PC's user to confirm, then tells the service to forget the panel.
+fn confirm_and_unpair(hwnd: HWND, peer: &PairedPeerInfo) {
+    let body = wide(&t("tray.paired_remove_body").replace("{name}", &peer_label(peer)));
+    let title = wide(&t("tray.paired_remove_title"));
+    // SAFETY: both strings are NUL-terminated and outlive the call; `hwnd` is our window.
+    let answer = unsafe {
+        MessageBoxW(
+            Some(hwnd),
+            PCWSTR(body.as_ptr()),
+            PCWSTR(title.as_ptr()),
+            MB_YESNO | MB_ICONQUESTION,
+        )
+    };
+    if answer == IDYES {
+        tracing::info!("pairing removal confirmed in the tray");
+        send(&IpcMessage::UnpairRequest {
+            device_id: peer.device_id.clone(),
+        });
+    }
+}
+
 /// Opens the menu at the cursor and runs the chosen entry.
 pub fn show(hwnd: HWND) {
     let ui = shared().map(|s| s.snapshot()).unwrap_or_default();
@@ -191,6 +253,7 @@ pub fn show(hwnd: HWND) {
         separator(menu);
         append(menu, ID_SHOW_CODE, &t("tray.show_code"), true, false);
         append(menu, ID_VIEWERS, &t("tray.viewers"), true, false);
+        append_paired(menu, info.as_ref());
         separator(menu);
         append(
             menu,
@@ -260,9 +323,18 @@ fn run(hwnd: HWND, picked: usize, info: Option<&AgentInfo>) {
             enabled: !info.is_some_and(|i| i.view_only),
         }),
         ID_ABOUT => crate::about::show(),
-        // Console agent: stopped directly. Installed service: UAC prompt, then `stop`.
+        // Console agent: stopped directly. Installed service: only this tray closes.
         ID_QUIT => {
-            let _ = desk_service_core::quit_agent();
+            if desk_service_core::quit_agent() == desk_service_core::StopOutcome::TrayOnly {
+                if let Some(s) = shared() {
+                    crate::ui::quit(s);
+                }
+            }
+        }
+        id if id >= ID_PAIRED_BASE => {
+            if let Some(peer) = info.and_then(|i| i.paired.get(id - ID_PAIRED_BASE)) {
+                confirm_and_unpair(hwnd, peer);
+            }
         }
         _ => {}
     }

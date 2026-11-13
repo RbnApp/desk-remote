@@ -25,6 +25,9 @@ pub struct TrustedPeer {
     /// Mode to grant when `always_allow` connects ("view" or "control").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub always_mode: Option<String>,
+    /// Name the peer last announced (shown in the "paired panels" list).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -106,6 +109,7 @@ impl TrustStore {
             device_id: device_id_from_public(public),
             always_allow: false,
             always_mode: None,
+            name: None,
         });
         self.persist()
     }
@@ -210,6 +214,29 @@ impl TrustStore {
         self.persist()
     }
 
+    /// Remembers the name `device_id` announced; persists only when it changed.
+    pub fn set_device_name(&mut self, device_id: &str, name: &str) -> DeskResult<()> {
+        let Some(peer) = self.peers.iter_mut().find(|p| p.device_id == device_id) else {
+            return Ok(());
+        };
+        if peer.name.as_deref() == Some(name) {
+            return Ok(());
+        }
+        peer.name = Some(name.to_string());
+        self.persist()
+    }
+
+    /// Removes the peer with `device_id` and persists; `true` when one was paired (DAPP-104).
+    pub fn remove_device(&mut self, device_id: &str) -> DeskResult<bool> {
+        let before = self.peers.len();
+        self.peers.retain(|p| p.device_id != device_id);
+        let removed = self.peers.len() != before;
+        if removed {
+            self.persist()?;
+        }
+        Ok(removed)
+    }
+
     /// Removes every peer.
     pub fn clear(&mut self) -> DeskResult<()> {
         self.peers.clear();
@@ -282,6 +309,24 @@ mod tests {
         assert!(reopened.is_trusted(&key));
         assert!(!reopened.is_trusted(&other));
         reopened.validate()?;
+        Ok(())
+    }
+
+    #[test]
+    fn remove_device_forgets_only_that_peer_and_persists() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("trusted.dat");
+        let (a, b) = ([1u8; KEY_LEN], [2u8; KEY_LEN]);
+        let mut store = TrustStore::open(&path)?;
+        store.add(&a)?;
+        store.add(&b)?;
+        let id_a = device_id_from_public(&a);
+        assert!(store.remove_device(&id_a)?);
+        assert!(!store.remove_device(&id_a)?, "second removal is a no-op");
+        let reopened = TrustStore::open(&path)?;
+        assert!(!reopened.is_trusted(&a));
+        assert!(reopened.is_trusted(&b));
         Ok(())
     }
 

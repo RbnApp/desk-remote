@@ -2,6 +2,7 @@
 
 use crate::hub::Hub;
 use desk_error::DeskResult;
+use desk_ipc::PeerActivityKind;
 use desk_protocol::Message;
 use desk_transport::{Listener, Session};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -117,6 +118,7 @@ fn serve_viewer(
         peer_name: Some(host_pc_name),
     })?;
     let peer_name = session.peer_name().map(str::to_string);
+    let shown_name = peer_name.clone().unwrap_or_else(|| "?".to_string());
     // A file sender announces itself with its first message; everyone else is a viewer.
     // Deciding before registration keeps a transfer from raising a viewer consent prompt.
     let first = session.recv_timeout(FIRST_MESSAGE_WAIT)?;
@@ -127,7 +129,14 @@ fn serve_viewer(
             None => Ok(()),
         };
     }
+    // "Remove my pairing": acts on this authenticated device only, then the link ends.
+    if matches!(first, Some(Message::Unpair)) {
+        hub.unpair_device(&device_id);
+        return Ok(());
+    }
     let peer_fingerprint = session.peer_fingerprint();
+    // The paired panel is let in without a question: leave a trace and tell the PC's user.
+    hub.record_peer_activity(PeerActivityKind::Connected, &shown_name, "");
     let (id, rx) = hub.register_viewer_full(
         &device_id,
         &peer.to_string(),
@@ -179,6 +188,7 @@ fn bridge(
                 hub.viewer_leave(id);
             }
             Message::Ping { ts } => session.send(&Message::Pong { ts })?,
+
             m @ (Message::InputEvent(_) | Message::RequestKeyframe) => {
                 hub.forward_from_viewer(id, m)
             }

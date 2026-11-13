@@ -188,6 +188,9 @@ pub trait Backend: Send + Sync {
     fn open_session(&self, _pc: &PairedPc) -> Result<desk_transport::Session, PairError> {
         Err(PairError::Network)
     }
+    /// Removes the pairing at both ends (DAPP-104): asks the PC to forget this panel when it is
+    /// reachable, and always forgets the PC locally.
+    fn unpair(&self, _pc: &PairedPc) {}
     /// True for the synthetic test backend.
     fn is_demo(&self) -> bool {
         false

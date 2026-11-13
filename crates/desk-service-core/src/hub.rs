@@ -7,7 +7,7 @@
 use crate::control::Control;
 use crate::transfer::TransferState;
 use desk_crypto::{DeviceIdentity, PairingManager, PAIRING_CODE_TTL};
-use desk_ipc::{IpcConnection, IpcMessage};
+use desk_ipc::{IpcConnection, IpcMessage, PairedPeerInfo, PeerActivityKind};
 use desk_protocol::{Message, NoticeKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -234,8 +234,15 @@ impl Hub {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = sync_channel(VIEWER_QUEUE);
 
+        // Lock order: `pairing` and `state` are never held together; this block ends before
+        // `state` is taken (and `answer_consent` releases `state` before it takes `pairing`).
         let (peer_name, fingerprint, is_known, always_mode) = {
-            let pairing = lock(&self.pairing);
+            let mut pairing = lock(&self.pairing);
+            if let Some(name) = peer_name.filter(|_| pairing.trust().is_device_trusted(device_id)) {
+                if let Err(e) = pairing.trust_mut().set_device_name(device_id, name) {
+                    tracing::warn!(error = %e, "cannot remember the panel name");
+                }
+            }
             let trust = pairing.trust();
             let known = trust.is_device_trusted(device_id);
             let always_mode = if trust.is_device_always_allowed(device_id) {
@@ -476,7 +483,8 @@ impl Hub {
         decision: &str,
         always_allow: bool,
     ) -> Result<(), String> {
-        let (event_to_emit, viewer_to_join, drop_viewer_id) = {
+        // Lock order: `state` is released before `pairing` is taken (see `register_viewer_full`).
+        let (event_to_emit, viewer_to_join, drop_viewer_id, remember_device) = {
             let mut st = lock(&self.state);
             let Some(req) = st
                 .pending_request
@@ -518,17 +526,7 @@ impl Hub {
                         None
                     };
 
-                    if always_allow {
-                        if let Some(did) = dev_id {
-                            let _ = self.with_pairing(|p| {
-                                p.trust_mut().set_device_always_allowed_with_mode(
-                                    &did,
-                                    true,
-                                    Some(decision),
-                                )
-                            });
-                        }
-                    }
+                    let remember = dev_id.filter(|_| always_allow);
 
                     let sess = ActiveSessionInfo {
                         peer_name: req.peer_name,
@@ -536,7 +534,7 @@ impl Hub {
                         mode: decision.to_string(),
                     };
                     st.active_session = Some(sess.clone());
-                    (Some(ConsentEvent::Session(sess)), to_join, None)
+                    (Some(ConsentEvent::Session(sess)), to_join, None, remember)
                 }
                 "reject" => {
                     let mut drop_vid = None;
@@ -556,11 +554,19 @@ impl Hub {
                         }),
                         None,
                         drop_vid,
+                        None,
                     )
                 }
                 _ => return Err(format!("invalid decision: {decision}")),
             }
         };
+
+        if let Some(did) = remember_device {
+            let _ = self.with_pairing(|p| {
+                p.trust_mut()
+                    .set_device_always_allowed_with_mode(&did, true, Some(decision))
+            });
+        }
 
         if let Some(vid) = drop_viewer_id {
             self.remove_viewer(vid);
@@ -577,14 +583,6 @@ impl Hub {
     /// Disconnects the incoming connection session and notifies the user.
     pub fn disconnect_incoming(&self) {
         self.disconnect_all();
-        {
-            let mut st = lock(&self.state);
-            st.pending_request = None;
-            st.active_session = None;
-        }
-        self.emit_consent_event(ConsentEvent::Ended {
-            reason: "host".to_string(),
-        });
     }
 
     /// Changes the mode of the active incoming session ("view" or "control").
@@ -650,8 +648,10 @@ impl Hub {
         }
     }
 
-    /// Tells every viewer the PC user ended the session and drops them all. Trust is kept,
-    /// so a viewer can reconnect without a new pairing code. Returns how many were dropped.
+    /// Tells every viewer the PC user ended the session and drops them all, clearing the
+    /// pending consent request and the active session (`ConsentEvent::Ended`, reason "host").
+    /// Trust is kept, so a viewer can reconnect without a new pairing code. Returns how many
+    /// were dropped.
     pub fn disconnect_all(&self) -> usize {
         let ids: Vec<ViewerId> = {
             let st = lock(&self.state);
@@ -669,11 +669,61 @@ impl Hub {
             self.viewer_leave(*id);
             lock(&self.state).viewers.remove(id);
         }
+        {
+            let mut st = lock(&self.state);
+            st.pending_request = None;
+            st.active_session = None;
+        }
+        self.emit_consent_event(ConsentEvent::Ended {
+            reason: "host".to_string(),
+        });
         tracing::info!(
             dropped = ids.len(),
             "all viewers disconnected by the PC user"
         );
         ids.len()
+    }
+
+    /// Records a paired panel's connection or file offer: an audit line in the log and a
+    /// balloon on the PC's tray (DAPP-104 H-01/H-02). The paired panel is let in without a
+    /// question, so this is how the PC's user learns about it. Never logs secrets or paths.
+    pub fn record_peer_activity(&self, kind: PeerActivityKind, peer_name: &str, detail: &str) {
+        tracing::info!(target: "audit", ?kind, peer = %peer_name, detail = %detail, "paired panel activity");
+        self.send_to_helper(&IpcMessage::PeerActivity {
+            kind,
+            peer_name: peer_name.to_string(),
+            detail: detail.to_string(),
+        });
+    }
+
+    /// Forgets the pairing of `device_id` and drops its connections. `true` when it was paired.
+    pub fn unpair_device(&self, device_id: &str) -> bool {
+        let removed = self
+            .with_pairing(|p| p.trust_mut().remove_device(device_id))
+            .unwrap_or_else(|e| {
+                tracing::error!(error = %e, "cannot remove the pairing");
+                false
+            });
+        let ids: Vec<ViewerId> = {
+            let st = lock(&self.state);
+            let notice = Message::Notice {
+                kind: NoticeKind::DisconnectedByHost,
+            };
+            st.viewers
+                .iter()
+                .filter(|(_, v)| v.device_id == device_id)
+                .map(|(&id, v)| {
+                    let _ = v.tx.try_send(notice.clone());
+                    id
+                })
+                .collect()
+        };
+        for id in ids {
+            self.remove_viewer(id);
+        }
+        tracing::info!(target: "audit", removed, "pairing removed");
+        self.push_agent_info();
+        removed
     }
 
     /// Blocks (or allows) remote input and tells the connected viewers.
@@ -704,7 +754,19 @@ impl Hub {
             )
         };
         if let Some(conn) = helper {
-            let info = self.control.snapshot(&self.identity, viewers, unavailable);
+            let paired = self.with_pairing(|p| {
+                p.trust()
+                    .peers()
+                    .iter()
+                    .map(|peer| PairedPeerInfo {
+                        device_id: peer.device_id.clone(),
+                        name: peer.name.clone().unwrap_or_default(),
+                    })
+                    .collect()
+            });
+            let info = self
+                .control
+                .snapshot(&self.identity, viewers, unavailable, paired);
             let _ = conn.send(&IpcMessage::AgentInfo(info));
         }
     }
@@ -813,6 +875,9 @@ impl Hub {
                 self.disconnect_all();
             }
             IpcMessage::SetViewOnly { enabled } => self.set_view_only(enabled),
+            IpcMessage::UnpairRequest { device_id } => {
+                self.unpair_device(&device_id);
+            }
             IpcMessage::HelperHello { session_id, pid } => {
                 tracing::info!(session_id, pid, "helper hello");
             }
@@ -1268,6 +1333,111 @@ mod tests {
                 online: false,
                 latency_ms: 0
             }
+        );
+        Ok(())
+    }
+
+    /// DAPP-104 M3: "disconnect all" leaves no stale pending request or active session behind.
+    #[test]
+    fn disconnect_all_clears_pending_request_and_active_session() -> DeskResult<()> {
+        use desk_crypto::TrustStore;
+        let mut trust = TrustStore::in_memory();
+        let peer = DeviceIdentity::generate()?;
+        trust.add(peer.public_key())?;
+        let hub = Hub::new_with_options(
+            DeviceIdentity::generate()?,
+            PairingManager::with_trust(trust),
+            true,
+        );
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        hub.set_consent_listener(Some(Arc::new(move |ev| lock(&sink).push(ev))));
+        let (_id, _rx) = hub.register_viewer(&peer.device_id());
+        assert!(
+            hub.pending_request().is_some(),
+            "precondition: a request waits"
+        );
+
+        assert_eq!(hub.disconnect_all(), 1);
+
+        assert!(
+            hub.pending_request().is_none(),
+            "pending request must be cleared"
+        );
+        assert!(
+            hub.active_session().is_none(),
+            "active session must be cleared"
+        );
+        assert!(
+            lock(&events)
+                .iter()
+                .any(|e| matches!(e, ConsentEvent::Ended { reason } if reason == "host")),
+            "the panel must be told the session ended"
+        );
+        Ok(())
+    }
+
+    /// DAPP-104 M4: answering "always allow" persists the choice (written after the state
+    /// lock is released) and the next connection of that device skips the prompt.
+    #[test]
+    fn always_allow_answer_is_remembered_without_holding_the_state_lock() -> DeskResult<()> {
+        use desk_crypto::TrustStore;
+        let mut trust = TrustStore::in_memory();
+        let peer = DeviceIdentity::generate()?;
+        trust.add(peer.public_key())?;
+        let hub = Hub::new_with_options(
+            DeviceIdentity::generate()?,
+            PairingManager::with_trust(trust),
+            true,
+        );
+        let (id, _rx) = hub.register_viewer(&peer.device_id());
+        let req = hub.pending_request().expect("request");
+        hub.answer_consent(&req.request_id, "control", true)
+            .map_err(desk_error::DeskError::Service)?;
+        assert!(hub.pending_request().is_none());
+        // Both locks are free again: a viewer lookup and a pairing read do not block.
+        hub.remove_viewer(id);
+        let remembered =
+            hub.with_pairing(|p| p.trust().is_device_always_allowed(&peer.device_id()));
+        assert!(remembered, "the always-allow choice must be persisted");
+        let (_id2, _rx2) = hub.register_viewer(&peer.device_id());
+        assert!(
+            hub.pending_request().is_none(),
+            "no second prompt for the same device"
+        );
+        Ok(())
+    }
+
+    /// DAPP-104: removing a pairing forgets only that device and drops its viewers.
+    #[test]
+    fn unpair_device_forgets_the_peer_and_drops_its_viewers() -> DeskResult<()> {
+        use desk_crypto::TrustStore;
+        let mut trust = TrustStore::in_memory();
+        let (a, b) = (DeviceIdentity::generate()?, DeviceIdentity::generate()?);
+        trust.add(a.public_key())?;
+        trust.add(b.public_key())?;
+        let hub = Hub::new(
+            DeviceIdentity::generate()?,
+            PairingManager::with_trust(trust),
+        );
+        let (_ida, rx_a) = hub.register_viewer(&a.device_id());
+        let (_idb, _rx_b) = hub.register_viewer(&b.device_id());
+
+        assert!(hub.unpair_device(&a.device_id()));
+        assert!(
+            !hub.unpair_device(&a.device_id()),
+            "second removal finds nothing"
+        );
+
+        let trusted = |d: &str| hub.with_pairing(|p| p.trust().is_device_trusted(d));
+        assert!(!trusted(&a.device_id()));
+        assert!(trusted(&b.device_id()), "the other peer stays paired");
+        assert!(
+            matches!(
+                rx_a.recv_timeout(std::time::Duration::from_secs(1)),
+                Ok(Message::Notice { .. })
+            ),
+            "the removed peer's viewer is told it was disconnected"
         );
         Ok(())
     }

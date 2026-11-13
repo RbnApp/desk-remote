@@ -17,6 +17,15 @@ pub enum TailnetState {
     Off,
 }
 
+/// One paired panel as the tray list shows it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PairedPeerInfo {
+    /// Device ID, the handle for "remove pairing".
+    pub device_id: String,
+    /// Name the panel last announced (empty until it connected once).
+    pub name: String,
+}
+
 /// Snapshot of the agent for the tray menu and the About window.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentInfo {
@@ -45,4 +54,7 @@ pub struct AgentInfo {
     pub unavailable: bool,
     /// Remote input is blocked (watch only).
     pub view_only: bool,
+    /// Panels paired with this PC (tray "Paired panels" list, DAPP-104).
+    #[serde(default)]
+    pub paired: Vec<PairedPeerInfo>,
 }
