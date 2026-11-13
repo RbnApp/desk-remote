@@ -325,7 +325,8 @@
       "cancel": "Stop waiting",
       "disconnect_hint": "Signs only this panel out of your tailnet. Another Tailscale app on this PC is not affected.",
       "failed": "Couldn't start the sign-in. Try again.",
-      "peers": "Other devices",
+      "peers_online": "Devices online",
+      "peers": "Total devices",
       "address": "Tailscale address"
     },
     "idle": {

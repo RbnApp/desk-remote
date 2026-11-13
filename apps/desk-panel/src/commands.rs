@@ -47,7 +47,10 @@ pub struct TailscaleInfo {
     state: desk_transport::PanelTailnetState,
     host: Option<String>,
     address: Option<String>,
+    /// Every device of the tailnet, online or not.
     peers: usize,
+    /// Devices of the tailnet that are online right now.
+    peers_online: usize,
 }
 
 /// Light and dark tokens of one palette, for the palette picker previews.
@@ -414,6 +417,7 @@ pub async fn tailscale_status() -> Result<TailscaleInfo, String> {
             host: snapshot.host_name,
             address: snapshot.ips.into_iter().next(),
             peers: snapshot.peers.len(),
+            peers_online: snapshot.peers.iter().filter(|p| p.online).count(),
         }
     })
     .await

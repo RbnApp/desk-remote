@@ -62,7 +62,7 @@ function tailscaleSection() {
     ? `<span class="badge online">${ic("dot")}${state}</span>`
     : `<span class="badge offline">${ic("ring")}${state}</span>`;
   const details = running
-    ? `<dl class="kv"><dt>${t("set.tailscale.address")}</dt><dd>${esc(ts.address ?? "—")}</dd><dt>${t("set.tailscale.peers")}</dt><dd>${ts.peers}</dd></dl>`
+    ? `<dl class="kv"><dt>${t("set.tailscale.address")}</dt><dd>${esc(ts.address ?? "—")}</dd><dt>${t("set.tailscale.peers_online")}</dt><dd>${ts.peers_online}</dd><dt>${t("set.tailscale.peers")}</dt><dd>${ts.peers}</dd></dl>`
     : "";
   let action;
   if (S.tsConnecting) {

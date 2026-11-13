@@ -325,7 +325,8 @@
       "cancel": "Beklemeyi bırak",
       "disconnect_hint": "Yalnız bu panelin tailnet oturumunu kapatır. Bu PC’deki başka bir Tailscale uygulaması etkilenmez.",
       "failed": "Giriş başlatılamadı. Tekrar dene.",
-      "peers": "Diğer cihazlar",
+      "peers_online": "Çevrimiçi cihazlar",
+      "peers": "Toplam cihaz",
       "address": "Tailscale adresi"
     },
     "idle": {
