@@ -1051,6 +1051,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "desk-session"
+version = "0.1.1"
+dependencies = [
+ "desk-exe-identity",
+ "desk-session-helper",
+]
+
+[[package]]
 name = "desk-session-helper"
 version = "0.1.1"
 dependencies = [

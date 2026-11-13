@@ -3,7 +3,8 @@
   "copyright": "MIT",
   "exes": {
     "panel":   { "file": "desk-panel.exe",          "description": "Desk-Remote" },
-    "agent":   { "file": "DeskRemote-Ajan.exe",     "description": "Desk-Remote Agent" },
+    "agent":   { "file": "DeskRemote-Agent.exe",     "description": "Desk-Remote Agent" },
+    "session": { "file": "DeskRemote-Session.exe",   "description": "Desk-Remote Session Helper" },
     "tailnet": { "file": "desk-tailnet-helper.exe", "description": "Desk-Remote Tailnet Helper" },
     "relay":   { "file": "desk-relay.exe",          "description": "Desk-Remote Relay" }
   }

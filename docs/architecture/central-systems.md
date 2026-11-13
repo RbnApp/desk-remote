@@ -165,7 +165,7 @@ File transfer (row 13) is one rule set for every receiver: the panel's own host 
 - **Public API Principle**:
   - Implements the Windows Service control dispatcher, handling `SERVICE_CONTROL_STOP`, `SHUTDOWN`, and `SESSIONCHANGE`.
   - Monitors active user login/logout events via `WTSRegisterSessionNotification`.
-  - Launches the helper (the agent's own executable, `DeskRemote-Ajan.exe helper`) into the active console session token using `CreateProcessAsUserW` with appropriate desktop and window station attributes (`Winsta0\Default`).
+  - Launches the helper (the agent's own executable, `DeskRemote-Agent.exe helper`) into the active console session token using `CreateProcessAsUserW` with appropriate desktop and window station attributes (`Winsta0\Default`).
   - Monitors helper process liveness and restarts it if it crashes or the user session transitions.
 - **Strictly Forbidden Outside Owner**:
   - Invoking `std::process::Command::new("taskkill")` or raw shell commands to kill processes.

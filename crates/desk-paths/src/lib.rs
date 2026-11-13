@@ -13,6 +13,9 @@ pub const APP_ICON_RESOURCE_ID: u16 = 1;
 /// Subcommand that turns the agent executable into the per-session helper process.
 pub const HELPER_SUBCOMMAND: &str = "helper";
 
+/// File name of the session helper executable that ships next to the agent executable.
+pub const SESSION_HELPER_EXE_NAME: &str = "DeskRemote-Session.exe";
+
 /// Flag after `helper` that starts the SYSTEM secure-desktop helper instead of the tray helper.
 pub const SECURE_DESKTOP_FLAG: &str = "--secure-desktop";
 /// File name of the panel executable (installed next to the Explorer menu extension).

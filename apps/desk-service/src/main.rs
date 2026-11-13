@@ -1,12 +1,12 @@
-//! Desk-Remote PC agent: ONE executable, `DeskRemote-Ajan.exe`.
+//! Desk-Remote PC agent: ONE executable, `DeskRemote-Agent.exe`.
 //!
 //! Usage:
-//!   DeskRemote-Ajan                           double-click: portable test mode (see below); asks UAC once
-//!   DeskRemote-Ajan install                   register + start the Windows service (admin)
-//!   DeskRemote-Ajan uninstall                 stop + remove the service (admin)
-//!   DeskRemote-Ajan stop                      stop a running `run --console` instance (no window)
-//!   DeskRemote-Ajan run                       entry point used by the Service Control Manager
-//!   DeskRemote-Ajan run --console [--loopback] [--portable] [--allow-on-panel-pc] [--data-dir D] [--port P] [--run-for SECS]
+//!   DeskRemote-Agent                           double-click: portable test mode (see below); asks UAC once
+//!   DeskRemote-Agent install                   register + start the Windows service (admin)
+//!   DeskRemote-Agent uninstall                 stop + remove the service (admin)
+//!   DeskRemote-Agent stop                      stop a running `run --console` instance (no window)
+//!   DeskRemote-Agent run                       entry point used by the Service Control Manager
+//!   DeskRemote-Agent run --console [--loopback] [--portable] [--allow-on-panel-pc] [--data-dir D] [--port P] [--run-for SECS]
 //!                                             run in the foreground as the current user (dev/test);
 //!                                             --loopback: 127.0.0.1 only, no mDNS, no tailnet helper
 //!                                             --portable: tray menu offers "Quit" (user-started only)
@@ -14,7 +14,7 @@
 //!                                             without it the host never starts on a panel PC
 //!                                             --self-update: also check for and install updates
 //!                                             (the service always does; this is for tests)
-//!   DeskRemote-Ajan helper [--data-dir D] [--portable]
+//!   DeskRemote-Agent helper [--data-dir D] [--portable]
 //!                                             the per-session helper (tray, capture, input); the
 //!                                             service starts it from this same file
 //!

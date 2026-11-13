@@ -1,4 +1,4 @@
-; Desk-Remote agent installer (DeskRemote-Ajan.exe + Windows service).
+; Desk-Remote agent installer (DeskRemote-Agent.exe + Windows service).
 ; Compiled by scripts/build-installers.ps1 with the NSIS that Tauri downloads. The script passes
 ; VERSION, EXE_PATH, ICON_PATH, OUT_FILE and the include path of the generated installer-strings.nsh
 ; (made from locales/en.json + locales/tr.json). Only built-in NSIS plugins are used.
@@ -15,7 +15,10 @@ Unicode true
 !include "installer-strings.nsh"
 
 !define APP_ID "DeskRemoteAgent"
-!define EXE_NAME "DeskRemote-Ajan.exe"
+!define EXE_NAME "DeskRemote-Agent.exe"
+; Name before 0.1.2-era builds: an upgrade carries the old file over to the new name.
+!define LEGACY_EXE_NAME "DeskRemote-Ajan.exe"
+!define SESSION_EXE_NAME "DeskRemote-Session.exe"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}"
 
 Name "Desk-Remote Agent"
@@ -80,6 +83,8 @@ Var Out
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_ID}"
     Delete "$INSTDIR\${EXE_NAME}"
     Delete "$INSTDIR\${EXE_NAME}.bak"
+    Delete "$INSTDIR\${SESSION_EXE_NAME}"
+    Delete "$INSTDIR\${LEGACY_EXE_NAME}"
     Delete "$INSTDIR\Uninstall.exe"
     RMDir "$INSTDIR"
   FunctionEnd
@@ -91,7 +96,7 @@ Var Out
 ; it by its exact image path only. Shared by upgrade and uninstall.
 !macro DrCloseStray PREFIX
   Function ${PREFIX}CloseStray
-    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "Get-Process -Name DeskRemote-Ajan -ErrorAction SilentlyContinue | Where-Object { $$_.Path -eq ''$INSTDIR\${EXE_NAME}'' -or $$_.Path -eq ''$INSTDIR\${EXE_NAME}.bak'' } | Stop-Process -Force"'
+    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "Get-Process -Name DeskRemote-Agent,DeskRemote-Ajan,DeskRemote-Session -ErrorAction SilentlyContinue | Where-Object { $$_.Path -eq ''$INSTDIR\${EXE_NAME}'' -or $$_.Path -eq ''$INSTDIR\${EXE_NAME}.bak'' -or $$_.Path -eq ''$INSTDIR\${SESSION_EXE_NAME}'' } | Stop-Process -Force"'
   FunctionEnd
 !macroend
 !insertmacro DrCloseStray ""
@@ -117,6 +122,8 @@ Function RestoreBackup
   ${If} ${FileExists} "$INSTDIR\${EXE_NAME}.bak"
     Delete "$INSTDIR\${EXE_NAME}"
     Rename "$INSTDIR\${EXE_NAME}.bak" "$INSTDIR\${EXE_NAME}"
+    ; The old agent carries its own helper; a new helper next to it could speak another protocol.
+    Delete "$INSTDIR\${SESSION_EXE_NAME}"
     ${If} $UserMode == 0
       nsExec::ExecToLog '"$INSTDIR\${EXE_NAME}" install'
     ${EndIf}
@@ -134,6 +141,13 @@ Section "Install"
     SetShellVarContext current
   ${EndIf}
 
+  ; An install made under the old file name: carry it over to the new name so the upgrade below
+  ; (stop, backup, replace, re-register the service with the new path) treats it as the agent.
+  ${If} ${FileExists} "$INSTDIR\${LEGACY_EXE_NAME}"
+  ${AndIfNot} ${FileExists} "$INSTDIR\${EXE_NAME}"
+    Rename "$INSTDIR\${LEGACY_EXE_NAME}" "$INSTDIR\${EXE_NAME}"
+  ${EndIf}
+
   ; An upgrade: the running copy must not hold the files. End it the same way the uninstaller
   ; does, then keep the old exe as a backup until the new one is in place and registered.
   ${If} ${FileExists} "$INSTDIR\${EXE_NAME}"
@@ -142,6 +156,7 @@ Section "Install"
     nsExec::ExecToLog '"$INSTDIR\${EXE_NAME}" stop'
     Sleep 1000
     Call CloseStray
+    Delete "$INSTDIR\${SESSION_EXE_NAME}"
     Delete "$INSTDIR\${EXE_NAME}.bak"
     ClearErrors
     Rename "$INSTDIR\${EXE_NAME}" "$INSTDIR\${EXE_NAME}.bak"
@@ -160,6 +175,12 @@ Section "Install"
   SetOutPath "$INSTDIR"
   ClearErrors
   File "/oname=${EXE_NAME}" "${EXE_PATH}"
+  ${If} ${Errors}
+    Call RestoreBackup
+    SetErrorLevel 3
+    Abort
+  ${EndIf}
+  File "/oname=${SESSION_EXE_NAME}" "${SESSION_EXE_PATH}"
   ${If} ${Errors}
     Call RestoreBackup
     SetErrorLevel 3

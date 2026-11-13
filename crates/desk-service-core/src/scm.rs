@@ -276,7 +276,7 @@ mod tests {
 
     #[test]
     fn the_service_starts_automatically_as_a_run_entry() {
-        let info = service_info(std::path::Path::new(r"C:\Desk\DeskRemote-Ajan.exe"));
+        let info = service_info(std::path::Path::new(r"C:\Desk\DeskRemote-Agent.exe"));
         assert_eq!(info.start_type, ServiceStartType::AutoStart);
         assert_eq!(info.launch_arguments, vec![OsString::from("run")]);
         assert!(info.account_name.is_none(), "LocalSystem");

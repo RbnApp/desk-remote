@@ -18,8 +18,9 @@ Desk-Remote is organized as a Cargo workspace with two primary functional trees:
 Desk-Remote/
 ├── .github/                      # CI workflows, quality gate actions
 ├── apps/                         # Executable applications and daemons
-│   ├── desk-service/             # The agent executable DeskRemote-Ajan.exe: Windows Service (SYSTEM, Session 0), portable double-click mode, `helper` subcommand
-│   ├── desk-session-helper/      # Library: user session helper (tray, capture, input), started as `DeskRemote-Ajan.exe helper`
+│   ├── desk-service/             # The agent executable DeskRemote-Agent.exe: Windows Service (SYSTEM, Session 0), portable double-click mode, `helper` subcommand
+│   ├── desk-session-helper/      # Library: user session helper (tray, capture, input)
+│   ├── desk-session/             # The helper as its own executable DeskRemote-Session.exe (Task Manager: "Desk-Remote Session Helper"); the portable single-file agent runs the helper from itself
 │   ├── desk-panel/               # Desktop management GUI application
 │   ├── desk-shell-ext/           # Windows 11 first-level Explorer menu entry (COM DLL desk_remote_menu.dll)
 │   └── desk-relay/               # Self-hosted signaling and WebRTC relay server
@@ -64,7 +65,7 @@ Desk-Remote/
 
 ### `apps/desk-service`
 - **Role**: Windows Service running under the `NT AUTHORITY\SYSTEM` account in Session 0.
-- **Responsibility**: Boots automatically at machine startup (even before any user logs in), monitors Windows session changes (`WTSRegisterSessionNotification`), spawns the helper (`DeskRemote-Ajan.exe helper`, same file) into the active console session via `CreateProcessAsUserW`, and provides service watchdog management.
+- **Responsibility**: Boots automatically at machine startup (even before any user logs in), monitors Windows session changes (`WTSRegisterSessionNotification`), spawns the helper (`DeskRemote-Session.exe helper`, next to the agent; the portable single-file agent uses `DeskRemote-Agent.exe helper`) into the active console session via `CreateProcessAsUserW`, and provides service watchdog management.
 - **Scope Restriction**: No GUI code, no direct desktop screen scraping (Session 0 has no interactive desktop in modern Windows).
 
 ### `apps/desk-shell-ext`

@@ -35,7 +35,7 @@ pub fn product() -> String {
     catalog().map(|c| c.product).unwrap_or_default()
 }
 
-/// Identity of the executable `key` (`panel`, `agent`, `tailnet`, `relay`).
+/// Identity of the executable `key` (`panel`, `agent`, `session`, `tailnet`, `relay`).
 #[must_use]
 pub fn exe(key: &str) -> Option<ExeIdentity> {
     catalog()?.exes.remove(key)
@@ -113,11 +113,11 @@ mod tests {
     #[test]
     fn every_executable_has_a_distinct_description() {
         let all = all();
-        assert_eq!(all.len(), 4);
+        assert_eq!(all.len(), 5);
         let mut seen: Vec<String> = all.iter().map(|(_, e)| e.description.clone()).collect();
         seen.sort();
         seen.dedup();
-        assert_eq!(seen.len(), 4, "descriptions must differ");
+        assert_eq!(seen.len(), 5, "descriptions must differ");
         assert!(all
             .iter()
             .all(|(_, e)| e.description.starts_with("Desk-Remote")));

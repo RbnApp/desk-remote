@@ -49,7 +49,7 @@ Step "Release build (agent, menu DLL; the panel is built by the Tauri bundler be
 if (-not (Test-Path "apps\desk-tailnet-helper\desk-tailnet-helper.exe")) {
     Run "tailnet helper" { & powershell -NoProfile -File (Join-Path $PSScriptRoot "build-tailnet-helper.ps1") }
 }
-Run "cargo build" { & cargo build --release -p desk-service -p desk-shell-ext }
+Run "cargo build" { & cargo build --release -p desk-service -p desk-session -p desk-shell-ext }
 
 # ---- 2. Installer strings from locales (single source) -------------------------------------
 Step "Installer strings from locales/en.json + locales/tr.json"
@@ -138,10 +138,11 @@ Step "Agent installer (NSIS)"
 $MakeNsis = Join-Path $env:LOCALAPPDATA "tauri\NSIS\makensis.exe"
 if (-not (Test-Path $MakeNsis)) { throw "makensis not found at $MakeNsis (the Tauri build downloads it)" }
 $AgentOut = Join-Path $Dist "DeskRemote-Agent-Setup-$Version.exe"
-$AgentExe = Join-Path $Release "DeskRemote-Ajan.exe"
+$AgentExe = Join-Path $Release "DeskRemote-Agent.exe"
+$SessionExe = Join-Path $Release "DeskRemote-Session.exe"
 $IconPath = Join-Path $RepoRoot "apps\desk-service\icons\icon.ico"
 Run "makensis" {
-    & $MakeNsis /V2 "/DVERSION=$Version" "/DEXE_PATH=$AgentExe" "/DICON_PATH=$IconPath" "/DOUT_FILE=$AgentOut" `
+    & $MakeNsis /V2 "/DVERSION=$Version" "/DEXE_PATH=$AgentExe" "/DSESSION_EXE_PATH=$SessionExe" "/DICON_PATH=$IconPath" "/DOUT_FILE=$AgentOut" `
         "/X!addincludedir `"$Gen`"" (Join-Path $RepoRoot "packaging\agent.nsi") | Out-Host
 }
 

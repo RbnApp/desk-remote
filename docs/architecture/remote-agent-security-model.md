@@ -1,6 +1,6 @@
 # Remote agent security model
 
-Decision K-581181 = A (2026-11-13). Applies to the PC agent (`DeskRemote-Ajan`) and the panel.
+Decision K-581181 = A (2026-11-13). Applies to the PC agent (`DeskRemote-Agent`) and the panel.
 
 ## Decision
 
@@ -36,7 +36,7 @@ was added that widens who may connect.
 
 - The user's tray helper cannot open the secure (Winlogon) desktop. While viewers watch and the user
   helper reports `DesktopLocked` (or Windows reports the session locked), the supervisor starts a second
-  copy of the agent in the same session as **SYSTEM**: `DeskRemote-Ajan.exe helper --secure-desktop`
+  copy of the agent in the same session as **SYSTEM**: `DeskRemote-Agent.exe helper --secure-desktop`
   (`launch::launch_system_helper`; the service's own token moved to the session).
 - That helper has no tray, no windows and no file access. It speaks only picture, cursor and input over its
   own pipe `\\.\pipe\DeskRemote-SecureHelper-<session>`, whose DACL is SYSTEM only; the service verifies

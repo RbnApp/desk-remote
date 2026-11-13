@@ -1,0 +1,19 @@
+[package]
+name = "desk-session"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "DeskRemote-Session"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+desk-session-helper = { path = "../desk-session-helper", version = "0.1.1" }
+
+[build-dependencies]
+desk-exe-identity = { workspace = true, features = ["embed"] }

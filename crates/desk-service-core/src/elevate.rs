@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn the_uac_request_uses_the_runas_verb() {
-        let exe = Path::new(r"C:\Program Files\Desk-Remote\DeskRemote-Ajan.exe");
+        let exe = Path::new(r"C:\Program Files\Desk-Remote\DeskRemote-Agent.exe");
         let request = RunasRequest::new(exe, "");
         assert_eq!(request.verb, "runas");
         assert_eq!(request.file, exe);

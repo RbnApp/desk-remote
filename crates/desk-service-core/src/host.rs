@@ -12,6 +12,7 @@ use desk_crypto::{DeviceIdentity, PairingManager, TrustStore};
 use desk_error::{DeskError, DeskResult};
 use desk_paths::DeskPaths;
 use desk_transport::{LanAnnouncer, Listener};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
@@ -186,7 +187,7 @@ impl ServiceHost {
 
         let sup_cfg = SupervisorConfig {
             mode: opts.mode,
-            helper_exe: DeskPaths::current_exe()?,
+            helper_exe: session_helper_exe()?,
             helper_args: std::iter::once(desk_paths::HELPER_SUBCOMMAND.to_string())
                 .chain(
                     opts.data_dir
@@ -352,4 +353,13 @@ pub fn wait_for_console_stop(max: Option<std::time::Duration>) {
         // SAFETY: closing the handle created above.
         let _ = unsafe { CloseHandle(e) };
     }
+}
+
+/// The executable that runs the session helper: `DeskRemote-Session.exe` next to the agent (own
+/// Task Manager name), or the agent executable itself in the portable single-file mode.
+fn session_helper_exe() -> DeskResult<PathBuf> {
+    DeskPaths::sibling_exe(desk_paths::SESSION_HELPER_EXE_NAME)
+        .ok()
+        .filter(|p| p.is_file())
+        .map_or_else(DeskPaths::current_exe, Ok)
 }

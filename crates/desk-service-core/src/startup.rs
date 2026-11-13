@@ -61,12 +61,12 @@ mod tests {
     #[test]
     fn command_quotes_both_paths_and_keeps_the_portable_flags() {
         let cmd = portable_run_command(
-            Path::new(r"C:\Tools\My Agent\DeskRemote-Ajan.exe"),
+            Path::new(r"C:\Tools\My Agent\DeskRemote-Agent.exe"),
             Path::new(r"C:\Tools\My Agent\DeskRemote-data"),
         );
         assert_eq!(
             cmd,
-            r#""C:\Tools\My Agent\DeskRemote-Ajan.exe" run --console --portable --data-dir "C:\Tools\My Agent\DeskRemote-data""#
+            r#""C:\Tools\My Agent\DeskRemote-Agent.exe" run --console --portable --data-dir "C:\Tools\My Agent\DeskRemote-data""#
         );
     }
 }
