@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [lints]
 workspace = true
@@ -13,3 +14,6 @@ desk-config = { workspace = true }
 desk-error = { workspace = true }
 desk-logger = { workspace = true }
 tracing = { workspace = true }
+
+[build-dependencies]
+desk-exe-identity = { workspace = true, features = ["embed"] }

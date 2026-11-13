@@ -1,0 +1,19 @@
+[package]
+name = "desk-exe-identity"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Build-script helper: embeds the icon and version resource into an executable.
+embed = ["dep:embed-resource"]
+
+[dependencies]
+desk-version = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+embed-resource = { version = "3", optional = true }

@@ -24,4 +24,4 @@ tracing = { workspace = true }
 windows = { version = "0.62", features = ["Win32_System_Console"] }
 
 [build-dependencies]
-embed-resource = "3"
+desk-exe-identity = { workspace = true, features = ["embed"] }

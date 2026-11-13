@@ -896,6 +896,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "desk-exe-identity"
+version = "0.1.0"
+dependencies = [
+ "desk-version",
+ "embed-resource",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "desk-i18n"
 version = "0.1.0"
 dependencies = [
@@ -994,6 +1004,7 @@ version = "0.1.0"
 dependencies = [
  "desk-config",
  "desk-error",
+ "desk-exe-identity",
  "desk-logger",
  "tracing",
 ]
@@ -1003,11 +1014,11 @@ name = "desk-service"
 version = "0.1.0"
 dependencies = [
  "desk-error",
+ "desk-exe-identity",
  "desk-logger",
  "desk-paths",
  "desk-service-core",
  "desk-session-helper",
- "embed-resource",
  "tracing",
  "windows",
 ]
@@ -1020,6 +1031,7 @@ dependencies = [
  "desk-config",
  "desk-crypto",
  "desk-error",
+ "desk-exe-identity",
  "desk-i18n",
  "desk-ipc",
  "desk-logger",

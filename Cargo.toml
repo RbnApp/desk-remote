@@ -6,6 +6,7 @@ members = [
     "crates/desk-paths",
     "crates/desk-config",
     "crates/desk-version",
+    "crates/desk-exe-identity",
     "crates/desk-i18n",
     "crates/desk-theme",
     "crates/desk-transport",
@@ -44,6 +45,7 @@ desk-logger = { path = "crates/desk-logger", version = "0.1.0" }
 desk-paths = { path = "crates/desk-paths", version = "0.1.0" }
 desk-config = { path = "crates/desk-config", version = "0.1.0" }
 desk-version = { path = "crates/desk-version", version = "0.1.0" }
+desk-exe-identity = { path = "crates/desk-exe-identity", version = "0.1.0" }
 desk-i18n = { path = "crates/desk-i18n", version = "0.1.0" }
 desk-theme = { path = "crates/desk-theme", version = "0.1.0" }
 desk-transport = { path = "crates/desk-transport", version = "0.1.0" }

@@ -20,7 +20,6 @@ use windows_service::{define_windows_service, service_dispatcher};
 
 /// Registered service name.
 pub const SERVICE_NAME: &str = "DeskRemoteService";
-const DISPLAY_NAME: &str = "Desk-Remote Service";
 const DESCRIPTION: &str = "Desk-Remote PC agent: pairing, trust and remote-session host.";
 
 static HOST_OPTIONS: OnceLock<Mutex<Option<HostOptions>>> = OnceLock::new();
@@ -152,7 +151,7 @@ fn run_service() -> DeskResult<()> {
 fn service_info(service_exe: &std::path::Path) -> ServiceInfo {
     ServiceInfo {
         name: OsString::from(SERVICE_NAME),
-        display_name: OsString::from(DISPLAY_NAME),
+        display_name: OsString::from(desk_exe_identity::description("agent")),
         service_type: ServiceType::OWN_PROCESS,
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,

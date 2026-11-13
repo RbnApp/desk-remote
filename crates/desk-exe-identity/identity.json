@@ -1,0 +1,10 @@
+{
+  "product": "Desk-Remote",
+  "copyright": "MIT",
+  "exes": {
+    "panel":   { "file": "desk-panel.exe",          "description": "Desk-Remote" },
+    "agent":   { "file": "DeskRemote-Ajan.exe",     "description": "Desk-Remote Agent" },
+    "tailnet": { "file": "desk-tailnet-helper.exe", "description": "Desk-Remote Tailnet Helper" },
+    "relay":   { "file": "desk-relay.exe",          "description": "Desk-Remote Relay" }
+  }
+}

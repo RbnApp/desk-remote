@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 desk-error = { workspace = true }
+desk-exe-identity = { workspace = true }
 desk-i18n = { workspace = true }
 desk-paths = { workspace = true }
 desk-config = { workspace = true }
