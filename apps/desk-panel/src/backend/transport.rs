@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// How often the background refresher rescans the LAN/tailnet and re-probes paired PCs.
-const REFRESH: Duration = Duration::from_secs(8);
+const REFRESH: Duration = Duration::from_secs(30);
 const MDNS_SCAN: Duration = Duration::from_millis(1500);
 const PROBE_CONNECT: Duration = Duration::from_millis(1500);
 const SESSION_CONNECT: Duration = Duration::from_secs(4);

@@ -89,7 +89,7 @@ async function loadFound() {
 }
 
 setInterval(() => {
-  if (S.screen === "pair" && pair.phase === "idle") loadFound();
+  if (!document.hidden && S.screen === "pair" && pair.phase === "idle") loadFound();
 }, FOUND_POLL_MS);
 
 /** Updates the enabled state of the submit button. */

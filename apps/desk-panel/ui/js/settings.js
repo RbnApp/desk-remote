@@ -183,7 +183,7 @@ export function cancelTailscaleConnect() {
 export function startSidebarPolling() {
   refreshTailscale();
   setInterval(() => {
-    if (!S.tsConnecting && S.screen !== "viewer") refreshTailscale();
+    if (!document.hidden && !S.tsConnecting && S.screen !== "viewer") refreshTailscale();
   }, SIDEBAR_POLL_MS);
 }
 

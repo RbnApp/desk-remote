@@ -97,9 +97,10 @@ impl LanBrowser {
             DeskError::Transport(format!("Failed to create mDNS browser daemon: {e}"))
         })?;
 
-        let receiver = daemon
-            .browse(SERVICE_TYPE)
-            .map_err(|e| DeskError::Transport(format!("Failed to browse mDNS service: {e}")))?;
+        let receiver = daemon.browse(SERVICE_TYPE).map_err(|e| {
+            let _ = daemon.shutdown();
+            DeskError::Transport(format!("Failed to browse mDNS service: {e}"))
+        })?;
 
         let start = Instant::now();
         let mut peers = Vec::new();
@@ -129,6 +130,9 @@ impl LanBrowser {
         }
 
         let _ = daemon.stop_browse(SERVICE_TYPE);
+        // The daemon thread outlives its handle: without an explicit shutdown every scan leaks a
+        // thread plus its multicast sockets (DAPP-120).
+        let _ = daemon.shutdown();
         Ok(peers)
     }
 }

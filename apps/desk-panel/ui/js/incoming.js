@@ -200,7 +200,7 @@ async function answer(decision) {
 }
 
 function tick() {
-  if (inc.enabled) {
+  if (!document.hidden && inc.enabled) {
     const ttl = $("#codeTtl");
     if (ttl) ttl.textContent = ttlText();
     if (Date.now() >= inc.ttlEnd) refreshIncoming();
