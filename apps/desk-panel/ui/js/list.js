@@ -38,6 +38,46 @@ export async function doUnpair() {
   await loadPcs();
 }
 
+const RENAME_MAX = 40;
+
+/** Asks for a new display name; it is kept in this panel only and blank returns to the real name. */
+export function openRename(id) {
+  const pc = S.pcs.find((p) => p.id === id);
+  if (!pc) return;
+  S.renameId = id;
+  const real = pc.original_name || pc.name;
+  const shown = pc.name === real ? "" : pc.name;
+  openModal({
+    key: "rename",
+    icon: "edit",
+    title: esc(t("list.rename_title")),
+    body: `<label class="sr" for="renameName">${esc(t("list.rename_label"))}</label>
+      <input id="renameName" class="input" type="text" maxlength="${RENAME_MAX}" autocomplete="off" value="${esc(shown)}" placeholder="${esc(real)}">
+      <p class="hint">${esc(t("list.rename_hint", { name: real }))}</p>`,
+    focus: "#renameName",
+    buttons: [
+      { act: "rename-cancel", label: t("list.rename_cancel") },
+      { act: "rename-do", label: t("list.rename_save"), cls: "primary", id: "renameDo" },
+    ],
+  });
+  $("#renameName")?.select();
+}
+
+export async function doRename() {
+  const id = S.renameId;
+  const name = ($("#renameName")?.value ?? "").trim();
+  closeModal("rename");
+  if (!id) return;
+  try {
+    await invoke("pc_rename", { pcId: id, name });
+    toast(t(name ? "list.rename_done" : "list.rename_reset"));
+  } catch {
+    toast(t("error.unknown"));
+  }
+  S.renameId = null;
+  await loadPcs();
+}
+
 export async function loadPcs() {
   S.listState = "loading";
   if (S.screen === "list") render();

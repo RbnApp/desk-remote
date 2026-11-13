@@ -91,6 +91,7 @@ impl Backend for DemoBackend {
             .map(|pc| PcInfo {
                 id: pc.id.clone(),
                 name: pc.name.clone(),
+                original_name: String::new(),
                 status: PcStatus::Online,
                 last_seen_min: 0,
                 warn: None,
@@ -100,6 +101,7 @@ impl Backend for DemoBackend {
         rows.extend(FAKE_PCS.iter().map(|(id, name, status, min, warn)| PcInfo {
             id: (*id).to_string(),
             name: (*name).to_string(),
+            original_name: String::new(),
             status: *status,
             last_seen_min: *min,
             warn: warn.map(str::to_string),
@@ -123,6 +125,7 @@ impl Backend for DemoBackend {
                         .filter(|s| !s.trim().is_empty())
                         .map_or(fallback, |s| s.trim().to_string()),
                     address: None,
+                    alias: None,
                 })
             }
             "EXPR-0000" => Err(PairError::Expired),
@@ -372,6 +375,7 @@ mod tests {
             id: id.to_string(),
             name: id.to_string(),
             address: None,
+            alias: None,
         };
         let (sink_a, frames_a, _) = counting_sink();
         let (sink_b, frames_b, _) = counting_sink();

@@ -36,6 +36,12 @@ func startListen(ctx context.Context, t *testing.T, exe, controlURL, stateDir st
 		"--hostname", "deskremote-agent",
 		"--tailnet-port", "7777",
 		"--bridge-addr", "127.0.0.1:1")
+	return attachListen(t, cmd)
+}
+
+// attachListen starts cmd and reads its JSON reports.
+func attachListen(t *testing.T, cmd *exec.Cmd) *listenProc {
+	t.Helper()
 	stdout, _ := cmd.StdoutPipe()
 	cmd.Stdin = nil
 	if err := cmd.Start(); err != nil {

@@ -30,7 +30,11 @@ pub enum PcStatus {
 #[derive(Debug, Clone, Serialize)]
 pub struct PcInfo {
     pub id: String,
+    /// Name shown in the panel: the owner's alias, else the PC's real name.
     pub name: String,
+    /// The PC's real name (what "empty alias" returns to); filled by `list_pcs`.
+    #[serde(default)]
+    pub original_name: String,
     pub status: PcStatus,
     /// Minutes since the PC was last seen (0 = now).
     pub last_seen_min: u32,

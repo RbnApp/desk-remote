@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,6 +53,28 @@ func defaultStateDir() string {
 	return filepath.Join(os.TempDir(), "deskremote-tailscale")
 }
 
+// defaultHostname is this computer's name as a DNS label, so a node started without --hostname is
+// still listed under the PC's name (never a product placeholder).
+func defaultHostname() string {
+	name, _ := os.Hostname()
+	var b []rune
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b = append(b, r)
+		} else {
+			b = append(b, '-')
+		}
+	}
+	label := strings.Trim(string(b), "-")
+	if len(label) > 63 {
+		label = strings.Trim(label[:63], "-")
+	}
+	if label == "" {
+		return "pc"
+	}
+	return label
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("usage: desk-tailnet-helper <auth|status|listen|proxy|panel> [flags]")
@@ -63,7 +86,7 @@ func main() {
 
 	stateDir := fs.String("state-dir", defaultStateDir(), "Path to Tailscale state directory")
 	controlURL := fs.String("control-url", os.Getenv("TS_CONTROL_URL"), "Custom Tailscale control plane URL")
-	hostname := fs.String("hostname", "deskremote-node", "Tailnet hostname")
+	hostname := fs.String("hostname", defaultHostname(), "Tailnet hostname (default: this computer's name)")
 	bridgeAddr := fs.String("bridge-addr", "127.0.0.1:7777", "Local loopback target or bind address")
 	tailnetPort := fs.Int("tailnet-port", 7777, "Tailnet listening port")
 	targetAddr := fs.String("target-addr", "", "Remote tailnet peer address (e.g. 100.x.y.z:7777)")

@@ -50,6 +50,10 @@ The panel (`apps/desk-panel`) runs its OWN tailnet node, so a viewer PC needs no
   helper extracted to `%APPDATA%\DeskRemote\bin\` (`DeskPaths::panel_tailnet_helper_path`), SHA verified. State
   (the login) lives in `%APPDATA%\DeskRemote\tailscale\` (`DeskPaths::panel_tailnet_dir`). Host name:
   `deskremote-panel-<computer>`.
+- **Agent host name** (DAPP-114): the service starts its helper with `--hostname <computer name>` (lower case DNS label,
+  `desk_service_core::tailnet_host_name`), so the PC is listed under its own name. A node that already exists is
+  renamed in place on the next helper start, with no new login. Without the flag the helper falls back to the
+  computer name too; no product placeholder is ever shown.
 - **Outgoing path**: the Rust side (`desk_transport::PanelTailnet`, the only place with network primitives) talks
   to a loopback bridge the helper opens on `127.0.0.1:<random>`. A per-launch random token (env `DESK_BRIDGE_TOKEN`,
   never logged) guards it. `CONNECT <token> <ip:port>` replies `OK`/`ERR ...`, then pipes bytes both ways to a

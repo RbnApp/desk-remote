@@ -43,6 +43,31 @@ pub struct PairedPc {
     /// Last known `host:port` (LAN or Tailscale) used to reach the PC without discovery.
     #[serde(default)]
     pub address: Option<String>,
+    /// Name the owner gave this PC in the panel (DAPP-114). Kept only here: the PC itself never
+    /// learns it. `None` means "show the real name" (`name`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
+}
+
+/// Longest display name a PC may be given, in characters.
+pub const MAX_PC_ALIAS_CHARS: usize = 40;
+
+impl PairedPc {
+    /// The name the panel shows: the owner's alias, else the PC's real name.
+    #[must_use]
+    pub fn display_name(&self) -> &str {
+        self.alias.as_deref().unwrap_or(&self.name)
+    }
+}
+
+/// Normalizes a typed PC alias: control characters dropped, trimmed, cut to
+/// [`MAX_PC_ALIAS_CHARS`]; blank means `None` (back to the real name).
+#[must_use]
+pub fn clean_pc_alias(raw: &str) -> Option<String> {
+    let kept: String = raw.chars().filter(|c| !c.is_control()).collect();
+    let name: String = kept.trim().chars().take(MAX_PC_ALIAS_CHARS).collect();
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.to_string())
 }
 
 /// Where the panel window was last left, in physical pixels (DAPP-108).

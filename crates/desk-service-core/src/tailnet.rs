@@ -167,10 +167,41 @@ impl TailnetGuard {
     }
 }
 
+/// Longest DNS label a tailnet host name may be.
+const HOST_LABEL_MAX: usize = 63;
+
+/// Host name this PC shows in the tailnet: its computer name as a DNS label (DAPP-114).
+///
+/// Lower case, letters/digits/`-` only (anything else becomes `-`), no leading or trailing `-`,
+/// at most 63 characters. A PC without a usable name gets `pc`, never a product placeholder.
+#[must_use]
+pub fn tailnet_host_name(computer_name: &str) -> String {
+    let label: String = computer_name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .take(HOST_LABEL_MAX)
+        .collect();
+    let label = label.trim_matches('-');
+    if label.is_empty() {
+        "pc".to_string()
+    } else {
+        label.to_string()
+    }
+}
+
 /// Starts one helper process; its stdout carries the JSON reports.
 fn spawn_helper(exe: &Path, state_dir: &Path, port: u16) -> Option<Child> {
+    let host = tailnet_host_name(&std::env::var("COMPUTERNAME").unwrap_or_default());
     let child = desk_paths::hidden_command(exe)
         .arg("listen")
+        .arg("--hostname")
+        .arg(&host)
         .arg("--state-dir")
         .arg(state_dir)
         .arg("--tailnet-port")
@@ -182,7 +213,7 @@ fn spawn_helper(exe: &Path, state_dir: &Path, port: u16) -> Option<Child> {
         .spawn()
         .map_err(|e| tracing::warn!(error = %e, "cannot start tailnet helper"))
         .ok()?;
-    tracing::info!(pid = child.id(), "tailnet helper started");
+    tracing::info!(pid = child.id(), host = %host, "tailnet helper started");
     Some(child)
 }
 
@@ -265,6 +296,17 @@ mod tests {
             "ordinary principals still listed: {listing}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn tailnet_host_name_is_the_computer_name_as_a_dns_label() {
+        assert_eq!(tailnet_host_name("MINIPC"), "minipc");
+        assert_eq!(tailnet_host_name("Ofis_PC 2"), "ofis-pc-2");
+        assert_eq!(tailnet_host_name("--Ev--"), "ev");
+        assert_eq!(tailnet_host_name(""), "pc");
+        assert_eq!(tailnet_host_name("___"), "pc");
+        assert_eq!(tailnet_host_name(&"A".repeat(90)).len(), 63);
+        assert!(!tailnet_host_name("deskremote-node").is_empty());
     }
 
     #[test]

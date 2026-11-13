@@ -64,6 +64,11 @@ export function UnpairBtn(pc, small) {
   return `<button class="btn${small ? " sm" : ""} icon danger" data-act="unpair" data-id="${esc(pc.id)}" title="${esc(t("list.unpair"))}" aria-label="${esc(`${t("list.unpair")} — ${pc.name}`)}">${ic("x")}</button>`;
 }
 
+/** "Rename" icon button (DAPP-114): the name is kept in the panel only. */
+export function RenameBtn(pc, small) {
+  return `<button class="btn${small ? " sm" : ""} icon" data-act="rename" data-id="${esc(pc.id)}" title="${esc(t("list.rename"))}" aria-label="${esc(`${t("list.rename")} — ${pc.name}`)}">${ic("edit")}</button>`;
+}
+
 const warnText = (pc) => (pc.warn ? t(`warn.${pc.warn}`) : "");
 
 const latency = (pc) => (pc.status === "online" || pc.status === "warning") && pc.latency_ms != null ? ` · ${pc.latency_ms} ms` : "";
@@ -71,12 +76,12 @@ const latency = (pc) => (pc.status === "online" || pc.status === "warning") && p
 export function PcCard(pc) {
   const seen = `<div class="meta">${ic("clock")}${t("last.label")}: ${lastSeen(pc)}${latency(pc)}</div>`;
   const warn = pc.warn ? `<div class="meta w">${ic("alert")}${warnText(pc)}</div>` : "";
-  return `<article class="card" aria-label="${esc(pc.name)}">${Thumb(pc)}<div class="body"><div class="top"><div class="name" title="${esc(pc.name)}">${esc(pc.name)}</div>${Badge(pc.status)}</div>${warn}${seen}<div class="act">${ConnectBtn(pc)}${SendBtn(pc, false, true)}${UnpairBtn(pc)}</div></div></article>`;
+  return `<article class="card" data-pc="${esc(pc.id)}" aria-label="${esc(pc.name)}">${Thumb(pc)}<div class="body"><div class="top"><div class="name" title="${esc(pc.name)}">${esc(pc.name)}</div>${Badge(pc.status)}</div>${warn}${seen}<div class="act">${ConnectBtn(pc)}${SendBtn(pc, false, true)}${RenameBtn(pc)}${UnpairBtn(pc)}</div></div></article>`;
 }
 
 export function PcRow(pc) {
   const warn = pc.warn ? `<div class="sub2" style="color:var(--warning)">${warnText(pc)}</div>` : "";
-  return `<tr><td><div class="name" title="${esc(pc.name)}">${esc(pc.name)}</div>${warn}</td><td>${Badge(pc.status)}</td><td class="sub2">${lastSeen(pc)}${latency(pc)}</td><td class="act"><div class="btn-group">${SendBtn(pc, true)}${ConnectBtn(pc, true)}${UnpairBtn(pc, true)}</div></td></tr>`;
+  return `<tr data-pc="${esc(pc.id)}"><td><div class="name" title="${esc(pc.name)}">${esc(pc.name)}</div>${warn}</td><td>${Badge(pc.status)}</td><td class="sub2">${lastSeen(pc)}${latency(pc)}</td><td class="act"><div class="btn-group">${SendBtn(pc, true)}${ConnectBtn(pc, true)}${RenameBtn(pc, true)}${UnpairBtn(pc, true)}</div></td></tr>`;
 }
 
 export function StateBlock(icon, title, body, buttons) {
