@@ -35,6 +35,7 @@ const ID_DISCONNECT_ALL: usize = 6;
 const ID_VIEW_ONLY: usize = 7;
 const ID_ABOUT: usize = 8;
 const ID_QUIT: usize = 9;
+const ID_UPDATE: usize = 10;
 /// First id of the "paired panels" entries; entry `i` is `ID_PAIRED_BASE + i`.
 const ID_PAIRED_BASE: usize = 100;
 /// Most paired panels the submenu lists.
@@ -272,6 +273,20 @@ pub fn show(hwnd: HWND) {
             info.as_ref().is_some_and(|i| i.view_only),
         );
         separator(menu);
+        append(
+            menu,
+            0,
+            &t("tray.version").replace("{v}", desk_version::CURRENT),
+            false,
+            false,
+        );
+        append(
+            menu,
+            ID_UPDATE,
+            &t("tray.update_check"),
+            ui.service_online,
+            false,
+        );
         append(menu, ID_ABOUT, &t("tray.about"), true, false);
         // Portable and installed-service mode share this one entry (and one code path).
         append(menu, ID_QUIT, &t("tray.quit"), true, false);
@@ -324,6 +339,7 @@ fn run(hwnd: HWND, picked: usize, info: Option<&AgentInfo>) {
         ID_VIEW_ONLY => send(&IpcMessage::SetViewOnly {
             enabled: !info.is_some_and(|i| i.view_only),
         }),
+        ID_UPDATE => send(&IpcMessage::UpdateRequest),
         ID_ABOUT => crate::about::show(),
         // Console agent: stopped directly. Installed service: only the tray icon goes; this helper
         // keeps capturing and injecting, so the supervisor has nothing to restart (DAPP-110).

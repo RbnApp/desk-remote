@@ -5,6 +5,7 @@
 //! encrypted [`Session`] handling, and mutual pairing handshake verification.
 
 pub mod discovery;
+pub mod http;
 pub mod listener;
 pub mod local_addr;
 pub mod panel_tailnet;

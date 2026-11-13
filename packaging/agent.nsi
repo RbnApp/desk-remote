@@ -78,12 +78,23 @@ Var Out
     DeleteRegKey HKLM "Software\${APP_ID}"
     DeleteRegKey HKCU "Software\${APP_ID}"
     Delete "$INSTDIR\${EXE_NAME}"
+    Delete "$INSTDIR\${EXE_NAME}.bak"
     Delete "$INSTDIR\Uninstall.exe"
     RMDir "$INSTDIR"
   FunctionEnd
 !macroend
 !insertmacro DrRemoveFiles ""
 !insertmacro DrRemoveFiles "un."
+
+; A tray helper outlives a stopped agent for a few seconds and would keep its exe locked: close
+; it by its exact image path only. Shared by upgrade and uninstall.
+!macro DrCloseStray PREFIX
+  Function ${PREFIX}CloseStray
+    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "Get-Process -Name DeskRemote-Ajan -ErrorAction SilentlyContinue | Where-Object { $$_.Path -eq ''$INSTDIR\${EXE_NAME}'' -or $$_.Path -eq ''$INSTDIR\${EXE_NAME}.bak'' } | Stop-Process -Force"'
+  FunctionEnd
+!macroend
+!insertmacro DrCloseStray ""
+!insertmacro DrCloseStray "un."
 
 Function .onInit
   StrCpy $UserMode 0
@@ -99,22 +110,60 @@ Function .onInit
   ClearErrors
 FunctionEnd
 
+; Puts the previous version back after a failed upgrade and starts it again, so the PC is never
+; left without an agent. A first install has no backup and is removed instead.
+Function RestoreBackup
+  ${If} ${FileExists} "$INSTDIR\${EXE_NAME}.bak"
+    Delete "$INSTDIR\${EXE_NAME}"
+    Rename "$INSTDIR\${EXE_NAME}.bak" "$INSTDIR\${EXE_NAME}"
+    ${If} $UserMode == 0
+      nsExec::ExecToLog '"$INSTDIR\${EXE_NAME}" install'
+    ${EndIf}
+    !insertmacro DrText update_restored
+    DetailPrint "$Out"
+  ${Else}
+    Call RemoveFiles
+  ${EndIf}
+FunctionEnd
+
 Section "Install"
   ${If} $UserMode == 0
     SetShellVarContext all
-    ; A previous copy must not hold the files: end it the same way the uninstaller does.
-    ${If} ${FileExists} "$INSTDIR\${EXE_NAME}"
-      !insertmacro DrText stop_tray
-      DetailPrint "$Out"
-      nsExec::ExecToLog '"$INSTDIR\${EXE_NAME}" stop'
-      Sleep 1000
-    ${EndIf}
   ${Else}
     SetShellVarContext current
   ${EndIf}
 
+  ; An upgrade: the running copy must not hold the files. End it the same way the uninstaller
+  ; does, then keep the old exe as a backup until the new one is in place and registered.
+  ${If} ${FileExists} "$INSTDIR\${EXE_NAME}"
+    !insertmacro DrText stop_tray
+    DetailPrint "$Out"
+    nsExec::ExecToLog '"$INSTDIR\${EXE_NAME}" stop'
+    Sleep 1000
+    Call CloseStray
+    Delete "$INSTDIR\${EXE_NAME}.bak"
+    ClearErrors
+    Rename "$INSTDIR\${EXE_NAME}" "$INSTDIR\${EXE_NAME}.bak"
+    ${If} ${Errors}
+      ; Still locked: nothing was changed, so just start the old agent again.
+      ${If} $UserMode == 0
+        nsExec::ExecToLog '"$INSTDIR\${EXE_NAME}" install'
+      ${EndIf}
+      !insertmacro DrText update_restored
+      DetailPrint "$Out"
+      SetErrorLevel 3
+      Abort
+    ${EndIf}
+  ${EndIf}
+
   SetOutPath "$INSTDIR"
+  ClearErrors
   File "/oname=${EXE_NAME}" "${EXE_PATH}"
+  ${If} ${Errors}
+    Call RestoreBackup
+    SetErrorLevel 3
+    Abort
+  ${EndIf}
   CreateDirectory "$SMPROGRAMS\Desk-Remote Agent"
   CreateShortcut "$SMPROGRAMS\Desk-Remote Agent\Desk-Remote Agent.lnk" "$INSTDIR\${EXE_NAME}" "" "$INSTDIR\${EXE_NAME}" 0
   WriteUninstaller "$INSTDIR\Uninstall.exe"
@@ -124,7 +173,8 @@ Section "Install"
     !insertmacro DrText service_install
     DetailPrint "$Out"
     ; The exe refuses on a panel PC (role guard) and needs administrator rights; its exit
-    ; code and message decide whether anything stays.
+    ; code and message decide whether the new version stays. `install` also upgrades an
+    ; existing service in place and starts it.
     nsExec::ExecToStack '"$INSTDIR\${EXE_NAME}" install'
     Pop $0
     Pop $1
@@ -134,13 +184,26 @@ Section "Install"
       ${IfNot} ${Silent}
         MessageBox MB_OK|MB_ICONSTOP "$Out$\r$\n$\r$\n$1"
       ${EndIf}
-      Call RemoveFiles
+      Call RestoreBackup
       SetErrorLevel 2
       Abort
     ${EndIf}
   ${Else}
     !insertmacro DrRegister HKCU
   ${EndIf}
+  ; The upgrade went through: the backup is no longer needed. The stopped agent may still be
+  ; winding down and holding its exe, so try for a few seconds.
+  StrCpy $R0 0
+  ${Do}
+    ClearErrors
+    Delete "$INSTDIR\${EXE_NAME}.bak"
+    ${IfNot} ${Errors}
+    ${OrIf} $R0 >= 10
+      ${Break}
+    ${EndIf}
+    IntOp $R0 $R0 + 1
+    Sleep 1000
+  ${Loop}
 SectionEnd
 
 Function un.onInit
@@ -163,8 +226,7 @@ Section "Uninstall"
     ; 2) deletes the service. Both best effort so a half-installed agent can still be removed.
     nsExec::ExecToLog '"$INSTDIR\${EXE_NAME}" stop'
     nsExec::ExecToLog '"$INSTDIR\${EXE_NAME}" uninstall'
-    ; A tray helper that outlived the service is closed by its exact image path only.
-    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "Get-Process -Name DeskRemote-Ajan -ErrorAction SilentlyContinue | Where-Object { $$_.Path -eq ''$INSTDIR\${EXE_NAME}'' } | Stop-Process -Force"'
+    Call un.CloseStray
     Sleep 500
   ${EndIf}
   Call un.RemoveFiles

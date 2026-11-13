@@ -44,6 +44,7 @@ pub fn run_dispatcher(paths: DeskPaths) -> DeskResult<()> {
         custom_identity: None,
         custom_trust: None,
         portable: false,
+        self_update: true,
     });
     service_dispatcher::start(SERVICE_NAME, ffi_service_main).map_err(|e| svc_err("dispatcher", e))
 }
@@ -147,14 +148,9 @@ fn run_service() -> DeskResult<()> {
     Ok(())
 }
 
-/// Registers the service (LocalSystem, automatic start, restart on crash). Needs admin.
-pub fn install(service_exe: &std::path::Path) -> DeskResult<()> {
-    let manager = ServiceManager::local_computer(
-        None::<&str>,
-        ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
-    )
-    .map_err(|e| svc_err("open service manager (administrator rights required)", e))?;
-    let info = ServiceInfo {
+/// The service definition: LocalSystem, automatic start, `run` entry point.
+fn service_info(service_exe: &std::path::Path) -> ServiceInfo {
+    ServiceInfo {
         name: OsString::from(SERVICE_NAME),
         display_name: OsString::from(DISPLAY_NAME),
         service_type: ServiceType::OWN_PROCESS,
@@ -165,16 +161,37 @@ pub fn install(service_exe: &std::path::Path) -> DeskResult<()> {
         dependencies: vec![],
         account_name: None,
         account_password: None,
+    }
+}
+
+/// Registers the service (LocalSystem, delayed automatic start, restart on crash) and starts
+/// it. Safe to run again: an existing service (an upgrade) is reconfigured in place and
+/// started if it is not running. Needs admin.
+pub fn install(service_exe: &std::path::Path) -> DeskResult<()> {
+    let manager = ServiceManager::local_computer(
+        None::<&str>,
+        ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
+    )
+    .map_err(|e| svc_err("open service manager (administrator rights required)", e))?;
+    let info = service_info(service_exe);
+    let access = ServiceAccess::CHANGE_CONFIG | ServiceAccess::START | ServiceAccess::QUERY_STATUS;
+    let service = match manager.open_service(SERVICE_NAME, access) {
+        Ok(existing) => {
+            existing
+                .change_config(&info)
+                .map_err(|e| svc_err("update service", e))?;
+            existing
+        }
+        Err(_) => manager
+            .create_service(&info, access)
+            .map_err(|e| svc_err("create service", e))?,
     };
-    let service = manager
-        .create_service(
-            &info,
-            ServiceAccess::CHANGE_CONFIG | ServiceAccess::START | ServiceAccess::QUERY_STATUS,
-        )
-        .map_err(|e| svc_err("create service", e))?;
     service
         .set_description(DESCRIPTION)
         .map_err(|e| svc_err("set description", e))?;
+    service
+        .set_delayed_auto_start(true)
+        .map_err(|e| svc_err("set delayed auto-start", e))?;
     let restart = |secs| ServiceAction {
         action_type: ServiceActionType::Restart,
         delay: Duration::from_secs(secs),
@@ -190,9 +207,15 @@ pub fn install(service_exe: &std::path::Path) -> DeskResult<()> {
     service
         .set_failure_actions_on_non_crash_failures(true)
         .map_err(|e| svc_err("recovery on non-crash failures", e))?;
-    service
-        .start::<&str>(&[])
-        .map_err(|e| svc_err("start service", e))?;
+    let state = service
+        .query_status()
+        .map_err(|e| svc_err("query status", e))?
+        .current_state;
+    if state == ServiceState::Stopped {
+        service
+            .start::<&str>(&[])
+            .map_err(|e| svc_err("start service", e))?;
+    }
     Ok(())
 }
 
@@ -246,4 +269,17 @@ pub fn uninstall(paths: &DeskPaths) -> DeskResult<()> {
         tracing::info!("official Tailscale restored to its previous state");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_service_starts_automatically_as_a_run_entry() {
+        let info = service_info(std::path::Path::new(r"C:\Desk\DeskRemote-Ajan.exe"));
+        assert_eq!(info.start_type, ServiceStartType::AutoStart);
+        assert_eq!(info.launch_arguments, vec![OsString::from("run")]);
+        assert!(info.account_name.is_none(), "LocalSystem");
+    }
 }

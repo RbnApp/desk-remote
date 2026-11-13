@@ -12,6 +12,8 @@
 //!                                             --portable: tray menu offers "Quit" (user-started only)
 //!                                             --allow-on-panel-pc: developer override, console only;
 //!                                             without it the host never starts on a panel PC
+//!                                             --self-update: also check for and install updates
+//!                                             (the service always does; this is for tests)
 //!   DeskRemote-Ajan helper [--data-dir D] [--portable]
 //!                                             the per-session helper (tray, capture, input); the
 //!                                             service starts it from this same file
@@ -42,6 +44,7 @@ struct Args {
     loopback: bool,
     portable: bool,
     allow_on_panel_pc: bool,
+    self_update: bool,
     data_dir: Option<PathBuf>,
     port: Option<u16>,
     run_for: Option<Duration>,
@@ -73,6 +76,7 @@ fn parse_args() -> DeskResult<Args> {
             "--loopback" => args.loopback = true,
             "--portable" => args.portable = true,
             "--allow-on-panel-pc" => args.allow_on_panel_pc = true,
+            "--self-update" => args.self_update = true,
             "--data-dir" => args.data_dir = Some(PathBuf::from(value("--data-dir")?)),
             "--port" => {
                 args.port = Some(
@@ -157,6 +161,7 @@ fn run(args: &Args) -> DeskResult<()> {
                 custom_identity: None,
                 custom_trust: None,
                 portable: args.portable,
+                self_update: args.self_update,
             })?;
             tracing::info!(port = host.port()?, "console mode: Ctrl+C stops");
             desk_service_core::wait_for_console_stop(args.run_for);

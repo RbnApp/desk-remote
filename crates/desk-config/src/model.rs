@@ -177,6 +177,9 @@ pub struct ServiceConfig {
     pub capture_max_height: u32,
     /// Largest file this PC accepts from a panel, in MB (same key and rules as the panel's).
     pub max_upload_mb: u32,
+    /// Replaces the GitHub "latest release" feed the agent updates from (a URL that returns
+    /// the same JSON). For tests against a local release source; `None` in production.
+    pub update_feed_url: Option<String>,
 }
 
 impl Default for ServiceConfig {
@@ -193,6 +196,7 @@ impl Default for ServiceConfig {
             capture_max_width: 1920,
             capture_max_height: 1080,
             max_upload_mb: DEFAULT_MAX_UPLOAD_MB,
+            update_feed_url: None,
         }
     }
 }

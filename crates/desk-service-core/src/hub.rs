@@ -130,8 +130,13 @@ pub struct Hub {
     next_id: AtomicU64,
     consent_gate_enabled: bool,
     consent_listener: Mutex<Option<ConsentListener>>,
+    /// Called when the tray asks for an update check (set by the agent's self-update).
+    update_handler: Mutex<Option<UpdateHandler>>,
     transfers: TransferState,
 }
+
+/// Reacts to a tray "check for updates" click; must return quickly (it runs on the IPC thread).
+pub type UpdateHandler = Arc<dyn Fn() + Send + Sync>;
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
@@ -157,6 +162,7 @@ impl Hub {
             next_id: AtomicU64::new(1),
             consent_gate_enabled: consent_gate,
             consent_listener: Mutex::new(None),
+            update_handler: Mutex::new(None),
             transfers: TransferState::default(),
         }
     }
@@ -170,6 +176,11 @@ impl Hub {
     /// Subscribes a listener to consent lifecycle events.
     pub fn set_consent_listener(&self, listener: Option<ConsentListener>) {
         *lock(&self.consent_listener) = listener;
+    }
+
+    /// Registers what happens when the tray asks for an update check.
+    pub fn set_update_handler(&self, handler: Option<UpdateHandler>) {
+        *lock(&self.update_handler) = handler;
     }
 
     fn emit_consent_event(&self, event: ConsentEvent) {
@@ -875,6 +886,12 @@ impl Hub {
                 self.disconnect_all();
             }
             IpcMessage::SetViewOnly { enabled } => self.set_view_only(enabled),
+            IpcMessage::UpdateRequest => {
+                let handler = lock(&self.update_handler).clone();
+                if let Some(handler) = handler {
+                    handler();
+                }
+            }
             IpcMessage::UnpairRequest { device_id } => {
                 self.unpair_device(&device_id);
             }

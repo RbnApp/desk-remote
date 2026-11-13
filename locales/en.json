@@ -371,6 +371,13 @@
     "disconnect_all": "Disconnect all viewers now",
     "view_only": "Block remote control (watch only)",
     "about": "About…",
+    "version": "Version {v}",
+    "update_check": "Check for updates",
+    "update_title": "Desk-Remote update",
+    "update_uptodate": "Up to date ({v})",
+    "update_installing": "Installing {v}. The agent restarts in a moment.",
+    "update_deferred": "{v} is ready and installs as soon as nobody is viewing this PC.",
+    "update_failed": "The update check failed. Nothing was changed on this PC.",
     "paired": "Paired panels",
     "paired_none": "No paired panels",
     "paired_remove_title": "Remove pairing",
@@ -552,7 +559,8 @@
     "service_failed": "The agent service could not be installed. The installation was cancelled and nothing was kept.",
     "menu_register": "Adding the Explorer entry \"Send with Desk-Remote\"…",
     "menu_remove": "Removing the Explorer entry \"Send with Desk-Remote\"…",
-    "stop_tray": "Closing the running agent…"
+    "stop_tray": "Closing the running agent…",
+    "update_restored": "The update failed. The previous version was restored and keeps running."
   },
   "tabs": {
     "label": "Connected PCs",

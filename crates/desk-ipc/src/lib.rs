@@ -19,7 +19,7 @@ mod message;
 mod pipe;
 
 pub use info::{AgentInfo, PairedPeerInfo, TailnetState};
-pub use message::{IpcMessage, PeerActivityKind};
+pub use message::{IpcMessage, PeerActivityKind, UpdateOutcome};
 #[cfg(windows)]
 pub use pipe::{
     current_user_sid, pipe_access_sddl, user_sid_of_token, ExpectedClient, IpcClient,

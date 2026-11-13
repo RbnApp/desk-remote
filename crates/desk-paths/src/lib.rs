@@ -253,6 +253,20 @@ impl DeskPaths {
         self.system_root.join("bin").join("desk-tailnet-helper.exe")
     }
 
+    /// Where the agent service keeps a downloaded installer: `<system>/updates`. The system
+    /// folder is writable by SYSTEM and Administrators only, so a verified installer cannot be
+    /// swapped by a normal user before it runs.
+    #[must_use]
+    pub fn agent_update_dir(&self) -> PathBuf {
+        self.system_root.join("updates")
+    }
+
+    /// Where the panel keeps a downloaded installer: `<AppData>/DeskRemote/updates`.
+    #[must_use]
+    pub fn panel_update_dir(&self) -> PathBuf {
+        self.user_root.join("updates")
+    }
+
     /// Node state of the panel's own tailnet node (`<AppData>/DeskRemote/tailscale`).
     #[must_use]
     pub fn panel_tailnet_dir(&self) -> PathBuf {

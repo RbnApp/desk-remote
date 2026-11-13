@@ -45,8 +45,29 @@ pub enum IpcMessage {
     },
     /// Helper -> service: the tray user removed this panel's pairing.
     UnpairRequest { device_id: String },
+    /// Helper -> service: the tray user asked to check for an update now (and apply it).
+    UpdateRequest,
+    /// Service -> helper: what the update check did; `version` is the release concerned
+    /// (the installed version when [`UpdateOutcome::UpToDate`]).
+    UpdateResult {
+        outcome: UpdateOutcome,
+        version: String,
+    },
     /// Service -> helper: exit cleanly.
     Shutdown,
+}
+
+/// What an update request led to (see [`IpcMessage::UpdateResult`]).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum UpdateOutcome {
+    /// The installed version is the newest.
+    UpToDate,
+    /// The verified installer was started; the agent restarts in a moment.
+    Installing,
+    /// A new version is ready but viewers are connected; it installs when they leave.
+    Deferred,
+    /// The check or the download failed; nothing changed on this PC.
+    Failed,
 }
 
 /// What a [`IpcMessage::PeerActivity`] reports.
@@ -78,6 +99,8 @@ impl IpcMessage {
             Self::FileIncoming { .. } => "FileIncoming",
             Self::PeerActivity { .. } => "PeerActivity",
             Self::UnpairRequest { .. } => "UnpairRequest",
+            Self::UpdateRequest => "UpdateRequest",
+            Self::UpdateResult { .. } => "UpdateResult",
             Self::Shutdown => "Shutdown",
         }
     }
@@ -147,6 +170,11 @@ mod tests {
                 data: vec![9; 1000],
             }),
             IpcMessage::DisconnectAllRequest,
+            IpcMessage::UpdateRequest,
+            IpcMessage::UpdateResult {
+                outcome: UpdateOutcome::Deferred,
+                version: "0.1.1".to_string(),
+            },
             IpcMessage::SetViewOnly { enabled: true },
             IpcMessage::Shutdown,
         ];

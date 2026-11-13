@@ -22,6 +22,7 @@ mod hub;
 mod launch;
 pub mod role;
 mod scm;
+mod self_update;
 mod supervisor;
 mod tailnet;
 mod tailnet_run;

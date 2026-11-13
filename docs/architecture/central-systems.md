@@ -26,8 +26,11 @@ Any subsystem that touches OS resources, networking, configuration, or identity 
 | 11 | **Service & Process Lifecycle** | `crates/desk-service-core`| Windows Service dispatcher, session helper spawning | Spawning unmanaged child processes, manual `taskkill` |
 | 12 | **Theme** | `crates/desk-theme` (tokens: `design/tokens/themes.json`) | Palette/mode token resolution, light/dark/system | Hardcoded colors (hex/rgb) in UI code, ad-hoc palettes, per-file theme logic |
 | 13 | **File transfer** | `crates/desk-transfer` | File names, `.partial` + SHA-256 receive, send with limit check, free-space check | Writing received files or checking upload limits anywhere else |
+| 14 | **Updates** | `crates/desk-update` | Latest GitHub Release of `RbnApp/desk-remote`, semver compare, download + SHA-256 check against `SHA256SUMS.txt`, one `UpdateStatus` | Fetching or applying releases anywhere else; running an installer whose hash was not verified |
 
 ---
+
+Updates (row 14) have one contract: `desk_update::Updater` (`check`, `download`, `status`) per component, so each one replaces only its own files. The agent service checks at start and every `AGENT_CHECK_INTERVAL` (6 h), waits until no viewer is connected, then runs the verified `DeskRemote-Agent-Setup-<ver>.exe /S` as a separate process; the installer keeps the old exe as a backup and restores it if the swap or the service registration fails. The service is registered with delayed automatic start, and the tray helper is started by the service for the console session at service start and on every logon (§3.11).
 
 File transfer (row 13) is one rule set for every receiver: the panel's own host asks its user first, the unattended agent hands the file to the session helper, and both use `desk_transfer::Receiver`. The only limit is `max_upload_mb` (default 100, 1..=1024) in `desk-config`.
 

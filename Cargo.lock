@@ -1026,6 +1026,7 @@ dependencies = [
  "desk-protocol",
  "desk-transfer",
  "desk-transport",
+ "desk-update",
  "desk-version",
  "serde",
  "serde_json",
@@ -1104,6 +1105,21 @@ dependencies = [
  "mdns-sd",
  "serde",
  "serde_json",
+ "tempfile",
+ "tracing",
+ "windows",
+]
+
+[[package]]
+name = "desk-update"
+version = "0.1.0"
+dependencies = [
+ "desk-error",
+ "desk-transport",
+ "desk-version",
+ "serde",
+ "serde_json",
+ "sha2",
  "tempfile",
  "tracing",
 ]

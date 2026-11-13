@@ -371,6 +371,13 @@
     "disconnect_all": "Tüm izleyicileri şimdi ayır",
     "view_only": "Uzaktan kontrolü engelle (yalnız izleme)",
     "about": "Hakkında…",
+    "version": "Sürüm {v}",
+    "update_check": "Güncellemeleri denetle",
+    "update_title": "Desk-Remote güncellemesi",
+    "update_uptodate": "Güncel ({v})",
+    "update_installing": "{v} kuruluyor. Ajan birazdan yeniden başlar.",
+    "update_deferred": "{v} hazır; bu PC'yi kimse izlemediği anda kurulur.",
+    "update_failed": "Güncelleme denetimi başarısız oldu. Bu PC'de hiçbir şey değişmedi.",
     "paired": "Eşleşmiş paneller",
     "paired_none": "Eşleşmiş panel yok",
     "paired_remove_title": "Eşleşmeyi kaldır",
@@ -552,7 +559,8 @@
     "service_failed": "Ajan servisi kurulamadı. Kurulum iptal edildi, hiçbir dosya bırakılmadı.",
     "menu_register": "Gezgin girişi \"Desk-Remote ile gönder\" ekleniyor…",
     "menu_remove": "Gezgin girişi \"Desk-Remote ile gönder\" kaldırılıyor…",
-    "stop_tray": "Çalışan ajan kapatılıyor…"
+    "stop_tray": "Çalışan ajan kapatılıyor…",
+    "update_restored": "Güncelleme başarısız oldu. Önceki sürüm geri yüklendi ve çalışmaya devam ediyor."
   },
   "tabs": {
     "label": "Bağlı bilgisayarlar",

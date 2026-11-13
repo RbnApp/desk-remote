@@ -43,6 +43,9 @@ pub struct HostOptions {
     /// Portable test mode (double-click run): the user started the agent themselves, so the
     /// helper's tray menu offers "Quit". Never set for the SYSTEM service.
     pub portable: bool,
+    /// The agent checks GitHub Releases and installs newer versions itself. On for the
+    /// installed service; the console mode opts in with `--self-update` (tests).
+    pub self_update: bool,
 }
 
 impl HostOptions {
@@ -61,6 +64,7 @@ impl HostOptions {
             custom_identity: None,
             custom_trust: None,
             portable: false,
+            self_update: false,
         }
     }
 
@@ -79,6 +83,7 @@ impl HostOptions {
             custom_identity: None,
             custom_trust: None,
             portable: false,
+            self_update: false,
         }
     }
 }
@@ -191,6 +196,15 @@ impl ServiceHost {
                 .chain(opts.portable.then(|| "--portable".to_string()))
                 .collect(),
         };
+        if opts.self_update && opts.role == HostRole::AgentService {
+            threads.push(crate::self_update::start(
+                &hub,
+                &paths,
+                svc.update_feed_url.clone(),
+                opts.mode,
+                &stop,
+            )?);
+        }
         let (h, s) = (Arc::clone(&hub), Arc::clone(&stop));
         threads.push(spawn("desk-supervisor", move || {
             supervisor::run(&sup_cfg, &h, &event_rx, &s);

@@ -8,7 +8,9 @@ use desk_config::{ConfigManager, ServiceConfig};
 use desk_error::DeskResult;
 use desk_i18n::t;
 use desk_input::{system_injector, SystemInjector};
-use desk_ipc::{AgentInfo, IpcClient, IpcConnection, IpcMessage, PeerActivityKind, TailnetState};
+use desk_ipc::{
+    AgentInfo, IpcClient, IpcConnection, IpcMessage, PeerActivityKind, TailnetState, UpdateOutcome,
+};
 use desk_paths::DeskPaths;
 use desk_protocol::{InputPayload, Message};
 use std::path::{Path, PathBuf};
@@ -47,6 +49,21 @@ fn peer_notice(kind: PeerActivityKind, peer: &str, detail: &str) -> Notice {
     Notice {
         title: t(title),
         body: t(body).replace("{peer}", peer).replace("{detail}", detail),
+        open: None,
+    }
+}
+
+/// Balloon answering the tray's "Check for updates" click.
+fn update_notice(outcome: UpdateOutcome, version: &str) -> Notice {
+    let body = match outcome {
+        UpdateOutcome::UpToDate => "tray.update_uptodate",
+        UpdateOutcome::Installing => "tray.update_installing",
+        UpdateOutcome::Deferred => "tray.update_deferred",
+        UpdateOutcome::Failed => "tray.update_failed",
+    };
+    Notice {
+        title: t("tray.update_title"),
+        body: t(body).replace("{v}", version),
         open: None,
     }
 }
@@ -276,6 +293,9 @@ impl Session {
                 detail,
             } => {
                 shared.update(|ui| ui.pending_notice = Some(peer_notice(kind, &peer_name, &detail)))
+            }
+            IpcMessage::UpdateResult { outcome, version } => {
+                shared.update(|ui| ui.pending_notice = Some(update_notice(outcome, &version)));
             }
             IpcMessage::Shutdown => return false,
             other => tracing::debug!(kind = other.kind(), "ignored service message"),

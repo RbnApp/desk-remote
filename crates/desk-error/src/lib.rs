@@ -64,6 +64,10 @@ pub enum DeskError {
     #[error("Input error: {0}")]
     Input(String),
 
+    /// Update check, download or integrity-verification failure.
+    #[error("Update error: {0}")]
+    Update(String),
+
     /// General unclassified error.
     #[error("Internal error: {0}")]
     Other(String),
@@ -87,6 +91,7 @@ impl DeskError {
             Self::Capture(_) => "ERR_CAPTURE",
             Self::Codec(_) => "ERR_CODEC",
             Self::Input(_) => "ERR_INPUT",
+            Self::Update(_) => "ERR_UPDATE",
             Self::Other(_) => "ERR_OTHER",
         }
     }
