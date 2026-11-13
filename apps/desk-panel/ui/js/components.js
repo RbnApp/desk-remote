@@ -52,16 +52,16 @@ export function ConnectBtn(pc, small) {
 }
 
 /** "Send file" button on a PC; only reachable PCs get one. */
-export function SendBtn(pc, small) {
+export function SendBtn(pc, small, iconOnly = small) {
   if (pc.status !== "online" && pc.status !== "warning") return "";
   const label = `${t("transfer.send")} — ${pc.name}`;
-  if (small) return `<button class="btn sm icon" data-act="tx-card" data-id="${esc(pc.id)}" title="${esc(t("transfer.send"))}" aria-label="${esc(label)}">${ic("send")}</button>`;
+  if (iconOnly) return `<button class="btn${small ? " sm" : ""} icon" data-act="tx-card" data-id="${esc(pc.id)}" title="${esc(t("transfer.send"))}" aria-label="${esc(label)}">${ic("send")}</button>`;
   return `<button class="btn" data-act="tx-card" data-id="${esc(pc.id)}" aria-label="${esc(label)}">${ic("send")}${t("transfer.send")}</button>`;
 }
 
-/** Small "Remove pairing" button (DAPP-104); works for offline PCs too. */
-export function UnpairBtn(pc) {
-  return `<button class="btn sm ghost" data-act="unpair" data-id="${esc(pc.id)}" aria-label="${esc(`${t("list.unpair")} — ${pc.name}`)}">${ic("x")}${t("list.unpair")}</button>`;
+/** "Remove pairing" icon button (DAPP-104/111): bordered danger style, label in tooltip + aria-label; works for offline PCs too. */
+export function UnpairBtn(pc, small) {
+  return `<button class="btn${small ? " sm" : ""} icon danger" data-act="unpair" data-id="${esc(pc.id)}" title="${esc(t("list.unpair"))}" aria-label="${esc(`${t("list.unpair")} — ${pc.name}`)}">${ic("x")}</button>`;
 }
 
 const warnText = (pc) => (pc.warn ? t(`warn.${pc.warn}`) : "");
@@ -71,12 +71,12 @@ const latency = (pc) => (pc.status === "online" || pc.status === "warning") && p
 export function PcCard(pc) {
   const seen = `<div class="meta">${ic("clock")}${t("last.label")}: ${lastSeen(pc)}${latency(pc)}</div>`;
   const warn = pc.warn ? `<div class="meta w">${ic("alert")}${warnText(pc)}</div>` : "";
-  return `<article class="card" aria-label="${esc(pc.name)}">${Thumb(pc)}<div class="body"><div class="top"><div class="name" title="${esc(pc.name)}">${esc(pc.name)}</div>${Badge(pc.status)}</div>${warn}${seen}<div class="act">${ConnectBtn(pc)}${SendBtn(pc)}${UnpairBtn(pc)}</div></div></article>`;
+  return `<article class="card" aria-label="${esc(pc.name)}">${Thumb(pc)}<div class="body"><div class="top"><div class="name" title="${esc(pc.name)}">${esc(pc.name)}</div>${Badge(pc.status)}</div>${warn}${seen}<div class="act">${ConnectBtn(pc)}${SendBtn(pc, false, true)}${UnpairBtn(pc)}</div></div></article>`;
 }
 
 export function PcRow(pc) {
   const warn = pc.warn ? `<div class="sub2" style="color:var(--warning)">${warnText(pc)}</div>` : "";
-  return `<tr><td><div class="name" title="${esc(pc.name)}">${esc(pc.name)}</div>${warn}</td><td>${Badge(pc.status)}</td><td class="sub2">${lastSeen(pc)}${latency(pc)}</td><td class="act"><div class="btn-group">${SendBtn(pc, true)}${ConnectBtn(pc, true)}${UnpairBtn(pc)}</div></td></tr>`;
+  return `<tr><td><div class="name" title="${esc(pc.name)}">${esc(pc.name)}</div>${warn}</td><td>${Badge(pc.status)}</td><td class="sub2">${lastSeen(pc)}${latency(pc)}</td><td class="act"><div class="btn-group">${SendBtn(pc, true)}${ConnectBtn(pc, true)}${UnpairBtn(pc, true)}</div></td></tr>`;
 }
 
 export function StateBlock(icon, title, body, buttons) {
