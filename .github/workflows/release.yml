@@ -76,12 +76,15 @@ jobs:
           V=${{ steps.v.outputs.version }}
           awk -v v="$V" '$0 ~ "^## " v "( |$)" {f=1; next} /^## /{f=0} f' CHANGELOG.md > notes.md
           [ -s notes.md ] || echo "Desk-Remote $V" > notes.md
-          # The website (rbnbilisim.com.tr/uygulamalar) reads the FIRST .exe and the FIRST .sha256 of a
-          # release: the panel installer goes first and gets its own one-line .sha256 file.
-          grep "DeskRemote-Panel-Setup-$V.exe" dist/SHA256SUMS.txt > "dist/DeskRemote-Panel-Setup-$V.exe.sha256"
+          # The website (rbnbilisim.com.tr/uygulamalar) pairs the FIRST .exe with the FIRST .sha256 of a
+          # release (GitHub lists assets alphabetically): every installer gets its own one-line .sha256.
+          for n in Agent Panel; do
+            grep "DeskRemote-$n-Setup-$V.exe" dist/SHA256SUMS.txt > "dist/DeskRemote-$n-Setup-$V.exe.sha256"
+          done
           gh release create "v$V" \
+            "dist/DeskRemote-Agent-Setup-$V.exe" \
+            "dist/DeskRemote-Agent-Setup-$V.exe.sha256" \
             "dist/DeskRemote-Panel-Setup-$V.exe" \
             "dist/DeskRemote-Panel-Setup-$V.exe.sha256" \
-            "dist/DeskRemote-Agent-Setup-$V.exe" \
             dist/SHA256SUMS.txt \
             --title "Desk-Remote $V" --notes-file notes.md --target "$GITHUB_SHA"
