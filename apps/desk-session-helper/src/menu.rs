@@ -273,13 +273,6 @@ pub fn show(hwnd: HWND) {
             info.as_ref().is_some_and(|i| i.view_only),
         );
         separator(menu);
-        append(
-            menu,
-            0,
-            &t("tray.version").replace("{v}", desk_version::CURRENT),
-            false,
-            false,
-        );
         append(menu, ID_SETTINGS, &t("tray.settings"), true, false);
         append(menu, ID_ABOUT, &t("tray.about"), true, false);
         // Portable and installed-service mode share this one entry (and one code path).
