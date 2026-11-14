@@ -13,12 +13,13 @@ these constants from the versioning/identity crate, not repeat them (note for th
 | Agent installer | `DeskRemote-Agent-Setup-<VERSION>.exe` | NSIS; registers the SYSTEM service |
 | Panel installer | `DeskRemote-Panel-Setup-<VERSION>.exe` | Tauri NSIS; never installs the agent |
 | Checksums | `SHA256SUMS.txt` | One line per installer: `<sha256 lowercase hex>␠␠<file name>` |
+| Website checksum | `DeskRemote-Panel-Setup-<VERSION>.exe.sha256` | The panel's own line from `SHA256SUMS.txt`. Only the website sync reads it (first `.exe` and first `.sha256` of a release, so the panel installer is uploaded first); the update client ignores it. |
 
 - `<VERSION>` is the content of the root `VERSION` file, e.g. `0.1.0`. The tag is `v<VERSION>`.
 - `SHA256SUMS.txt` is UTF-8 without BOM, LF line endings, exactly two lines (agent, panel), so
   `sha256sum -c SHA256SUMS.txt` works inside the download folder.
-- `scripts/build-installers.ps1` writes these three files into `dist/`; the workflow uploads exactly them
-  and fails if one is missing or a checksum does not match.
+- `scripts/build-installers.ps1` writes these three files into `dist/`; the workflow uploads them (plus the website
+  checksum, cut from `SHA256SUMS.txt`) and fails if one is missing or a checksum does not match.
 - Changing a name is a breaking change for already installed clients: change this table, the script and
   the update client together.
 

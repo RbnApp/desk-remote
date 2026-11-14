@@ -12,8 +12,11 @@ only when the owner asks for a build. See [release flow](docs/architecture/relea
 
 **Changed**
 - The agent program is now `DeskRemote-Agent.exe` (was `DeskRemote-Ajan.exe`); an upgrade carries an existing install over to the new name.
+- The tray menu no longer lists the version; it is in Settings and About.
+- Each release carries a one-line `.sha256` file for the panel installer so the website can show a checksum.
 
 **Fixed**
+- The remote mouse and picture no longer freeze for about a second every few seconds: periodic keyframes (about 470 KB at 1080p) stalled the whole link on a home upload line. The agent now sends a keyframe every 30 seconds instead of every 2, and on demand when a viewer joins or loses a frame.
 - The panel's Updates tab installs a ready update: the "Update" button is shown, the installer starts with the Windows permission prompt, and a failed start is shown instead of doing nothing.
 
 ## 0.1.1
