@@ -10,6 +10,9 @@
 //! ## Dependencies
 //! None.
 
+/// Seconds between periodic keyframes (see [`EncoderSettings::for_size`]).
+const KEYFRAME_INTERVAL_SECS: u32 = 30;
+
 /// Parameters of one encoder instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EncoderSettings {
@@ -22,14 +25,18 @@ pub struct EncoderSettings {
 }
 
 impl EncoderSettings {
-    /// Settings for a given output size with the default bitrate and a 2-second GOP.
+    /// Settings for a given output size with the default bitrate and a 30-second GOP.
+    ///
+    /// The transport is reliable (TCP) and a viewer that joins or loses a frame asks for a
+    /// keyframe, so periodic keyframes only cost bandwidth: a 1080p keyframe is ~470 KB, and on
+    /// a home uplink it stalls the whole link (cursor, ping, video) for about a second.
     pub fn for_size(width: u32, height: u32, fps: u32) -> Self {
         Self {
             width,
             height,
             fps,
             bitrate_bps: default_bitrate(width, height, fps),
-            gop_frames: fps.max(1) * 2,
+            gop_frames: fps.max(1) * KEYFRAME_INTERVAL_SECS,
         }
     }
 }
@@ -92,7 +99,7 @@ mod tests {
     }
 
     #[test]
-    fn gop_is_two_seconds() {
-        assert_eq!(EncoderSettings::for_size(1280, 720, 30).gop_frames, 60);
+    fn gop_is_thirty_seconds() {
+        assert_eq!(EncoderSettings::for_size(1280, 720, 30).gop_frames, 900);
     }
 }
